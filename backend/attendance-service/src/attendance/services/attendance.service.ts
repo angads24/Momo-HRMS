@@ -16,6 +16,10 @@ import {
   AttendancePolicy,
   AttendancePolicyProvider,
 } from '../../policy/interfaces/attendance-policy-provider.interface';
+import {
+  FACE_AI_PROVIDER,
+  FaceAiProvider,
+} from '../../face/interfaces/face-ai-provider.interface';
 import { WorkingTimeService } from './working-time.service';
 import { NotificationClientService } from '../../notifications/notification-client.service';
 import { CheckInDto } from '../dto/check-in.dto';
@@ -71,6 +75,7 @@ export class AttendanceService {
     @Inject(GEOFENCE_PROVIDER) private readonly geofenceProvider: GeofenceProvider,
     @Inject(EMPLOYEE_PROVIDER) private readonly employeeProvider: EmployeeProvider,
     @Inject(ATTENDANCE_POLICY_PROVIDER) private readonly policyProvider: AttendancePolicyProvider,
+    @Inject(FACE_AI_PROVIDER) private readonly faceAiProvider: FaceAiProvider,
     private readonly notificationClient: NotificationClientService,
   ) {}
 
@@ -108,6 +113,20 @@ export class AttendanceService {
         ErrorCodes.OUTSIDE_GEOFENCE,
         'Employee location is outside the office boundary',
         HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    // Mandatory Face Biometric Verification
+    const faceResult = await this.faceAiProvider.validateVerificationToken(
+      employeeId,
+      dto.faceVerificationToken,
+    );
+    if (!faceResult.valid) {
+      this.logger.warn(`Check-in rejected for employee ${employeeId}: face verification failed (${faceResult.message})`);
+      throw new AppException(
+        ErrorCodes.FACE_VERIFICATION_FAILED,
+        `Face biometric verification failed: ${faceResult.message}`,
+        HttpStatus.FORBIDDEN,
       );
     }
 
@@ -599,7 +618,12 @@ export class AttendanceService {
           case AttendanceEventType.CHECK_IN:
             result = await this.checkIn(
               employeeId,
-              { officeId: event.officeId, location: this.requireLocation(event), clientEventId: event.clientEventId },
+              {
+                officeId: event.officeId,
+                location: this.requireLocation(event),
+                clientEventId: event.clientEventId,
+                faceVerificationToken: event.faceVerificationToken ?? '',
+              },
               effectiveTime,
               source,
             );
@@ -857,6 +881,15 @@ export class AttendanceService {
   }
 
   private validateLocationAccuracy(location: LocationDto, policy: AttendancePolicy): void {
+    if (location.isMocked === true) {
+      this.logger.warn(`Security alert: check-in rejected due to mock/spoofed GPS provider detection`);
+      throw new AppException(
+        ErrorCodes.MOCK_LOCATION_DETECTED,
+        'Spoofed or mock GPS provider detected. Attendance check-in from mock locations is strictly prohibited.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
     if (
       location.accuracyMeters !== undefined &&
       location.accuracyMeters > policy.minLocationAccuracyMeters

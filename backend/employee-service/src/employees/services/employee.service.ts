@@ -45,27 +45,43 @@ export class EmployeeService {
       const employee = await tx.employee.create({
         data: {
           employeeCode: dto.employeeCode,
-          userId: dto.userId,
+          userId: dto.userId || null,
           firstName: dto.firstName,
           lastName: dto.lastName,
           email: dto.email,
-          phone: dto.phone,
-          departmentId: dto.departmentId,
-          designationId: dto.designationId,
+          phone: dto.phone || null,
+          departmentId: dto.departmentId || null,
+          designationId: dto.designationId || null,
           employmentStatus: dto.employmentStatus ?? EmploymentStatus.ACTIVE,
           dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : new Date(),
         },
       });
 
-      if (dto.primaryOfficeId) {
-        await tx.employeeOfficeAssignment.create({
-          data: {
-            employeeId: employee.id,
-            officeId: dto.primaryOfficeId,
-            isPrimary: true,
-            isActive: true,
-          },
-        });
+      // Support multiple office assignments
+      const officesToAssign = new Set<string>();
+      if (dto.primaryOfficeId && dto.primaryOfficeId.trim()) {
+        officesToAssign.add(dto.primaryOfficeId.trim());
+      }
+      if (dto.officeIds && Array.isArray(dto.officeIds)) {
+        for (const offId of dto.officeIds) {
+          if (offId && offId.trim()) {
+            officesToAssign.add(offId.trim());
+          }
+        }
+      }
+
+      if (officesToAssign.size > 0) {
+        const primaryId = dto.primaryOfficeId?.trim() || Array.from(officesToAssign)[0];
+        for (const offId of officesToAssign) {
+          await tx.employeeOfficeAssignment.create({
+            data: {
+              employeeId: employee.id,
+              officeId: offId,
+              isPrimary: offId === primaryId,
+              isActive: true,
+            },
+          });
+        }
       }
 
       this.logger.log(`Created employee ${employee.employeeCode} (${employee.email})`);
@@ -115,6 +131,23 @@ export class EmployeeService {
         assignments: { where: { isActive: true } },
       },
     });
+  }
+
+  /**
+   * Permanently delete an employee record (Admin only).
+   */
+  async deleteEmployee(id: string) {
+    const employee = await this.prisma.employee.findUnique({ where: { id } });
+    if (!employee) {
+      throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', HttpStatus.NOT_FOUND);
+    }
+
+    await this.prisma.employee.delete({
+      where: { id },
+    });
+
+    this.logger.log(`Deleted employee ${employee.employeeCode} (${employee.id})`);
+    return { success: true, message: `Employee ${employee.employeeCode} deleted successfully` };
   }
 
   /**

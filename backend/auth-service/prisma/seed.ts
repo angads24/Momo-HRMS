@@ -152,6 +152,94 @@ async function main() {
     );
   }
 
+  // Bootstrap HR_ADMIN user
+  const hrEmail = (process.env.BOOTSTRAP_HR_EMAIL || 'hr@company.com').trim().toLowerCase();
+  const hrUsername = (process.env.BOOTSTRAP_HR_USERNAME || 'hradmin').trim();
+  const hrPassword = process.env.BOOTSTRAP_HR_PASSWORD || 'HrAdmin123!';
+
+  const existingHr = await prisma.user.findUnique({ where: { email: hrEmail } });
+  const hrPasswordHash = await argon2.hash(hrPassword);
+  const hrRole = await prisma.role.findUniqueOrThrow({
+    where: { name: 'HR_ADMIN' },
+  });
+
+  if (!existingHr) {
+    console.log(`Bootstrapping initial HR_ADMIN user: ${hrEmail} (username: ${hrUsername})`);
+    const hrUser = await prisma.user.create({
+      data: {
+        username: hrUsername,
+        email: hrEmail,
+        passwordHash: hrPasswordHash,
+        isActive: true,
+        mustChangePassword: false,
+      },
+    });
+
+    await prisma.userRole.create({
+      data: { userId: hrUser.id, roleId: hrRole.id },
+    });
+  } else {
+    console.log(`Updating existing HR_ADMIN user: ${hrEmail} with password`);
+    await prisma.user.update({
+      where: { id: existingHr.id },
+      data: {
+        username: hrUsername,
+        passwordHash: hrPasswordHash,
+        isActive: true,
+        mustChangePassword: false,
+      },
+    });
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: existingHr.id, roleId: hrRole.id } },
+      update: {},
+      create: { userId: existingHr.id, roleId: hrRole.id },
+    });
+  }
+
+  // Bootstrap EMPLOYEE user (John Doe)
+  const empEmail = 'john.doe@company.com';
+  const empUsername = 'john.doe';
+  const empPassword = 'Employee123!';
+
+  const existingEmp = await prisma.user.findUnique({ where: { email: empEmail } });
+  const empPasswordHash = await argon2.hash(empPassword);
+  const empRole = await prisma.role.findUniqueOrThrow({
+    where: { name: 'EMPLOYEE' },
+  });
+
+  if (!existingEmp) {
+    console.log(`Bootstrapping initial EMPLOYEE user: ${empEmail}`);
+    const empUser = await prisma.user.create({
+      data: {
+        username: empUsername,
+        email: empEmail,
+        passwordHash: empPasswordHash,
+        isActive: true,
+        mustChangePassword: false,
+      },
+    });
+
+    await prisma.userRole.create({
+      data: { userId: empUser.id, roleId: empRole.id },
+    });
+  } else {
+    console.log(`Updating existing EMPLOYEE user: ${empEmail}`);
+    await prisma.user.update({
+      where: { id: existingEmp.id },
+      data: {
+        username: empUsername,
+        passwordHash: empPasswordHash,
+        isActive: true,
+        mustChangePassword: false,
+      },
+    });
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: existingEmp.id, roleId: empRole.id } },
+      update: {},
+      create: { userId: existingEmp.id, roleId: empRole.id },
+    });
+  }
+
   console.log('Seed complete.');
 }
 

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { EmploymentStatus } from '@prisma/client';
 import {
+  IsArray,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -69,4 +70,10 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsString()
   primaryOfficeId?: string;
+
+  @ApiPropertyOptional({ description: 'List of office IDs or Codes the employee is assigned to work at', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  officeIds?: string[];
 }

@@ -64,9 +64,8 @@ export class UsersService {
         fullName: dto.fullName,
         passwordHash,
         isActive: true,
-        // Admin-provisioned users get a temporary password and must
-        // set their own on first login.
-        mustChangePassword: true,
+        // Allow immediate login or require password change if specified
+        mustChangePassword: dto.mustChangePassword ?? false,
         userRoles: {
           create: roles.map((role) => ({ roleId: role.id })),
         },
@@ -284,6 +283,14 @@ export class UsersService {
       roles,
       permissions: Array.from(permissionSet),
     };
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+    await this.prisma.user.delete({ where: { id } });
   }
 
   private toUserResponse(user: {

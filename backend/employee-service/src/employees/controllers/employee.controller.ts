@@ -57,6 +57,14 @@ export class EmployeeController {
     return this.employeeService.updateEmployee(id, dto);
   }
 
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Permanently delete an employee record (Admin only)' })
+  @ApiMessage('Employee deleted successfully')
+  async deleteEmployee(@Param('id') id: string) {
+    return this.employeeService.deleteEmployee(id);
+  }
+
   @Post(':id/offices')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Assign employee to an office workplace' })

@@ -73,13 +73,14 @@ def enroll_face(payload: FaceEnrollRequest, db: Session = Depends(get_db)):
     existing_profile = db.query(FaceProfile).filter(FaceProfile.employee_id == payload.employee_id).first()
     if existing_profile:
         existing_profile.embedding = encrypted_embedding
+        existing_profile.model_version = "SFace-128"
         existing_profile.enrolled_at = datetime.utcnow()
         existing_profile.is_active = True
     else:
         new_profile = FaceProfile(
             employee_id=payload.employee_id,
             embedding=encrypted_embedding,
-            model_version="ArcFace-512",
+            model_version="SFace-128",
             is_active=True,
         )
         db.add(new_profile)
@@ -175,6 +176,15 @@ def verify_face(payload: FaceVerifyRequest, db: Session = Depends(get_db)):
 
     # 6. Decrypt stored embedding and compute Cosine Similarity
     stored_embedding = biometric_crypto.decrypt_embedding(profile.embedding)
+    if len(stored_embedding) != 128:
+        return FaceVerifyResponse(
+            verified=False,
+            confidence=0.0,
+            is_live=True,
+            verification_token=None,
+            message="Your face profile needs updating. Please tap 'Re-register Face' to update biometrics."
+        )
+
     similarity = face_engine.compute_similarity(stored_embedding, live_embedding)
     is_match = similarity >= settings.FACE_SIMILARITY_THRESHOLD
 

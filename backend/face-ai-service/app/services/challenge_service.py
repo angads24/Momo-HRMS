@@ -11,7 +11,7 @@ CHALLENGE_ACTIONS = {
 }
 
 class ChallengeService:
-    def __init__(self, ttl_seconds: int = 30):
+    def __init__(self, ttl_seconds: int = 180):
         self.ttl_seconds = ttl_seconds
         # In-memory store: challenge_id -> { employee_id, action, created_at, expires_at }
         self._challenges: Dict[str, dict] = {}
@@ -65,4 +65,4 @@ class ChallengeService:
         for cid in expired:
             del self._challenges[cid]
 
-challenge_service = ChallengeService(ttl_seconds=30)
+challenge_service = ChallengeService(ttl_seconds=180)

@@ -1,7 +1,7 @@
 # Face AI & Biometrics Microservice (`face-ai-service`)
 
 > **Momo HRMS — Computer Vision Biometrics, Active Challenge-Response Liveness & Anti-Spoofing Engine**  
-> Built with Python 3.12, FastAPI, and OpenCV. Enforces mandatory biometric verification for attendance, active interactive challenges (Blink, Turn Left, Turn Right, Smile), 2D FFT Moire screen texture anti-spoofing, 512-dimensional facial embedding extraction, and AES-256-GCM vector encryption at rest.
+> Built with Python 3.12, FastAPI, and OpenCV. Enforces mandatory biometric verification for attendance, active interactive challenges (Blink, Turn Left, Turn Right, Smile), 2D FFT Moire screen texture anti-spoofing, deep SFace (MobileFaceNet + ArcFace) neural embeddings, and AES-256-GCM vector encryption at rest.
 
 ---
 
@@ -13,7 +13,9 @@ In enterprise attendance tracking, mobile and geofenced applications face two ca
 1. **Buddy Punching / Proxy Attendance**: An employee hands their smartphone or credentials to a colleague, who clocks in on their behalf.
 2. **Presentation Attacks (Spoofing)**: A fraudster holds up a printed paper photo, a smartphone showing a photograph, or a looping video replay of the employee in front of the camera.
 
-The Face AI Service eliminates both threats by requiring **mandatory active challenge-response facial verification** on every check-in attempt before `attendance-service` can record the event.
+The Face AI Service eliminates both threats through a dual-defense architecture:
+- **Active Challenge-Response Liveness Detection**: The server issues a dynamic micro-action challenge (`TURN_LEFT`, `TURN_RIGHT`, `SMILE`, or `BLINK`) that must be completed across a 3-frame sequence.
+- **Deep Metric Learning Recognition**: Employs OpenCV's **YuNet** for 5-point facial landmark geometry and **SFace** (MobileFaceNet trained with ArcFace loss) to extract 128-dimensional unit embeddings, accurately discriminating between different human faces while rejecting unauthorized individuals.
 
 ---
 
@@ -26,7 +28,7 @@ The Face AI Service eliminates both threats by requiring **mandatory active chal
                                        │
                                        ▼
                              API GATEWAY (Port 8000)
-                     (Enforces 10 req/min Throttling per Employee)
+                     (Body Limit: 50MB, Proxies /api/v1/face/*)
                                        │
                                        ▼
                           Face AI Service (Port 3006)
@@ -34,18 +36,21 @@ The Face AI Service eliminates both threats by requiring **mandatory active chal
        ┌───────────────────────────────┴───────────────────────────────┐
        │                                                               │
        ▼                                                               ▼
-[Phase 1: Active Liveness]                                  [Phase 2: Metric Verification]
-- Server picks random action                                - Detects face & normalizes
-- Dynamic 30-second challenge                               - 2D FFT Screen Moire detection
-- Multi-frame client capture                                - Extracts 512-D unit vector
-- Validates facial kinematics                               - Decrypts enrolled vector (AES-GCM)
-  (EAR for blink, yaw for turns)                            - Computes Cosine Similarity >= 0.70
+[Phase 1: Active Liveness & Anti-Spoof]                     [Phase 2: Deep Metric Verification]
+- Server generates random action                            - YuNet detects face & 5 landmarks:
+  (BLINK, SMILE, TURN_LEFT, TURN_RIGHT)                       (left eye, right eye, nose, mouth corners)
+- Dynamic challenge with 180s TTL                           - Affine alignment to canonical 112x112
+- Passive 2D FFT Moire & screen artifact check              - SFace extracts 128-D L2 unit embedding
+- Geometric kinematic validation:                           - Decrypts enrolled vector (AES-256-GCM)
+  * Yaw rotation ratio for Head Turns                       - SFace Cosine Similarity >= 0.40
+  * Inter-commissural expansion for Smile                   - Cross-frame identity consistency
+  * Eye patch edge aperture for Blink
        │                                                               │
        └───────────────────────────────┬───────────────────────────────┘
                                        │
                                        ▼
                        Issues Signed Verification Token
-                           (Valid for 5 Minutes)
+                           (Valid for 5 Minutes / 300s)
                                        │
                                        ▼
                            Attendance Service (3002)
@@ -53,7 +58,7 @@ The Face AI Service eliminates both threats by requiring **mandatory active chal
 ```
 
 ### Domain Boundary & Zero-Trust Principles:
-- **What This Service OWNS**: Face profiles, AES-256-GCM encrypted 512-D facial embeddings, active challenge queues, liveness kinematic evaluation, frequency-domain anti-spoofing, and biometric verification tokens.
+- **What This Service OWNS**: Face profiles, AES-256-GCM encrypted 128-D facial embeddings, active challenge queues, liveness kinematic evaluation, frequency-domain anti-spoofing, and biometric verification tokens.
 - **What This Service DOES NOT OWN**:
   - Raw facial photographs: Under strict privacy standards (GDPR / ISO/IEC 30107), **raw user photos are processed in memory and never written to disk or the database**.
   - Attendance timestamps, pauses, and working time (owned by `attendance-service`).
@@ -62,293 +67,256 @@ The Face AI Service eliminates both threats by requiring **mandatory active chal
 
 ---
 
-## 3. What is Implemented in This Microservice
+## 3. Computer Vision & Neural Architecture
 
-### A. Active Challenge-Response Liveness Detection
-To defeat pre-recorded video replays and printed photographs:
-1. The client requests a challenge: `GET /api/v1/face/challenge?employee_id=EMP-001`.
-2. The server randomly selects an action: `BLINK`, `TURN_LEFT`, `TURN_RIGHT`, or `SMILE`.
-3. A unique `challenge_id` is generated with a strict **30-second Time-To-Live (TTL)**.
-4. The client captures a rapid burst of frames (typically 2 to 4 frames over 1.5 seconds) while the user performs the action and posts them to `/api/v1/face/verify`.
-5. **Computer Vision Kinematics Validation**:
-   - `BLINK`: Computes the Eye Aspect Ratio (EAR) across frames. A genuine blink exhibits an open-closed-open dip below the closure threshold.
-   - `TURN_LEFT` / `TURN_RIGHT`: Measures the nose-tip horizontal offset relative to the eye centers to detect genuine yaw rotation.
-   - `SMILE`: Measures the lip corner distance relative to the inter-ocular distance.
-6. Because the challenge action is selected unpredictably by the server at the exact moment of check-in, **static photographs and video loops fail with 100% certainty**.
+### A. Deep Face Recognition: YuNet + SFace (ArcFace Loss)
+Earlier versions utilized discrete cosine transform (DCT) frequency approximations, which shared high baseline similarity across different faces. The current production engine utilizes a two-stage deep learning pipeline:
 
-### B. Passive Presentation Attack Detection (2D FFT Moire & Blur)
-Even before running facial matching, frames pass through frequency-domain anti-spoofing:
-1. **2D Fast Fourier Transform (FFT) Moire Filter**:
-   - Smartphone, tablet, and laptop displays emit high-frequency periodic pixel grid frequencies (the *Moire effect*).
-   - The service transforms the face region into the frequency domain via 2D FFT and computes the ratio of high-frequency repetitive spectral spikes.
-   - If screen grid harmonics exceed the threshold, the request is flagged as `SCREEN_REPLAY_ATTACK`.
-2. **Laplacian Specular Reflection & Blur Analysis**:
-   - Calculates the variance of the Laplacian operator:
-     $$\text{Var}(\nabla^2 I)$$
-   - Rejects printed paper halftone patterns and overly blurry screenshots.
-
-### C. AES-256-GCM Biometric Vector Encryption at Rest
-Biometric templates are legally protected personally identifiable information (PII):
-- A facial image is transformed into a **512-dimensional normalized unit floating-point vector**.
-- Before persisting to MySQL (`face_profiles.embedding`), the `BiometricCryptoService` encrypts the vector using **AES-256-GCM**:
-  - Uses a dedicated 256-bit symmetric encryption key (`FACE_ENCRYPTION_KEY`).
-  - Generates a unique, cryptographically random **96-bit initialization vector (nonce)** for every write.
-  - Generates a 128-bit authentication tag to prevent ciphertext tampering.
-- Even if an attacker dumps the entire database, **no facial vectors can be stolen or reverse-engineered into synthetic faces**.
-
-### D. Cosine Metric Matching Engine
-When the live face passes liveness and anti-spoofing:
-1. Extracts the live 512-D normalized unit vector $\mathbf{u}$.
-2. Retrieves and decrypts the enrolled vector $\mathbf{v}$ from the database.
-3. Computes the **Cosine Similarity**:
-   $$\text{Similarity}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}$$
-4. If $\text{Similarity} \ge 0.70$ (configurable via `FACE_SIMILARITY_THRESHOLD`), identity is confirmed.
-5. Operates in **under 75 milliseconds** on a standard multi-core CPU without requiring an enterprise GPU cluster.
-
-### E. Short-Lived Biometric Verification Token
-- Once verification succeeds, the service creates a tamper-proof JWT token signed with `FACE_JWT_SECRET`.
-- Payload: `{ "sub": "EMP-001", "confidence": 0.985, "purpose": "attendance_check_in", "exp": now + 300 }`.
-- Valid for **5 minutes**.
-- `attendance-service` validates this token before approving the check-in session.
+1. **Face Detection & Landmark Estimation (YuNet)**:
+   - **Model**: `face_detection_yunet_2023mar.onnx`
+   - Detects the primary face and extracts 5 critical landmarks:
+     - Right Eye $(x_{re}, y_{re})$
+     - Left Eye $(x_{le}, y_{le})$
+     - Nose Tip $(x_{nt}, y_{nt})$
+     - Right Mouth Corner $(x_{rcm}, y_{rcm})$
+     - Left Mouth Corner $(x_{lcm}, y_{lcm})$
+   - Normalizes the face against roll rotation and scale.
+2. **Deep Embedding Extraction (SFace)**:
+   - **Model**: `face_recognition_sface_2021dec.onnx`
+   - MobileFaceNet architecture trained with ArcFace (Additive Angular Margin Loss).
+   - Generates a **128-dimensional unit floating-point embedding** $\mathbf{e} \in \mathbb{R}^{128}$ such that $\|\mathbf{e}\|_2 = 1.0$.
+3. **Similarity Metric & Threshold**:
+   - Compares the live embedding $\mathbf{u}$ and stored embedding $\mathbf{v}$ via Cosine Similarity:
+     $$\text{Similarity}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}$$
+   - **Decision Threshold**: `FACE_SIMILARITY_THRESHOLD = 0.40`.
+   - **Discrimination Profile**:
+     - Same person (genuine match): Cosine Similarity typically ranges between `0.55` and `0.92`.
+     - Different person (impostor attempt): Cosine Similarity typically ranges between `-0.15` and `0.25`. Impostor attempts fail completely.
 
 ---
 
-## 4. Step-by-Step Workflows ("How It Works")
+### B. Active Challenge-Response Liveness Detection
 
-### Workflow 1: Employee Initial Face Enrollment
-```
-Employee / Admin                      API Gateway (8000)            Face AI Service (3006)          MySQL (face_ai_db)
-       │                                     │                               │                            │
-       │ 1. POST /api/v1/face/enroll         │                               │                            │
-       │    { employee_id, image_base64 }    │                               │                            │
-       ├────────────────────────────────────►│  2. Forward                   │                            │
-       │                                     ├──────────────────────────────►│                            │
-       │                                     │                               │ 3. Detect Face in frame    │
-       │                                     │                               │ 4. Extract 512-D embedding │
-       │                                     │                               │ 5. AES-256-GCM Encrypt     │
-       │                                     │                               │ 6. Store Ciphertext        │
-       │                                     │                               ├───────────────────────────►│
-       │                                     │  7. 200 OK (Enrolled)         │                            │
-       │◄────────────────────────────────────┴───────────────────────────────┤                            │
-```
-
----
-
-### Workflow 2: Daily Interactive Attendance Verification
-```
-Mobile Camera Viewport               Face AI Service (3006)                  Attendance Service (3002)
-          │                                   │                                         │
-          │ 1. GET /api/v1/face/challenge     │                                         │
-          │    ?employee_id=EMP-001           │                                         │
-          ├──────────────────────────────────►│                                         │
-          │ 2. Returns:                       │                                         │
-          │    { action: "BLINK", ttl: 30s }  │                                         │
-          │◄──────────────────────────────────┤                                         │
-          │                                   │                                         │
-          │ 3. User blinks; camera takes      │                                         │
-          │    multi-frame burst.             │                                         │
-          │ 4. POST /api/v1/face/verify       │                                         │
-          │    { frames, challenge_id }       │                                         │
-          ├──────────────────────────────────►│                                         │
-          │                                   │ 5. Liveness EAR Check (Blink detected?) │
-          │                                   │ 6. 2D FFT Moire Anti-Spoofing           │
-          │                                   │ 7. Decrypt Enrolled Vector (AES-GCM)    │
-          │                                   │ 8. Cosine Similarity >= 0.70            │
-          │                                   │ 9. Sign JWT Verification Token (5m)     │
-          │ 10. Returns:                      │                                         │
-          │     { verified: true, token }     │                                         │
-          │◄──────────────────────────────────┤                                         │
-          │                                                                             │
-          │ 11. POST /api/v1/attendance/check-in                                        │
-          │     { officeId, location, faceVerificationToken: token }                    │
-          ├────────────────────────────────────────────────────────────────────────────►│
-          │                                                                             │ 12. Verify Token
-          │                                                                             │ 13. Verify Geofence
-          │ 14. Attendance Session Started (WORKING)                                    │ 14. Record Session
-          │◄────────────────────────────────────────────────────────────────────────────┤
-```
+To prevent spoofing with printed photographs, videos, or 3D masks, every check-in requires a 3-frame active challenge:
+1. `GET /api/v1/face/challenge?employee_id=<ID>` returns a random action with a unique `challenge_id` (180s TTL).
+2. The user captures 3 frames:
+   - **Frame 1**: Neutral expression, facing directly forward.
+   - **Frame 2**: Performing the requested challenge action.
+   - **Frame 3**: Confirming expression and 3D depth hold.
+3. The server computes geometric landmark kinematics:
+   - **`TURN_LEFT` / `TURN_RIGHT` (Head Yaw Rotation)**:
+     - Computes the horizontal nose position relative to the eye centers:
+       $$\text{Yaw} = \frac{x_{nt} - \min(x_{re}, x_{le})}{|x_{le} - x_{re}|}$$
+     - A neutral frontal face yields $\text{Yaw} \approx 0.50$.
+     - When turning left or right, $|\Delta \text{Yaw}| \ge 0.08$. If the user does not turn, the check fails with: `"Head turn not detected. Please visibly turn your head to the side when prompted."`
+   - **`SMILE`**:
+     - Computes normalized inter-commissural mouth width relative to inter-ocular distance:
+       $$\text{Ratio} = \frac{\|(x_{rcm}, y_{rcm}) - (x_{lcm}, y_{lcm})\|_2}{|x_{le} - x_{re}|}$$
+     - Requires $\ge 7\%$ expansion in Frame 2 or positive activation from the smile cascade classifier.
+   - **`BLINK`**:
+     - Extracts local normalized patches around $(x_{re}, y_{re})$ and $(x_{le}, y_{le})$.
+     - Detects eyelid closure and aperture variance ($\Delta \ge 11.0$ grayscale difference).
+   - **Cross-Frame Identity Guard**:
+     - Asserts $\text{Similarity}(\text{Frame}_1, \text{Frame}_2) \ge 0.30$ to confirm that the person who performed the action is the same person as in Frame 1.
 
 ---
 
-## 5. Database Schema & Data Models (`face_ai_db`)
+### C. Passive Presentation Attack Detection (Moire & Blur)
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                             face_profiles                              │
-├────────────────────────────────────────────────────────────────────────┤
-│ id: String(36) (UUID, PK)                                              │
-│ employee_id: String(64) UNIQUE (Opaque reference to employee-service)  │
-│ embedding: JSON ({ "nonce": "...", "ciphertext": "...", "tag": "..." })│
-│ model_version: String(64) (e.g. "ArcFace-512")                         │
-│ is_active: Boolean (Default: True)                                     │
-│ enrolled_at: DateTime                                                  │
-│ last_verified_at: DateTime?                                            │
-│ created_at / updated_at                                                │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ 1
-                                    │
-                                    ▼ N
-┌────────────────────────────────────────────────────────────────────────┐
-│                        face_verification_logs                          │
-├────────────────────────────────────────────────────────────────────────┤
-│ id: String(36) (UUID, PK)                                              │
-│ profile_id: String(36) (FK -> face_profiles.id)                        │
-│ employee_id: String(64)                                                │
-│ challenge_type: String(32) ('BLINK', 'TURN_LEFT', 'TURN_RIGHT', 'SMILE')│
-│ similarity_score: Float (0.0 to 1.0)                                   │
-│ liveness_score: Float (0.0 to 1.0)                                     │
-│ is_match: Boolean                                                      │
-│ is_live: Boolean                                                       │
-│ rejection_reason: String(255)?                                         │
-│ ip_address: String(64)?                                                │
-│ created_at: DateTime                                                   │
-└────────────────────────────────────────────────────────────────────────┘
-```
+Before biometric matching, frames pass through frequency-domain anti-spoofing filters:
+1. **2D FFT Moire Screen Grid Analysis**:
+   - Digital screens (phones, monitors) emit periodic pixel grid interference patterns.
+   - 2D Fast Fourier Transform ($\text{FFT2D}$) shifts the DC component to the center and measures high-frequency spectral spikes.
+   - If periodic high-frequency power exceeds threshold and saturation variance is low, the request is rejected as `SCREEN_REPLAY_ATTACK`.
+2. **Laplacian Blur Rejection**:
+   - Evaluates $\text{Var}(\nabla^2 I)$. Rejects out-of-focus or motion-blurred inputs ($\text{Var} < 15.0$).
 
 ---
 
-## 6. Complete REST API Reference
+### D. Biometric Template Security (AES-256-GCM at Rest)
 
-All routes are prefixed with `/api/v1` and accessible publicly through the API Gateway at `http://localhost:8000/api/v1/...` (or directly at `http://localhost:3006/api/v1/...` in dev mode).
+Biometric data is protected under zero-trust privacy controls:
+- **No Images Stored**: Raw facial photographs are never persisted to disk or database.
+- **AES-256-GCM Encryption**: Stored embeddings in `face_profiles.embedding` are encrypted with AES-256-GCM using:
+  - 256-bit key derived from `FACE_JWT_SECRET` / `FACE_ENCRYPTION_KEY`.
+  - Cryptographically random 96-bit initialization vector (nonce) per write.
+  - 128-bit authentication tag to prevent ciphertext tampering.
 
-### 1. Check Face Enrollment Status
-- **Method**: `GET /api/v1/face/status/:employeeId`
-- **Response (`200 OK`)**:
+---
+
+## 4. Mobile User Experience (Interactive 3-Step Guided Capture)
+
+In [frontend/mobile/src/screens/EmployeeHomeScreen.tsx](file:///home/angad/Momo%20HRMS/frontend/mobile/src/screens/EmployeeHomeScreen.tsx), biometric verification uses an interactive, user-paced 3-step capture:
+- **Step 1 (Neutral)**: Employee aligns face in oval guide $\rightarrow$ taps **`[ 📸 Snap Photo 1 (Neutral) ]`** (or uses 3-second timer).
+- **Step 2 (Action)**: High-contrast pulsing banner displays the challenge (`👈 TURN LEFT`, `👉 TURN RIGHT`, `😊 SMILE`, or `👁️ BLINK`) $\rightarrow$ user performs action $\rightarrow$ taps **`[ 📸 Snap Photo 2 (<Action>) ]`**. Undo/Retake buttons are available.
+- **Step 3 (Confirm & Verify)**: User holds pose $\rightarrow$ taps **`[ 📸 Snap Photo 3 & Verify ]`** $\rightarrow$ submits frames to `/api/v1/face/verify`.
+- **Legacy Migration**: If an employee enrolled under the legacy model, the modal displays **`[ Re-Register Face Biometrics Now ]`** to enroll with the deep SFace model in one tap.
+
+---
+
+## 5. API Reference & Contract
+
+### 1. `GET /api/v1/face/status/{employee_id}`
+Checks if an employee has enrolled their biometrics.
+- **Response**:
 ```json
 {
-  "employee_id": "EMP-001",
+  "employee_id": "611ae067-9b6c-4486-ae24-a55b402de311",
   "is_enrolled": true,
-  "enrolled_at": "2026-09-29T05:47:01",
-  "last_verified_at": "2026-09-29T05:48:31"
+  "enrolled_at": "2026-09-30T11:51:05",
+  "last_verified_at": "2026-09-30T12:05:00"
 }
 ```
 
----
-
-### 2. Enroll Employee Face
-- **Method**: `POST /api/v1/face/enroll`
-- **Request Body**:
+### 2. `POST /api/v1/face/enroll`
+Registers an employee's face biometrics.
+- **Request**:
 ```json
 {
-  "employee_id": "EMP-001",
-  "image_base64": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..."
+  "employee_id": "611ae067-9b6c-4486-ae24-a55b402de311",
+  "image_base64": "<base64 JPEG/PNG>"
 }
 ```
-- **Response (`200 OK`)**:
+- **Response**:
 ```json
 {
   "success": true,
-  "employee_id": "EMP-001",
-  "message": "Face successfully enrolled and encrypted."
+  "employee_id": "611ae067-9b6c-4486-ae24-a55b402de311",
+  "message": "Face successfully enrolled and verified."
 }
 ```
 
----
-
-### 3. Request Active Liveness Challenge
-- **Method**: `GET /api/v1/face/challenge?employee_id=EMP-001`
-- **Response (`200 OK`)**:
+### 3. `GET /api/v1/face/challenge`
+Generates a dynamic 3-frame liveness action.
+- **Query Params**: `employee_id=<ID>`
+- **Response**:
 ```json
 {
-  "challenge_id": "247b594b-15c8-4376-98fb-990558c458bb",
-  "employee_id": "EMP-001",
-  "action": "BLINK",
-  "instruction": "Blink your eyes naturally toward the camera",
-  "expires_in_seconds": 30
+  "challenge_id": "3f82a1b4-4b51-409c-a2b1-6a2d9e0f314c",
+  "employee_id": "611ae067-9b6c-4486-ae24-a55b402de311",
+  "action": "TURN_RIGHT",
+  "instruction": "Turn your head to the right",
+  "expires_in_seconds": 180
 }
 ```
 
----
-
-### 4. Verify Face & Active Challenge
-- **Method**: `POST /api/v1/face/verify`
-- **Request Body**:
+### 4. `POST /api/v1/face/verify`
+Submits the 3-frame sequence for liveness check and face matching.
+- **Request**:
 ```json
 {
-  "employee_id": "EMP-001",
-  "challenge_id": "247b594b-15c8-4376-98fb-990558c458bb",
+  "employee_id": "611ae067-9b6c-4486-ae24-a55b402de311",
+  "challenge_id": "3f82a1b4-4b51-409c-a2b1-6a2d9e0f314c",
   "frames": [
-    "data:image/jpeg;base64,/9j/4AAQSkZJRg...frame1",
-    "data:image/jpeg;base64,/9j/4AAQSkZJRg...frame2"
+    "<base64 frame 1 (neutral)>",
+    "<base64 frame 2 (action)>",
+    "<base64 frame 3 (hold)>"
   ]
 }
 ```
-- **Response (`200 OK` - Match Passed)**:
+- **Success Response (HTTP 200)**:
 ```json
 {
   "verified": true,
-  "confidence": 0.985,
+  "confidence": 0.8412,
   "is_live": true,
   "verification_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "message": "Face verification and active liveness check passed."
+  "message": "Face verification and liveness check passed."
 }
 ```
-- **Response (`200 OK` - Spoof Detected / Liveness Failed)**:
+- **Failure Response (HTTP 200)**:
 ```json
 {
   "verified": false,
-  "confidence": 0.0,
+  "confidence": 0.1245,
   "is_live": false,
   "verification_token": null,
-  "message": "Liveness check failed: Static photo detected. Eye kinematics did not match requested BLINK action."
+  "message": "Head turn not detected. Please visibly turn your head to the side when prompted."
 }
 ```
 
----
-
-### 5. Validate Verification Token (Inter-Service API)
-Called by the **Attendance Service** to validate the token before allowing check-in:
-- **Method**: `POST /api/v1/face/verify-token`
-- **Request Body**:
+### 5. `POST /api/v1/face/verify-token`
+Internal endpoint called by `attendance-service` to validate a token before check-in.
+- **Request**:
 ```json
 {
-  "employee_id": "EMP-001",
-  "verification_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "verification_token": "<JWT token>",
+  "employee_id": "611ae067-9b6c-4486-ae24-a55b402de311"
 }
 ```
-- **Response (`200 OK`)**:
+- **Response**:
 ```json
 {
   "valid": true,
-  "employee_id": "EMP-001",
-  "confidence": 0.985,
-  "message": "Token verified successfully"
+  "employee_id": "611ae067-9b6c-4486-ae24-a55b402de311",
+  "confidence": 0.8412,
+  "message": "Verification token is valid"
 }
 ```
 
 ---
 
-## 7. Environment Configuration Reference (`.env`)
+## 6. Directory Structure & File Manifest
 
-| Variable | Description | Recommended / Example Value |
-|---|---|---|
-| `PORT` | Local ASGI port | `3006` |
-| `HOST` | Bind host address | `0.0.0.0` |
-| `API_PREFIX` | Route prefix | `/api/v1` |
-| `DATABASE_URL` | MySQL connection string via PyMySQL | `mysql+pymysql://<DB_USER>:<DB_PASSWORD>@<DB_HOST>:3306/face_ai_db` |
-| `FACE_SIMILARITY_THRESHOLD` | Cosine similarity match threshold | `0.70` |
-| `LIVENESS_CONFIDENCE_THRESHOLD` | Minimum confidence score for liveness | `0.80` |
-| `CHALLENGE_TIMEOUT_SECONDS` | TTL for active liveness challenge | `30` |
-| `VERIFICATION_TOKEN_TTL_SECONDS` | TTL for issued biometric JWT token | `300` (5 minutes) |
-| `FACE_JWT_SECRET` | Cryptographic secret for signing tokens | `your-face-biometric-jwt-signing-secret` |
-| `FACE_ENCRYPTION_KEY` | 32-character key for AES-256-GCM | `your-aes256-gcm-encryption-key-32-chars` |
+```
+backend/face-ai-service/
+├── app/
+│   ├── config.py                 # Service settings (thresholds, DB URL, JWT secrets)
+│   ├── database.py               # SQLAlchemy engine and session factory
+│   ├── main.py                   # FastAPI initialization & router inclusion
+│   ├── models.py                 # FaceProfile, FaceVerificationLog tables
+│   ├── schemas.py                # Pydantic request/response models
+│   ├── weights/                  # Deep learning ONNX model weights
+│   │   ├── face_detection_yunet_2023mar.onnx     # YuNet 5-landmark face detector
+│   │   └── face_recognition_sface_2021dec.onnx   # SFace ArcFace 128-D extractor
+│   ├── routers/
+│   │   ├── face.py               # Biometric enroll, challenge, verify endpoints
+│   │   └── health.py             # Service & DB health check
+│   ├── services/
+│   │   ├── challenge_service.py  # In-memory challenge queue & TTL tracker
+│   │   ├── crypto_service.py     # AES-256-GCM biometric vector encryption
+│   │   ├── face_engine.py        # YuNet + SFace embedding extraction & similarity
+│   │   ├── liveness_detector.py  # Kinematic yaw/smile/blink & Moire detection
+│   │   └── token_service.py      # HMAC-SHA256 verification token issuer/validator
+│   └── utils/
+│       └── image_processing.py   # Base64 decoding, format validation, resizing
+├── venv/                         # Python 3.12 virtual environment
+├── requirements.txt              # Dependencies (fastapi, opencv-python-headless, etc.)
+├── .env                          # Local environment variables
+└── README.md                     # Microservice architectural documentation
+```
 
 ---
 
-## 8. Local Setup & Testing
+## 7. Configuration Reference (`.env`)
+
+| Variable | Default | Description |
+|:---|:---|:---|
+| `PORT` | `3006` | HTTP service port |
+| `DATABASE_URL` | `mysql+pymysql://admin:Admin123@localhost:3306/face_ai_db` | MySQL connection string |
+| `FACE_SIMILARITY_THRESHOLD` | `0.40` | SFace Cosine similarity match threshold |
+| `LIVENESS_CONFIDENCE_THRESHOLD` | `0.80` | Minimum score for passive anti-spoofing |
+| `CHALLENGE_TIMEOUT_SECONDS` | `180` | Challenge expiration window (seconds) |
+| `VERIFICATION_TOKEN_TTL_SECONDS` | `300` | Issued check-in token validity (5 mins) |
+| `FACE_JWT_SECRET` | `dev-face-secret-key-change-in-prod` | Signing secret for verification tokens |
+| `GATEWAY_SHARED_SECRET` | `dev-gateway-secret` | Shared secret with API gateway |
+
+---
+
+## 8. Running & Testing Locally
 
 ```bash
-# 1. Navigate to directory and set up Python virtual environment
-cd backend/face-ai-service
-python3 -m venv venv
+# 1. Activate virtual environment
+cd "backend/face-ai-service"
 source venv/bin/activate
 
-# 2. Install dependencies (OpenCV pinned to < 5.0)
-pip install -r requirements.txt
+# 2. Verify model weights exist
+ls -lh app/weights/
 
-# 3. Start ASGI server in watch mode
+# 3. Start development server
 uvicorn app.main:app --host 0.0.0.0 --port 3006 --reload
 
-# 4. View interactive OpenAPI Swagger documentation
-# Open in browser: http://localhost:3006/docs
+# 4. Check service health
+curl http://localhost:3006/health
+# Output: {"status":"healthy","service":"face-ai-service","database":"up"}
 ```

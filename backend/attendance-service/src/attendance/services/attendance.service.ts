@@ -760,10 +760,16 @@ export class AttendanceService {
       ? this.toDateOnly(new Date(query.startDate))
       : this.toDateOnly(new Date(endDate.getTime() - 29 * 24 * 60 * 60 * 1000));
 
+    const isAll = query.all === true || query.all === 'true';
     const where: Prisma.AttendanceSessionWhereInput = {
-      employeeId,
       attendanceDate: { gte: startDate, lte: endDate },
     };
+
+    if (query.employeeId) {
+      where.employeeId = query.employeeId;
+    } else if (!isAll) {
+      where.employeeId = employeeId;
+    }
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.attendanceSession.findMany({

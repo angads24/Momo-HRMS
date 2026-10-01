@@ -72,3 +72,28 @@ export async function logoutUser(): Promise<void> {
     }
   }
 }
+
+export interface CreateAuthUserPayload {
+  username: string;
+  email: string;
+  fullName?: string;
+  password: string;
+  roles: string[];
+  mustChangePassword?: boolean;
+}
+
+export async function createAuthUser(payload: CreateAuthUserPayload): Promise<{ id: string; email: string; username: string }> {
+  const { data } = await api.post<{ id: string; email: string; username: string }>(
+    '/auth/users',
+    payload,
+  );
+  return data;
+}
+
+export async function adminResetPassword(userId: string, temporaryPassword: string): Promise<void> {
+  await api.post(`/auth/users/${userId}/reset-password`, { temporaryPassword });
+}
+
+export async function deleteAuthUser(userId: string): Promise<void> {
+  await api.delete(`/auth/users/${userId}`);
+}

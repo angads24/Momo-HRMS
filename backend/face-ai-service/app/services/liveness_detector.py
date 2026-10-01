@@ -18,7 +18,7 @@ class LivenessDetector:
         
         # 1. Blur check
         laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-        if laplacian_var < 15.0:
+        if laplacian_var < 25.0:
             return False, 0.20, "Image is too blurry or out of focus"
 
         # 2. Color saturation distribution
@@ -89,9 +89,6 @@ class LivenessDetector:
 
         # ─── ACTION: TURN_LEFT or TURN_RIGHT ────────────────────────────────
         if action in ("TURN_LEFT", "TURN_RIGHT"):
-            # Compute nose horizontal ratio between eyes:
-            # 0.50 means centered (facing straight).
-            # Turning left shifts ratio toward 0 or 1 depending on camera mirroring.
             min_eye1 = min(re1_x, le1_x)
             min_eye2 = min(re2_x, le2_x)
             
@@ -99,41 +96,38 @@ class LivenessDetector:
             yaw2 = (nt2_x - min_eye2) / eye_span2
             yaw_delta = abs(yaw2 - yaw1)
 
-            # Also check bounding box horizontal shift or profile width change
-            w_ratio = w2 / max(w1, 1.0)
-            
-            # Meaningful head rotation changes yaw ratio by >= 0.08
-            if yaw_delta >= 0.08 or (yaw_delta >= 0.05 and abs(w_ratio - 1.0) > 0.08):
-                return True, 0.94, f"{action} motion successfully verified"
+            # Robust scale-invariant head rotation check.
+            # Normal hand jitter shifts both eyes and nose together (yaw_delta < 0.02).
+            # A true head turn relative to the neutral frame shifts yaw significantly (>= 0.08).
+            # We explicitly do NOT use raw pixel nose_shift because natural hand tremor easily moves 10-25px.
+            if yaw_delta >= 0.08:
+                return True, 0.94, f"{action.replace('_', ' ').title()} successfully detected"
             else:
-                return False, 0.35, f"Head turn not detected. Please visibly turn your head to the side when prompted."
+                return False, 0.35, f"Turn your head slightly ({action.replace('_', ' ').lower()})"
 
         # ─── ACTION: SMILE ──────────────────────────────────────────────────
         elif action == "SMILE":
-            # Normalized mouth width relative to eye span
             mouth_w1 = np.hypot(rcm1_x - lcm1_x, rcm1_y - lcm1_y) / eye_span1
             mouth_w2 = np.hypot(rcm2_x - lcm2_x, rcm2_y - lcm2_y) / eye_span2
             smile_expansion = (mouth_w2 - mouth_w1) / max(mouth_w1, 1e-4)
 
-            # Haar smile cascade count
             gray1 = cv2.cvtColor(frame_neutral, cv2.COLOR_BGR2GRAY)
             gray2 = cv2.cvtColor(frame_action, cv2.COLOR_BGR2GRAY)
             
             roi1 = gray1[int(max(0, y1)):int(min(gray1.shape[0], y1+h1)), int(max(0, x1)):int(min(gray1.shape[1], x1+w1))]
             roi2 = gray2[int(max(0, y2)):int(min(gray2.shape[0], y2+h2)), int(max(0, x2)):int(min(gray2.shape[1], x2+w2))]
 
-            smiles1 = len(self.smile_cascade.detectMultiScale(roi1, 1.7, 18)) if roi1.size > 0 else 0
-            smiles2 = len(self.smile_cascade.detectMultiScale(roi2, 1.7, 18)) if roi2.size > 0 else 0
+            smiles1 = len(self.smile_cascade.detectMultiScale(roi1, 1.3, 10)) if roi1.size > 0 else 0
+            smiles2 = len(self.smile_cascade.detectMultiScale(roi2, 1.3, 10)) if roi2.size > 0 else 0
 
-            # Smile verified if mouth width expanded by > 7% or smile cascade fired
-            if smile_expansion >= 0.07 or smiles2 > smiles1 or (smiles2 > 0 and smile_expansion >= 0.03):
+            # Real smiles require noticeable mouth widening (>= 7%) or verified classifier change with >= 4.5% expansion
+            if smile_expansion >= 0.07 or (smiles2 > smiles1 and smile_expansion >= 0.045):
                 return True, 0.92, "Smile successfully verified"
             else:
-                return False, 0.35, "Smile not detected. Please smile visibly when prompted."
+                return False, 0.35, "Please smile visibly towards camera"
 
         # ─── ACTION: BLINK ──────────────────────────────────────────────────
         elif action == "BLINK":
-            # Extract eye ROIs centered on detected eye coordinates
             def get_eye_patch(img: np.ndarray, ex: float, ey: float, span: float) -> np.ndarray:
                 radius = int(span * 0.22)
                 h, w = img.shape[:2]
@@ -154,18 +148,18 @@ class LivenessDetector:
             diff_r = float(np.mean(cv2.absdiff(eye1_r, eye2_r)))
             eye_diff = (diff_l + diff_r) / 2.0
 
-            # If 3 frames provided, check frame 2 vs frame 3 as well
+            # Real eye blink causes significant pixel difference between open and closed state (>= 12.0)
             if len(frames) >= 3 and face_engine.detect_face(frame_confirm) is not None:
                 face3 = face_engine.detect_face(frame_confirm)
                 eye3_l = get_eye_patch(frame_confirm, face3[6], face3[7], max(abs(face3[6]-face3[4]), 1.0))
                 diff_reopen = float(np.mean(cv2.absdiff(eye2_l, eye3_l)))
-                if (eye_diff > 10.0 and diff_reopen > 8.0) or eye_diff > 14.0:
+                if eye_diff >= 10.0 and diff_reopen >= 8.0:
                     return True, 0.95, "Blink challenge verified"
 
-            if eye_diff > 11.0:
+            if eye_diff >= 12.0:
                 return True, 0.91, "Blink challenge verified"
             else:
-                return False, 0.35, "Blink not detected. Please close and open your eyes clearly when prompted."
+                return False, 0.35, "Blink your eyes naturally"
 
         # Passive fallback
         return self.check_passive_liveness(frame_action)

@@ -12,7 +12,7 @@ import { AutoCheckoutScheduler } from './jobs/auto-checkout.scheduler';
 
 @Module({
   imports: [GeofenceModule, EmployeeModule, PolicyModule, FaceModule],
-  controllers: [AttendanceController, ExceptionsController],
+  controllers: [ExceptionsController, AttendanceController],
   providers: [AttendanceService, ExceptionsService, WorkingTimeService, AutoCheckoutScheduler],
   exports: [AttendanceService, ExceptionsService, WorkingTimeService],
 })

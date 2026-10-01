@@ -27,4 +27,12 @@ export class HistoryQueryDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  @ApiProperty({ required: false, description: 'Optional specific employee ID to filter by' })
+  @IsOptional()
+  employeeId?: string;
+
+  @ApiProperty({ required: false, description: 'Pass true to query all employees for admin/live attendance dashboard' })
+  @IsOptional()
+  all?: boolean | string;
 }

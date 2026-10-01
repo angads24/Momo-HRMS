@@ -306,7 +306,11 @@ export class EmployeeService {
   async isAssignedToOffice(employeeIdOrCode: string, officeId: string): Promise<boolean> {
     const employee = await this.prisma.employee.findFirst({
       where: {
-        OR: [{ id: employeeIdOrCode }, { employeeCode: employeeIdOrCode }],
+        OR: [
+          { id: employeeIdOrCode },
+          { employeeCode: employeeIdOrCode },
+          { userId: employeeIdOrCode },
+        ],
         employmentStatus: EmploymentStatus.ACTIVE,
       },
     });
@@ -316,10 +320,25 @@ export class EmployeeService {
       return false;
     }
 
+    const candidateOfficeIds = new Set<string>([officeId]);
+
+    // Query geofence service to resolve office code <-> office id interchangeably
+    try {
+      const geofenceUrl = process.env.GEOFENCE_SERVICE_URL || 'http://localhost:3003/api/v1';
+      const res = await fetch(`${geofenceUrl}/offices/${encodeURIComponent(officeId)}`);
+      if (res.ok) {
+        const body = (await res.json()) as any;
+        if (body?.data?.id) candidateOfficeIds.add(body.data.id);
+        if (body?.data?.code) candidateOfficeIds.add(body.data.code);
+      }
+    } catch (err: any) {
+      this.logger.debug(`Could not reach geofence service to resolve office aliases: ${err?.message}`);
+    }
+
     const assignment = await this.prisma.employeeOfficeAssignment.findFirst({
       where: {
         employeeId: employee.id,
-        officeId,
+        officeId: { in: Array.from(candidateOfficeIds) },
         isActive: true,
         effectiveFrom: { lte: new Date() },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }],
@@ -327,7 +346,7 @@ export class EmployeeService {
     });
 
     const isAssigned = !!assignment;
-    this.logger.log(`Assignment check for employee=${employee.employeeCode} office=${officeId} -> ${isAssigned}`);
+    this.logger.log(`Assignment check for employee=${employee.employeeCode} candidates=[${Array.from(candidateOfficeIds).join(',')}] -> ${isAssigned}`);
     return isAssigned;
   }
 }

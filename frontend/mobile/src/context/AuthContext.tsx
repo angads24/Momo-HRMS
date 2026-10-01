@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 403 can mean "already set" - re-sync with the backend so we never get stuck.
       if (axios.isAxiosError(error) && error.response?.status === 403) {
         try {
-          setUser(await getCurrentUser());
+          setUser(toAuthUser(await getCurrentUser()));
         } catch {
           /* keep current state */
         }
@@ -117,10 +117,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Do NOT assume success: ask the backend for the real status.
     const fresh = await getCurrentUser();
-    if (fresh.mustChangePassword) {
+    const authUser = toAuthUser(fresh);
+    if (authUser.mustChangePassword) {
       throw new Error('The server did not confirm the password change. Please try again.');
     }
-    setUser(fresh);
+    setUser(authUser);
     setNotice('Your password was updated successfully.');
   }, []);
 

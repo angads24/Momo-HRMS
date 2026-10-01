@@ -38,14 +38,19 @@ export class EmployeeAuthGuard implements CanActivate {
         this.hasWarnedDevAuth = true;
       }
 
+      const userId =
+        (request.headers[gatewayAuth.userIdHeader] as string) ||
+        (request.headers['x-user-id'] as string);
       const employeeId =
-        (request.headers[gatewayAuth.employeeIdHeader] as string) ?? devAuth.defaultEmployeeId;
-      const userId = (request.headers[gatewayAuth.userIdHeader] as string) ?? employeeId;
+        (request.headers[gatewayAuth.employeeIdHeader] as string) ||
+        (request.headers['x-employee-id'] as string) ||
+        userId ||
+        devAuth.defaultEmployeeId;
       const rolesHeader = request.headers[gatewayAuth.rolesHeader] as string | undefined;
 
       const authContext: EmployeeAuthContext = {
         employeeId,
-        userId,
+        userId: userId || employeeId,
         roles: rolesHeader ? rolesHeader.split(',').map((r) => r.trim()) : ['EMPLOYEE'],
         isDevAuth: true,
       };
@@ -58,8 +63,11 @@ export class EmployeeAuthGuard implements CanActivate {
       throw new UnauthorizedException('Missing or invalid gateway credentials');
     }
 
-    const employeeId = request.headers[gatewayAuth.employeeIdHeader] as string | undefined;
-    const userId = request.headers[gatewayAuth.userIdHeader] as string | undefined;
+    const userId = (request.headers[gatewayAuth.userIdHeader] as string) || (request.headers['x-user-id'] as string);
+    const employeeId =
+      (request.headers[gatewayAuth.employeeIdHeader] as string) ||
+      (request.headers['x-employee-id'] as string) ||
+      userId;
     const rolesHeader = request.headers[gatewayAuth.rolesHeader] as string | undefined;
 
     if (!employeeId || !userId) {

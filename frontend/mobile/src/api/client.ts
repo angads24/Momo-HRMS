@@ -13,14 +13,20 @@ import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from './toke
 export const api = axios.create({
   baseURL: API_URL,
   timeout: 15000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true',
+  },
 });
 
 /** Interceptor-free instance, used only for /auth/refresh (avoids infinite loops). */
 const rawApi = axios.create({
   baseURL: API_URL,
   timeout: 15000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true',
+  },
 });
 
 interface AuthEventHandlers {

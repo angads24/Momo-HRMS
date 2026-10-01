@@ -20,7 +20,8 @@ export class AttendanceController {
   @HttpCode(HttpStatus.CREATED)
   @ApiMessage('Attendance checked in successfully')
   async checkIn(@CurrentEmployee() employee: EmployeeAuthContext, @Body() dto: CheckInDto) {
-    const result = await this.attendanceService.checkIn(employee.employeeId, dto);
+    const effectiveEmployeeId = dto.employeeId || employee.employeeId;
+    const result = await this.attendanceService.checkIn(effectiveEmployeeId, dto);
     return result.session;
   }
 

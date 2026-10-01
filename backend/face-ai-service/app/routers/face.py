@@ -164,10 +164,10 @@ def verify_face(payload: FaceVerifyRequest, db: Session = Depends(get_db)):
             message=f"Liveness challenge failed: {liveness_reason}"
         )
 
-    # 5. Extract embedding from live frame (the best frontal frame)
-    live_embedding = face_engine.extract_embedding(frames[-1])
+    # 5. Extract embedding from live frame (frames[0] is the frontal neutral frame)
+    live_embedding = face_engine.extract_embedding(frames[0])
     if not live_embedding and len(frames) > 1:
-        live_embedding = face_engine.extract_embedding(frames[0])
+        live_embedding = face_engine.extract_embedding(frames[-1])
 
     if not live_embedding:
         return FaceVerifyResponse(
@@ -264,7 +264,10 @@ def detect_neutral_pose(payload: DetectNeutralRequest):
     eye_span = max(float(abs(le_x - re_x)), 1.0)
     yaw = (nt_x - min(re_x, le_x)) / eye_span
 
-    # Check centered frontal face (yaw roughly 0.40 to 0.60)
+    # Check centered frontal face (yaw between 0.38 and 0.62 for authentic frontal gaze)
+    if face[2] < 60 or face[3] < 60:
+        return DetectNeutralResponse(detected=False, message="Please move slightly closer to camera")
+
     if 0.38 <= yaw <= 0.62:
         return DetectNeutralResponse(detected=True, message="Neutral frontal face detected")
     else:

@@ -144,13 +144,26 @@ Biometric data is protected under zero-trust privacy controls:
 
 ---
 
-## 4. Mobile User Experience (Interactive 3-Step Guided Capture)
+## 4. Mobile User Experience (Automated Hands-Free Capture & Geofence Pre-Check)
 
-In [frontend/mobile/src/screens/EmployeeHomeScreen.tsx](file:///home/angad/Momo%20HRMS/frontend/mobile/src/screens/EmployeeHomeScreen.tsx), biometric verification uses an interactive, user-paced 3-step capture:
-- **Step 1 (Neutral)**: Employee aligns face in oval guide $\rightarrow$ taps **`[ 📸 Snap Photo 1 (Neutral) ]`** (or uses 3-second timer).
-- **Step 2 (Action)**: High-contrast pulsing banner displays the challenge (`👈 TURN LEFT`, `👉 TURN RIGHT`, `😊 SMILE`, or `👁️ BLINK`) $\rightarrow$ user performs action $\rightarrow$ taps **`[ 📸 Snap Photo 2 (<Action>) ]`**. Undo/Retake buttons are available.
-- **Step 3 (Confirm & Verify)**: User holds pose $\rightarrow$ taps **`[ 📸 Snap Photo 3 & Verify ]`** $\rightarrow$ submits frames to `/api/v1/face/verify`.
-- **Legacy Migration**: If an employee enrolled under the legacy model, the modal displays **`[ Re-Register Face Biometrics Now ]`** to enroll with the deep SFace model in one tap.
+In [frontend/mobile/src/screens/EmployeeHomeScreen.tsx](file:///home/angad/Momo%20HRMS/frontend/mobile/src/screens/EmployeeHomeScreen.tsx), biometric verification is completely hands-free and automated:
+
+### Zero-Click Automated Flow:
+1. **Pre-Flight Location & Geofence Verification**:
+   - Tapping **Check In** *first* queries device GPS coordinates and contacts the Geofence Microservice (`POST /geofence/verify`).
+   - If the employee is outside their assigned office boundary, check-in halts immediately with an alert showing their distance from the perimeter.
+   - The camera and face verification modal **will only open if the employee is confirmed inside their office boundary**.
+2. **Photo 1 (Neutral Face Auto-Snap)**:
+   - Camera opens with an oval guide.
+   - Background preview loop (420ms interval) streams frames to `POST /api/v1/face/detect-neutral`.
+   - When a frontal, centered neutral face is detected (`0.38 <= yaw <= 0.62`), the shutter flashes and photo 1 is saved automatically without touching any button.
+3. **Photo 2 (Action Auto-Snap)**:
+   - Challenge card pulses with the required activity (`👈 TURN LEFT`, `👉 TURN RIGHT`, `😊 SMILE`, or `👁️ BLINK`).
+   - Background preview loop sends frames to `POST /api/v1/face/detect-action`.
+   - As soon as the kinematic threshold is crossed (e.g. head turns $\ge 8\%$, smile expands $\ge 7\%$, eyes blink $\Delta \ge 11$), the shutter flashes and photo 2 is captured automatically.
+4. **Photo 3 (Hold & Auto-Submit)**:
+   - Brief 450ms hold captures the final confirmation frame, and submits the 3-frame sequence to `POST /api/v1/face/verify`.
+   - Upon verification, a signed verification token is issued and check-in completes automatically.
 
 ---
 
@@ -200,7 +213,43 @@ Generates a dynamic 3-frame liveness action.
 }
 ```
 
-### 4. `POST /api/v1/face/verify`
+### 4. `POST /api/v1/face/detect-neutral`
+Real-time continuous preview endpoint for hands-free Photo 1 capture.
+- **Request**:
+```json
+{
+  "current_frame": "<base64 preview JPEG>"
+}
+```
+- **Response**:
+```json
+{
+  "detected": true,
+  "message": "Neutral frontal face detected"
+}
+```
+
+### 5. `POST /api/v1/face/detect-action`
+Real-time continuous activity detector for hands-free Photo 2 capture.
+- **Request**:
+```json
+{
+  "action": "TURN_RIGHT",
+  "neutral_frame": "<base64 Photo 1>",
+  "current_frame": "<base64 preview JPEG>"
+}
+```
+- **Response**:
+```json
+{
+  "detected": true,
+  "action": "TURN_RIGHT",
+  "confidence": 0.94,
+  "message": "TURN_RIGHT motion successfully verified"
+}
+```
+
+### 6. `POST /api/v1/face/verify`
 Submits the 3-frame sequence for liveness check and face matching.
 - **Request**:
 ```json
@@ -235,7 +284,7 @@ Submits the 3-frame sequence for liveness check and face matching.
 }
 ```
 
-### 5. `POST /api/v1/face/verify-token`
+### 7. `POST /api/v1/face/verify-token`
 Internal endpoint called by `attendance-service` to validate a token before check-in.
 - **Request**:
 ```json

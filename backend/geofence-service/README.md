@@ -280,6 +280,51 @@ All routes are prefixed with `/api/v1` and accessible via the API Gateway at `ht
 
 ---
 
+### 5. Delete Office Geofence Polygon
+- **Method**: `DELETE /api/v1/offices/:id/polygon` (or `DELETE /api/v1/geofence/:officeId`)
+- **Query Params**:
+  - `hard=true` *(default)*: Permanently deletes the polygon and its sequential coordinate vertices.
+  - `hard=false`: Soft-deactivates the polygon (`isActive: false`).
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "data": {
+    "officeId": "d1a2b3c4-0000-0000-0000-000000000001",
+    "officeCode": "OFFICE-001",
+    "deletedPolygonsCount": 1,
+    "message": "Office geofence polygon(s) deleted successfully"
+  },
+  "message": "Office geofence polygon deleted successfully"
+}
+```
+
+---
+
+### 6. Delete Individual Polygon by Polygon ID
+- **Method**: `DELETE /api/v1/geofence/polygons/:polygonId`
+- Removes the specific polygon record and its coordinate vertices.
+
+---
+
+### 7. Delete Office and Cascade All Associated Geofence Data
+- **Method**: `DELETE /api/v1/offices/:id`
+- **Query Params**: `hard=true` (permanent) or `hard=false` (deactivates office and polygons).
+- **Response (`200 OK`)**:
+```json
+{
+  "success": true,
+  "data": {
+    "officeId": "d1a2b3c4-0000-0000-0000-000000000001",
+    "officeCode": "OFFICE-001",
+    "message": "Office and all associated geofence data deleted successfully"
+  },
+  "message": "Office deleted successfully"
+}
+```
+
+---
+
 ## 7. Environment Configuration Reference (`.env`)
 
 | Variable | Description | Recommended / Example Value |

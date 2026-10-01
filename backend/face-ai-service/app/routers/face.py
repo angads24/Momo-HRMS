@@ -13,6 +13,10 @@ from app.schemas import (
     VerifyTokenRequest,
     VerifyTokenResponse,
     FaceStatusResponse,
+    DetectNeutralRequest,
+    DetectNeutralResponse,
+    DetectActionRequest,
+    DetectActionResponse,
 )
 from app.utils.image_processing import decode_base64_image, resize_if_needed
 from app.services.face_engine import face_engine
@@ -236,4 +240,60 @@ def check_verification_token(payload: VerifyTokenRequest):
         employee_id=payload.employee_id,
         confidence=confidence,
         message=msg
+    )
+
+@router.post("/detect-neutral", response_model=DetectNeutralResponse)
+def detect_neutral_pose(payload: DetectNeutralRequest):
+    """
+    Real-time continuous preview endpoint:
+    Checks if a centered, frontal, looking-straight face is aligned in the oval.
+    """
+    try:
+        img = decode_base64_image(payload.current_frame)
+        img = resize_if_needed(img)
+    except Exception:
+        return DetectNeutralResponse(detected=False, message="Invalid image frame")
+
+    face = face_engine.detect_face(img)
+    if face is None:
+        return DetectNeutralResponse(detected=False, message="Position face inside oval guide")
+
+    # Landmarks: [x, y, w, h, re_x, re_y, le_x, le_y, nt_x, nt_y, rcm_x, rcm_y, lcm_x, lcm_y, score]
+    re_x, le_x = face[4], face[6]
+    nt_x = face[8]
+    eye_span = max(float(abs(le_x - re_x)), 1.0)
+    yaw = (nt_x - min(re_x, le_x)) / eye_span
+
+    # Check centered frontal face (yaw roughly 0.40 to 0.60)
+    if 0.38 <= yaw <= 0.62:
+        return DetectNeutralResponse(detected=True, message="Neutral frontal face detected")
+    else:
+        return DetectNeutralResponse(detected=False, message="Please face directly towards camera")
+
+@router.post("/detect-action", response_model=DetectActionResponse)
+def detect_live_action(payload: DetectActionRequest):
+    """
+    Real-time continuous action detector:
+    Evaluates whether the user is performing the requested micro-action
+    (TURN_LEFT, TURN_RIGHT, SMILE, BLINK) relative to the neutral reference photo.
+    Returns detected: True the millisecond the action is verified.
+    """
+    try:
+        neutral_img = decode_base64_image(payload.neutral_frame)
+        neutral_img = resize_if_needed(neutral_img)
+        current_img = decode_base64_image(payload.current_frame)
+        current_img = resize_if_needed(current_img)
+    except Exception as e:
+        return DetectActionResponse(detected=False, action=payload.action, confidence=0.0, message="Invalid frame payload")
+
+    is_live, score, reason = liveness_detector.check_active_challenge(
+        action=payload.action,
+        frames=[neutral_img, current_img]
+    )
+
+    return DetectActionResponse(
+        detected=is_live,
+        action=payload.action,
+        confidence=score,
+        message=reason
     )

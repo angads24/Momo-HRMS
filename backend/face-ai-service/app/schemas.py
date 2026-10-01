@@ -45,3 +45,22 @@ class FaceStatusResponse(BaseModel):
     is_enrolled: bool
     enrolled_at: Optional[datetime] = None
     last_verified_at: Optional[datetime] = None
+
+class DetectNeutralRequest(BaseModel):
+    current_frame: str
+
+class DetectNeutralResponse(BaseModel):
+    detected: bool
+    message: str
+
+class DetectActionRequest(BaseModel):
+    action: str
+    neutral_frame: str
+    current_frame: str
+
+class DetectActionResponse(BaseModel):
+    detected: bool
+    action: str
+    confidence: float
+    message: str
+

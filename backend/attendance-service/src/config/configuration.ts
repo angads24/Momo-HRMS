@@ -76,7 +76,7 @@ export default (): AppConfig => ({
       false,
     ),
     minLocationAccuracyMeters: parseInt(
-      process.env.POLICY_MIN_LOCATION_ACCURACY_METERS ?? '50',
+      process.env.POLICY_MIN_LOCATION_ACCURACY_METERS ?? '500',
       10,
     ),
   },

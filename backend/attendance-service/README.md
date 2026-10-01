@@ -362,6 +362,7 @@ All endpoints are prefixed with `/api/v1` and accessible via the API Gateway at 
 | `POLICY_LATE_THRESHOLD_MINUTES` | Minutes after start before marked `LATE` | `15` |
 | `POLICY_GRACE_PERIOD_MINUTES` | Max duration allowed outside geofence before auto-checkout | `60` |
 | `POLICY_AUTO_CHECKOUT_ENABLED` | Enables the automatic grace period timeout sweep | `true` |
+| `POLICY_MIN_LOCATION_ACCURACY_METERS` | Allowed GPS accuracy radius (meters) before 422 rejection | `1000` (indoor-safe) |
 | `AUTO_CHECKOUT_CRON` | Cron schedule for the auto-checkout sweeper | `*/1 * * * *` (every min) |
 | `ATTENDANCE_DEV_AUTH` | When `true`, uses dev identity headers without HMAC | `false` |
 

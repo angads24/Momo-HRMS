@@ -166,10 +166,38 @@ export class AttendanceService {
         where: { employeeId, status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] } },
       });
       if (activeSession) {
-        throw new AppException(
-          ErrorCodes.ATTENDANCE_ALREADY_ACTIVE,
-          'Employee already has an active attendance session',
-        );
+        // If the dangling active session is from a previous day (no night shift), auto-close it at midnight of that date
+        if (activeSession.attendanceDate < attendanceDate) {
+          const sessionDayEnd = new Date(activeSession.attendanceDate);
+          sessionDayEnd.setHours(23, 59, 59, 999);
+          const closedWorkingSeconds = this.workingTimeService.calculateWorkingSeconds(
+            {
+              status: AttendanceStatus.CHECKED_OUT,
+              checkInAt: activeSession.checkInAt,
+              checkOutAt: sessionDayEnd,
+              currentPauseStartedAt: null,
+            },
+            [],
+            sessionDayEnd,
+          );
+
+          await tx.attendanceSession.update({
+            where: { id: activeSession.id },
+            data: {
+              status: AttendanceStatus.CHECKED_OUT,
+              checkOutAt: sessionDayEnd,
+              checkoutType: CheckoutType.AUTO,
+              checkoutReason: CheckoutReason.SYSTEM_ACTION,
+              totalWorkingSeconds: closedWorkingSeconds,
+            },
+          });
+          this.logger.log(`Auto-closed dangling previous-day session ${activeSession.id} at midnight for employee ${employeeId}`);
+        } else {
+          throw new AppException(
+            ErrorCodes.ATTENDANCE_ALREADY_ACTIVE,
+            'Employee already has an active attendance session',
+          );
+        }
       }
 
       const completedToday = await tx.attendanceSession.findFirst({
@@ -678,6 +706,30 @@ export class AttendanceService {
   // ---------------------------------------------------------------------
   async getToday(employeeId: string, now: Date = new Date()): Promise<TodayAttendanceResponseDto> {
     const attendanceDate = this.toDateOnly(now);
+
+    // Auto-checkout any unclosed sessions from previous calendar dates (no night shifts, cap at midnight 23:59:59)
+    const danglingPastSessions = await this.prisma.attendanceSession.findMany({
+      where: {
+        employeeId,
+        attendanceDate: { lt: attendanceDate },
+        status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] },
+      },
+    });
+
+    for (const dps of danglingPastSessions) {
+      const dayEnd = new Date(dps.attendanceDate);
+      dayEnd.setHours(23, 59, 59, 999);
+      await this.prisma.attendanceSession.update({
+        where: { id: dps.id },
+        data: {
+          status: AttendanceStatus.CHECKED_OUT,
+          checkOutAt: dayEnd,
+          checkoutType: CheckoutType.AUTO,
+          checkoutReason: CheckoutReason.SYSTEM_ACTION,
+        },
+      });
+    }
+
     const sessions = await this.prisma.attendanceSession.findMany({
       where: { employeeId, attendanceDate },
       include: { pauses: true },
@@ -890,13 +942,16 @@ export class AttendanceService {
       );
     }
 
+    // Allow realistic indoor mobile phone GPS accuracy (at least 500m)
+    const allowedAccuracy = Math.max(policy.minLocationAccuracyMeters || 500, 500);
+
     if (
       location.accuracyMeters !== undefined &&
-      location.accuracyMeters > policy.minLocationAccuracyMeters
+      location.accuracyMeters > allowedAccuracy
     ) {
       throw new AppException(
         ErrorCodes.LOCATION_ACCURACY_TOO_LOW,
-        `Location accuracy (${location.accuracyMeters}m) exceeds the allowed maximum (${policy.minLocationAccuracyMeters}m)`,
+        `Location accuracy (${Math.round(location.accuracyMeters)}m) exceeds the allowed limit (${allowedAccuracy}m). Please move near a window or outdoors.`,
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }

@@ -14,9 +14,11 @@ import {
 import type { AppNotification } from '../types/notification';
 import { NotificationTable } from '../components/NotificationTable';
 import { NotificationPreviewDialog } from '../components/NotificationPreviewDialog';
+import { useNotifications } from '../../../context/NotificationContext';
 
 export default function NotificationHistoryPage() {
   const navigate = useNavigate();
+  const { refreshUnreadCount } = useNotifications();
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,6 +91,7 @@ export default function NotificationHistoryPage() {
       setNotifications((prev) =>
         prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n)),
       );
+      void refreshUnreadCount();
     } catch {
       setError('Failed to update notification status.');
     }
@@ -99,8 +102,16 @@ export default function NotificationHistoryPage() {
       await deleteNotification(notif.id);
       setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
       setTotal((t) => Math.max(0, t - 1));
+      void refreshUnreadCount();
     } catch {
       setError('Failed to delete notification.');
+    }
+  };
+
+  const handleViewDetails = (item: AppNotification) => {
+    setPreviewItem(item);
+    if (!item.isRead) {
+      void handleMarkAsRead(item);
     }
   };
 
@@ -138,7 +149,7 @@ export default function NotificationHistoryPage() {
         }}
         onMarkRead={handleMarkAsRead}
         onDelete={handleDelete}
-        onViewDetails={(item) => setPreviewItem(item)}
+        onViewDetails={handleViewDetails}
       />
 
       <NotificationPreviewDialog

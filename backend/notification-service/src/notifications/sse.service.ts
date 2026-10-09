@@ -24,12 +24,14 @@ export class SseService {
   /**
    * Subscribe to live notifications for a specific recipient (or broadcast).
    */
-  getRecipientStream(recipientId: string): Observable<MessageEvent> {
+  getRecipientStream(recipientId: string, email?: string): Observable<MessageEvent> {
+    const cleanEmail = email ? email.trim().toLowerCase() : null;
     return this.eventStream$.asObservable().pipe(
       filter(
         (event) =>
           event.recipientId === 'ALL' ||
           event.recipientId === recipientId ||
+          (cleanEmail !== null && event.recipientId?.toLowerCase() === cleanEmail) ||
           event.recipientType === 'BROADCAST' ||
           event.recipientType === 'HR' ||
           event.recipientId === 'HR',

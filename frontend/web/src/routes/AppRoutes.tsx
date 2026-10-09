@@ -1,31 +1,32 @@
+import { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { useAuth } from '../context/AuthContext';
-import AdminHomePage from '../pages/AdminHomePage';
-import HrHomePage from '../pages/HrHomePage';
-import HrEmployeeReportPage from '../pages/HrEmployeeReportPage';
-import LoginPage from '../pages/LoginPage';
-
-import ResetPasswordPage from '../pages/ResetPasswordPage';
-import UnauthorizedPage from '../pages/UnauthorizedPage';
-import EmployeeListPage from '../features/employees/pages/EmployeeListPage';
-import EmployeeDetailsPage from '../features/employees/pages/EmployeeDetailsPage';
-import AddEmployeePage from '../features/employees/pages/AddEmployeePage';
-import EditEmployeePage from '../features/employees/pages/EditEmployeePage';
-import EmployeeImportPage from '../features/employees/pages/EmployeeImportPage';
-import AttendanceDashboardPage from '../features/attendance/pages/AttendanceDashboardPage';
-import AttendanceHistoryPage from '../features/attendance/pages/AttendanceHistoryPage';
-import AttendanceDetailsPage from '../features/attendance/pages/AttendanceDetailsPage';
-import AttendanceReportsPage from '../features/attendance/pages/AttendanceReportsPage';
-import GeofenceListPage from '../features/geofence/pages/GeofenceListPage';
-import AddOfficePage from '../features/geofence/pages/AddOfficePage';
-import EditOfficePolygonPage from '../features/geofence/pages/EditOfficePolygonPage';
-import NotificationListPage from '../features/notifications/pages/NotificationListPage';
-import NotificationHistoryPage from '../features/notifications/pages/NotificationHistoryPage';
 import { GuestRoute } from './GuestRoute';
 import { PATHS, homePathForUser } from './paths';
 import { ProtectedRoute } from './ProtectedRoute';
 import { RoleBasedRoute } from './RoleBasedRoute';
+
+const AdminHomePage = lazy(() => import('../pages/AdminHomePage'));
+const HrHomePage = lazy(() => import('../pages/HrHomePage'));
+const HrEmployeeReportPage = lazy(() => import('../pages/HrEmployeeReportPage'));
+const LoginPage = lazy(() => import('../pages/LoginPage'));
+const ResetPasswordPage = lazy(() => import('../pages/ResetPasswordPage'));
+const UnauthorizedPage = lazy(() => import('../pages/UnauthorizedPage'));
+const EmployeeListPage = lazy(() => import('../features/employees/pages/EmployeeListPage'));
+const EmployeeDetailsPage = lazy(() => import('../features/employees/pages/EmployeeDetailsPage'));
+const AddEmployeePage = lazy(() => import('../features/employees/pages/AddEmployeePage'));
+const EditEmployeePage = lazy(() => import('../features/employees/pages/EditEmployeePage'));
+const EmployeeImportPage = lazy(() => import('../features/employees/pages/EmployeeImportPage'));
+const AttendanceDashboardPage = lazy(() => import('../features/attendance/pages/AttendanceDashboardPage'));
+const AttendanceHistoryPage = lazy(() => import('../features/attendance/pages/AttendanceHistoryPage'));
+const AttendanceDetailsPage = lazy(() => import('../features/attendance/pages/AttendanceDetailsPage'));
+const AttendanceReportsPage = lazy(() => import('../features/attendance/pages/AttendanceReportsPage'));
+const GeofenceListPage = lazy(() => import('../features/geofence/pages/GeofenceListPage'));
+const AddOfficePage = lazy(() => import('../features/geofence/pages/AddOfficePage'));
+const EditOfficePolygonPage = lazy(() => import('../features/geofence/pages/EditOfficePolygonPage'));
+const NotificationListPage = lazy(() => import('../features/notifications/pages/NotificationListPage'));
+const NotificationHistoryPage = lazy(() => import('../features/notifications/pages/NotificationHistoryPage'));
 
 /** "/" and any unknown URL: send the user wherever they belong. */
 function HomeRedirect() {
@@ -36,7 +37,8 @@ function HomeRedirect() {
 
 export function AppRoutes() {
   return (
-    <Routes>
+    <Suspense fallback={<LoadingIndicator fullScreen />}>
+      <Routes>
       <Route element={<GuestRoute />}>
         <Route path={PATHS.login} element={<LoginPage />} />
       </Route>
@@ -92,6 +94,7 @@ export function AppRoutes() {
 
       <Route path="*" element={<HomeRedirect />} />
     </Routes>
+  </Suspense>
   );
 }
 

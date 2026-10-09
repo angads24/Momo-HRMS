@@ -16,11 +16,13 @@ const EMPLOYEE_ID = 'EMP-001';
 const OFFICE_ID = 'OFFICE-001';
 
 const DEFAULT_POLICY: AttendancePolicy = {
-  checkInStartTime: '07:00',
-  checkInEndTime: '10:00',
-  lateThresholdMinutes: 15,
+  checkInStartTime: '06:00',
+  checkInEndTime: '23:59',
+  lateCutoffTime: '10:00',
+  lateThresholdMinutes: 0,
   gracePeriodMinutes: 60,
   autoCheckoutEnabled: true,
+  autoCheckoutTime: '00:00',
   workingHoursPerDay: 8,
   allowManualCheckoutWhilePaused: false,
   minLocationAccuracyMeters: 50,
@@ -444,7 +446,7 @@ describe('AttendanceService', () => {
   });
 
   describe('getById', () => {
-    it('returns SESSION_NOT_FOUND for another employee\u2019s session', async () => {
+    it('returns SESSION_NOT_FOUND for another employee’s session', async () => {
       const { service } = createTestBed();
       const { session } = await service.checkIn(
         EMPLOYEE_ID,
@@ -452,6 +454,53 @@ describe('AttendanceService', () => {
       );
 
       await expect(service.getById('SOMEONE-ELSE', session.id)).rejects.toThrow(AppException);
+    });
+  });
+
+  describe('10 AM late policy and 12 AM midnight auto-checkout', () => {
+    it('marks check-in before or at 10:00 AM as ON_TIME', async () => {
+      const { service } = createTestBed();
+      // 09:30 AM IST is 04:00 UTC
+      const result = await service.checkIn(
+        EMPLOYEE_ID,
+        buildLocationEvent('ci-ontime', '2026-10-09T04:00:00Z'),
+        new Date('2026-10-09T04:00:00Z'),
+      );
+      expect(result.session.checkInStatus).toBe('ON_TIME');
+    });
+
+    it('marks check-in after 10:00 AM as LATE', async () => {
+      const { service } = createTestBed();
+      // 10:15 AM IST is 04:45 UTC
+      const result = await service.checkIn(
+        'EMP-002',
+        buildLocationEvent('ci-late', '2026-10-09T04:45:00Z'),
+        new Date('2026-10-09T04:45:00Z'),
+      );
+      expect(result.session.checkInStatus).toBe('LATE');
+    });
+
+    it('auto-checks out active working session at 12:00 AM (midnight)', async () => {
+      const { service, prisma } = createTestBed();
+      // Check in at 10:00 AM IST on Oct 9 (04:30 UTC)
+      await service.checkIn(
+        'EMP-003',
+        buildLocationEvent('ci-midnight', '2026-10-09T04:30:00Z'),
+        new Date('2026-10-09T04:30:00Z'),
+      );
+
+      // Now it is 12:05 AM IST on Oct 10 (18:35 UTC on Oct 9)
+      const sweepTime = new Date('2026-10-09T18:35:00Z');
+      const { processed } = await service.runAutoCheckoutSweep(100, sweepTime);
+      expect(processed).toBe(1);
+
+      const session: any = prisma.sessions.find((s: any) => s.employeeId === 'EMP-003')!;
+      expect(session).toBeDefined();
+      expect(session.status).toBe(AttendanceStatus.CHECKED_OUT);
+      expect(session.checkoutType).toBe(CheckoutType.AUTO);
+      expect(session.checkoutReason).toBe(CheckoutReason.SYSTEM_ACTION);
+      // Midnight cutoff is 18:30:00 UTC (12:00 AM IST)
+      expect(session.checkOutAt.toISOString()).toBe('2026-10-09T18:30:00.000Z');
     });
   });
 });

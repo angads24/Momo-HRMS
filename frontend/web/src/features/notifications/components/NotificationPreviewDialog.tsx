@@ -21,7 +21,31 @@ import EmailIcon from '@mui/icons-material/Email';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import type { AppNotification } from '../types/notification';
 import { NotificationTypeBadge } from './NotificationTypeBadge';
-import { approveAttendanceException } from '../../attendance/services/attendanceService';
+import {
+  approveAttendanceException,
+  fetchAttendanceExceptionById,
+} from '../../attendance/services/attendanceService';
+import { fetchEmployeeByUserId } from '../../../services/employeeService';
+import { useAuth } from '../../../context/AuthContext';
+
+const isUuid = (val?: string | null): boolean =>
+  Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim()));
+
+const resolveApproverName = (
+  nameCandidate?: string | null,
+  emailCandidate?: string | null,
+  userIdCandidate?: string | null,
+  hrEmailFallback?: string | null,
+  currentUser?: { id?: string; fullName?: string | null; username?: string | null; email?: string | null } | null
+): string => {
+  if (nameCandidate && !isUuid(nameCandidate)) return nameCandidate.trim();
+  if (userIdCandidate && currentUser?.id === userIdCandidate) {
+    return currentUser.fullName || currentUser.username || currentUser.email || 'HR Administrator';
+  }
+  if (emailCandidate) return emailCandidate.trim();
+  if (hrEmailFallback) return hrEmailFallback.trim();
+  return 'HR Administrator';
+};
 
 interface Props {
   open: boolean;
@@ -38,22 +62,84 @@ export function NotificationPreviewDialog({
   onMarkRead,
   onActionComplete,
 }: Props) {
+  const { user } = useAuth();
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [exceptionStatus, setExceptionStatus] = useState<'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
+  const [decisionBy, setDecisionBy] = useState<string | null>(null);
+  const [decisionAt, setDecisionAt] = useState<string | null>(null);
+  const [decisionComment, setDecisionComment] = useState<string | null>(null);
 
   useEffect(() => {
-    const rawStatus = (notification?.metadata as Record<string, any> | undefined)?.status;
-    if (rawStatus === 'APPROVED' || rawStatus === 'REJECTED' || rawStatus === 'PENDING') {
-      setExceptionStatus(rawStatus);
-    } else {
-      setExceptionStatus('PENDING');
-    }
+    let active = true;
+    const meta = (notification?.metadata || {}) as Record<string, any>;
+    const rawStatus = meta.status;
+    const exceptionId = String(meta.exceptionId || '');
+
+    setExceptionStatus(rawStatus === 'APPROVED' || rawStatus === 'REJECTED' ? rawStatus : 'PENDING');
+    const initialApprover = resolveApproverName(
+      meta.approvedByName,
+      meta.approvedByEmail,
+      meta.approvedByUserId,
+      meta.hrEmail,
+      user,
+    );
+    setDecisionBy(initialApprover);
+    setDecisionAt(meta.approvedAt || null);
+    setDecisionComment(meta.comment || null);
     setActionError(null);
     setActionSuccess(null);
     setActionLoading(false);
-  }, [notification]);
+
+    if (exceptionId) {
+      fetchAttendanceExceptionById(exceptionId)
+        .then((latestEx) => {
+          if (!active || !latestEx) return;
+          const exMeta = (latestEx.metadata as Record<string, any>) || {};
+          setExceptionStatus(latestEx.status);
+          if (latestEx.status === 'APPROVED' || latestEx.status === 'REJECTED') {
+            const approver = resolveApproverName(
+              exMeta.approvedByName,
+              exMeta.approvedByEmail,
+              latestEx.approvedByUserId || exMeta.approvedByUserId,
+              exMeta.hrEmail || meta.hrEmail,
+              user,
+            );
+            const atTime = latestEx.approvedAt || exMeta.approvedAt;
+            setDecisionBy(approver);
+            setDecisionAt(atTime ? String(atTime) : null);
+            setDecisionComment(exMeta.comment || null);
+
+            // If we have an approver UUID not yet resolved to a human name, try employee lookup
+            const approverUserId = latestEx.approvedByUserId || exMeta.approvedByUserId;
+            if (
+              approverUserId &&
+              isUuid(approverUserId) &&
+              approverUserId !== user?.id &&
+              (!exMeta.approvedByName || isUuid(exMeta.approvedByName))
+            ) {
+              fetchEmployeeByUserId(approverUserId)
+                .then((emp) => {
+                  if (!active || !emp) return;
+                  const resolvedName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || emp.email;
+                  if (resolvedName) {
+                    setDecisionBy(resolvedName);
+                  }
+                })
+                .catch(() => {});
+            }
+          }
+        })
+        .catch(() => {
+          // fallback to notification metadata
+        });
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [notification, user]);
 
   if (!notification) return null;
 
@@ -61,14 +147,18 @@ export function NotificationPreviewDialog({
   const isSpecialHoursRequest =
     notification.type === ('SPECIAL_WORKING_HOURS_REQUEST' as any) ||
     Boolean(metadata.exceptionId) ||
-    metadata.additionalHours !== undefined;
+    metadata.additionalHours !== undefined ||
+    metadata.requestedHours !== undefined;
 
   const exceptionId = String(metadata.exceptionId || '');
   const employeeName = String(metadata.employeeName || 'Employee');
   const employeeEmail = String(metadata.employeeEmail || '');
   const employeeId = String(metadata.employeeId || '');
   const dateStr = String(metadata.attendanceDate || metadata.dateStr || '');
-  const additionalHours = Number(metadata.additionalHours) || (Number(metadata.additionalMinutes) ? Number(metadata.additionalMinutes) / 60 : 0);
+  const additionalHours =
+    Number(metadata.additionalHours) ||
+    Number(metadata.requestedHours) ||
+    (Number(metadata.additionalMinutes) ? Number(metadata.additionalMinutes) / 60 : 0);
   const reason = String(metadata.reason || notification.body || '');
   const hrEmail = String(metadata.hrEmail || '');
 
@@ -81,12 +171,30 @@ export function NotificationPreviewDialog({
     try {
       setActionLoading(true);
       setActionError(null);
+      const approverName = user?.fullName || user?.username || user?.email || 'HR Administrator';
+      const approverEmail = user?.email || undefined;
+      const nowIso = new Date().toISOString();
+
       await approveAttendanceException(exceptionId, {
         status,
-        comment: `Handled via Web Notification Center by HR on ${new Date().toLocaleString()}`,
+        comment: `Handled via Web Notification Center by ${approverName} on ${new Date().toLocaleString()}`,
+        approverName,
+        approverEmail,
+        employeeId,
+        attendanceDate: dateStr,
+        additionalHours,
+        reason,
+        metadata: {
+          ...metadata,
+          employeeName,
+          employeeEmail,
+          hrEmail,
+        },
       });
 
       setExceptionStatus(status);
+      setDecisionBy(approverName);
+      setDecisionAt(nowIso);
       setActionSuccess(
         status === 'APPROVED'
           ? `Special working hours (+${additionalHours}h) approved and credited to ${employeeName} for ${dateStr}.`
@@ -240,6 +348,8 @@ export function NotificationPreviewDialog({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 1.5,
                 }}
               >
                 <Box>
@@ -275,7 +385,40 @@ export function NotificationPreviewDialog({
                   </Button>
                 </Stack>
               </Paper>
-            ) : null}
+            ) : (
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  borderRadius: 2,
+                  bgcolor: exceptionStatus === 'APPROVED' ? '#f0fdf4' : '#fef2f2',
+                  borderColor: exceptionStatus === 'APPROVED' ? '#bbf7d0' : '#fecaca',
+                }}
+              >
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.75 }}>
+                  <CheckCircleIcon sx={{ fontSize: 20, color: exceptionStatus === 'APPROVED' ? '#16a34a' : '#dc2626' }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, color: exceptionStatus === 'APPROVED' ? '#15803d' : '#b91c1c' }}>
+                    {exceptionStatus === 'APPROVED' ? 'Request Approved' : 'Request Rejected'}
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" sx={{ color: '#1e293b', fontSize: '0.85rem' }}>
+                  <strong>Decided by:</strong>{' '}
+                  {decisionBy && !isUuid(decisionBy)
+                    ? decisionBy
+                    : user?.fullName || hrEmail || 'HR Administrator'}
+                </Typography>
+                {decisionAt ? (
+                  <Typography variant="body2" sx={{ color: '#475569', fontSize: '0.85rem', mt: 0.25 }}>
+                    <strong>Date & Time:</strong> {new Date(decisionAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                  </Typography>
+                ) : null}
+                {decisionComment ? (
+                  <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 0.5, fontStyle: 'italic' }}>
+                    Note: {decisionComment}
+                  </Typography>
+                ) : null}
+              </Paper>
+            )}
           </Box>
         ) : (
           <>

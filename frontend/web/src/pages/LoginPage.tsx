@@ -10,7 +10,6 @@ import { AppTextInput } from '../components/AppTextInput';
 import { AuthLayout } from '../components/AuthLayout';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { PasswordInput } from '../components/PasswordInput';
-import { PasswordRequirements } from '../components/PasswordRequirements';
 import { useAuth } from '../context/AuthContext';
 import { loginSchema } from '../schemas/authSchemas';
 import type { LoginFormValues } from '../schemas/authSchemas';
@@ -23,15 +22,12 @@ export default function LoginPage() {
   const {
     control,
     handleSubmit,
-    watch,
     formState: { errors, isValid, isSubmitting },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     mode: 'onChange',
     defaultValues: { email: '', password: '' },
   });
-
-  const password = watch('password');
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null);
@@ -78,12 +74,17 @@ export default function LoginPage() {
         <Controller
           control={control}
           name="password"
-          render={({ field: { ref, ...field } }) => <PasswordInput {...field} inputRef={ref} label="Password" />}
+          render={({ field: { ref, ...field } }) => (
+            <PasswordInput
+              {...field}
+              inputRef={ref}
+              label="Password"
+              errorText={errors.password?.message}
+            />
+          )}
         />
 
-        <PasswordRequirements password={password} />
-
-        <AppButton type="submit" loading={isSubmitting} disabled={!isValid}>
+        <AppButton type="submit" loading={isSubmitting} disabled={!isValid} sx={{ mt: 2 }}>
           Log in
         </AppButton>
       </form>

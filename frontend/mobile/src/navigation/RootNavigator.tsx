@@ -8,6 +8,8 @@ import AttendanceHistoryScreen from '../screens/AttendanceHistoryScreen';
 import ProfileCompletionScreen from '../screens/ProfileCompletionScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
+import MsgToHrScreen from '../screens/MsgToHrScreen';
+import MyAttendanceScreen from '../screens/MyAttendanceScreen';
 import LoginScreen from '../screens/LoginScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import FaceRegistrationScreen from '../screens/FaceRegistrationScreen';
@@ -55,6 +57,26 @@ function ProtectedNotificationsScreen() {
   );
 }
 
+function ProtectedMsgToHrScreen() {
+  return (
+    <ProtectedRoute>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+        <MsgToHrScreen />
+      </RoleBasedRoute>
+    </ProtectedRoute>
+  );
+}
+
+function ProtectedMyAttendanceScreen() {
+  return (
+    <ProtectedRoute>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+        <MyAttendanceScreen />
+      </RoleBasedRoute>
+    </ProtectedRoute>
+  );
+}
+
 /**
  * Root Navigator for the Momo HRMS Employee Mobile Application.
  *
@@ -92,6 +114,8 @@ export function RootNavigator() {
           <Stack.Screen name="AttendanceHistory" component={ProtectedHistoryScreen} />
           <Stack.Screen name="Profile" component={ProtectedProfileScreen} />
           <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
+          <Stack.Screen name="MsgToHr" component={ProtectedMsgToHrScreen} />
+          <Stack.Screen name="MyAttendance" component={ProtectedMyAttendanceScreen} />
         </>
       )}
     </Stack.Navigator>

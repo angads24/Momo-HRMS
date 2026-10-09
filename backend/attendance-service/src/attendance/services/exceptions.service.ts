@@ -119,16 +119,54 @@ export class ExceptionsService {
   }
 
   async approveException(id: string, approverUserId: string, dto: ApproveExceptionDto) {
-    const exception = await this.prisma.attendanceException.findUnique({
+    let exception = await this.prisma.attendanceException.findUnique({
       where: { id },
     });
 
     if (!exception) {
-      throw new AppException(
-        ErrorCodes.NOT_FOUND,
-        'Attendance exception not found',
-        HttpStatus.NOT_FOUND,
-      );
+      // Self-heal: If exception was deleted or missing from DB, recreate it using DTO context
+      if (dto.employeeId && dto.attendanceDate) {
+        const attDate = new Date(dto.attendanceDate);
+        attDate.setHours(0, 0, 0, 0);
+        const validFrom = new Date(attDate);
+        const validUntil = new Date(attDate);
+        validUntil.setHours(23, 59, 59, 999);
+        const addHours =
+          Number(dto.additionalHours) ||
+          (dto.metadata?.additionalHours ? Number(dto.metadata.additionalHours) : 0);
+        const addMinutes = Math.round(addHours * 60);
+
+        exception = await this.prisma.attendanceException.create({
+          data: {
+            id,
+            employeeId: dto.employeeId,
+            attendanceDate: attDate,
+            type: ExceptionType.WORKING_TIME_ADJUSTMENT,
+            reason: dto.reason || 'Special working hours requested',
+            validFrom,
+            validUntil,
+            status: ExceptionStatus.PENDING,
+            metadata: {
+              ...(dto.metadata || {}),
+              additionalHours: addHours,
+              additionalMinutes: addMinutes,
+              additionalSeconds: addMinutes * 60,
+              dateStr: dto.attendanceDate,
+              reason: dto.reason,
+              employeeName: dto.metadata?.employeeName || 'Employee',
+              employeeEmail: dto.metadata?.employeeEmail || '',
+              hrEmail: dto.metadata?.hrEmail || dto.approverEmail || 'hr@company.com',
+            },
+          },
+        });
+        this.logger.log(`Self-healed missing exception ${id} for employee ${dto.employeeId}`);
+      } else {
+        throw new AppException(
+          ErrorCodes.NOT_FOUND,
+          'Attendance exception not found',
+          HttpStatus.NOT_FOUND,
+        );
+      }
     }
 
     if (exception.status !== ExceptionStatus.PENDING) {
@@ -146,9 +184,23 @@ export class ExceptionsService {
       (meta.additionalMinutes ? meta.additionalMinutes / 60 : 0);
     const dateFormatted = exception.attendanceDate.toISOString().split('T')[0];
 
+    const isUuid = (val?: string) =>
+      Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim()));
+
+    let approverName = 'HR Administrator';
+    if (dto.approverName && !isUuid(dto.approverName)) {
+      approverName = dto.approverName.trim();
+    } else if (dto.approverEmail) {
+      approverName = dto.approverEmail.trim();
+    } else if (meta.hrEmail) {
+      approverName = meta.hrEmail;
+    }
+
     const updatedMetadata = {
       ...meta,
       approvedByUserId: approverUserId,
+      approvedByName: approverName,
+      approvedByEmail: dto.approverEmail || meta.hrEmail || 'hr@company.com',
       approvedAt: new Date().toISOString(),
       comment: dto.comment,
     };
@@ -199,13 +251,37 @@ export class ExceptionsService {
   }
 
   async getExceptions(employeeId?: string, status?: ExceptionStatus, hrEmail?: string) {
-    const list = await this.prisma.attendanceException.findMany({
+    const empIds = employeeId
+      ? employeeId.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    let list = await this.prisma.attendanceException.findMany({
       where: {
-        ...(employeeId ? { employeeId } : {}),
+        ...(empIds.length > 1
+          ? { employeeId: { in: empIds } }
+          : empIds.length === 1
+          ? { employeeId: empIds[0] }
+          : {}),
         ...(status ? { status } : {}),
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    if (empIds.length > 0 && list.length === 0) {
+      const allForStatus = await this.prisma.attendanceException.findMany({
+        where: {
+          ...(status ? { status } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      list = allForStatus.filter((ex) => {
+        if (empIds.includes(ex.employeeId)) return true;
+        const meta = (ex.metadata as Record<string, any>) || {};
+        if (meta.employeeId && empIds.includes(String(meta.employeeId))) return true;
+        if (meta.employeeCode && empIds.includes(String(meta.employeeCode))) return true;
+        return false;
+      });
+    }
 
     if (hrEmail) {
       const hrLower = hrEmail.trim().toLowerCase();
@@ -217,6 +293,31 @@ export class ExceptionsService {
 
     return list;
   }
+
+  async getExceptionById(id: string) {
+    const exception = await this.prisma.attendanceException.findUnique({
+      where: { id },
+    });
+    if (!exception) {
+      throw new AppException(
+        ErrorCodes.NOT_FOUND,
+        'Attendance exception not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    const meta = (exception.metadata as Record<string, any>) || {};
+    const isUuid = (val?: string) =>
+      Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim()));
+
+    if (meta.approvedByName && isUuid(meta.approvedByName)) {
+      meta.approvedByName = meta.approvedByEmail || meta.hrEmail || 'HR Administrator';
+    }
+    return {
+      ...exception,
+      metadata: meta,
+    };
+  }
+
 
   async cancelException(id: string) {
     const exception = await this.prisma.attendanceException.findUnique({

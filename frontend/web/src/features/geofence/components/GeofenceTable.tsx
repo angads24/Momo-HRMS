@@ -11,6 +11,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import EditLocationAltIcon from '@mui/icons-material/EditLocationAlt';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
+import DeleteIcon from '@mui/icons-material/Delete';
 import type { Office } from '../types/geofence';
 import { GeofenceStatusBadge, PolygonConfiguredBadge } from './GeofenceStatusBadge';
 
@@ -19,9 +20,10 @@ interface Props {
   loading: boolean;
   onEditPolygon: (office: Office) => void;
   onVerifyLocation: (office: Office) => void;
+  onDeleteOffice?: (office: Office) => void;
 }
 
-export function GeofenceTable({ offices, loading, onEditPolygon, onVerifyLocation }: Props) {
+export function GeofenceTable({ offices, loading, onEditPolygon, onVerifyLocation, onDeleteOffice }: Props) {
   if (loading) {
     return (
       <Paper variant="outlined" sx={{ p: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
@@ -77,7 +79,7 @@ export function GeofenceTable({ offices, loading, onEditPolygon, onVerifyLocatio
                     <GeofenceStatusBadge isActive={office.isActive} />
                   </TableCell>
                   <TableCell align="right">
-                    <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                    <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 0.75 }}>
                       <Button
                         size="small"
                         variant="outlined"
@@ -97,6 +99,17 @@ export function GeofenceTable({ offices, loading, onEditPolygon, onVerifyLocatio
                       >
                         Test Probe
                       </Button>
+                      {onDeleteOffice && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="error"
+                          startIcon={<DeleteIcon />}
+                          onClick={() => onDeleteOffice(office)}
+                        >
+                          Delete
+                        </Button>
+                      )}
                     </Stack>
                   </TableCell>
                 </TableRow>

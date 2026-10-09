@@ -77,6 +77,7 @@ export default function AddEmployeePage() {
   // Validation
   const [fullNameError, setFullNameError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [officeError, setOfficeError] = useState<string | null>(null);
 
   // Post-Creation State
   const [createdEmployee, setCreatedEmployee] = useState<Employee | null>(null);
@@ -191,6 +192,7 @@ export default function AddEmployeePage() {
     let valid = true;
     setFullNameError(null);
     setEmailError(null);
+    setOfficeError(null);
 
     const trimmedName = fullName.trim();
     if (!trimmedName) {
@@ -202,6 +204,15 @@ export default function AddEmployeePage() {
         setFullNameError('Please enter both first and last name (e.g. Rohit Verma)');
         valid = false;
       }
+    }
+
+    if (selectedOfficeIds.length === 0) {
+      setOfficeError(
+        selectedRole === 'HR'
+          ? 'Office jurisdiction is required for HR. The HR will only be able to view and manage staff from this designated office.'
+          : 'Please select at least one workplace office location.'
+      );
+      valid = false;
     }
 
     const trimmedEmail = personalEmail.trim();
@@ -399,6 +410,11 @@ export default function AddEmployeePage() {
     setEmploymentType('EMPLOYEE');
     setSelectedRole('EMPLOYEE');
     setServerError(null);
+    setOfficeError(null);
+    if (offices.length > 0) {
+      const activeOffice = offices.find((o) => o.isActive) || offices[0];
+      setSelectedOfficeIds([activeOffice.id]);
+    }
     setResolvedEmail('');
     setResolvedHrEmail('');
     setResolvedAttendanceEmail('');
@@ -476,6 +492,34 @@ export default function AddEmployeePage() {
                   <Box>
                     <Typography variant="caption" color="text.secondary">Assigned Role:</Typography>
                     <Chip label="HR_ADMIN" size="small" color="secondary" sx={{ fontWeight: 600, width: 'fit-content' }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Office Jurisdiction Scope:</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                      {(createdDualAccounts.hrAccount.assignedOffices || []).length > 0 ? (
+                        createdDualAccounts.hrAccount.assignedOffices!.map((o) => (
+                          <Chip
+                            key={o.id}
+                            icon={<LocationOnIcon fontSize="small" />}
+                            label={`${o.name} (${o.code})${o.isPrimary ? ' • Primary Scope' : ''}`}
+                            size="small"
+                            color="secondary"
+                            sx={{ fontWeight: 600 }}
+                          />
+                        ))
+                      ) : (
+                        <Chip
+                          icon={<LocationOnIcon fontSize="small" />}
+                          label={createdDualAccounts.hrAccount.officeLocationName || 'Assigned Office'}
+                          size="small"
+                          color="secondary"
+                          sx={{ fontWeight: 600 }}
+                        />
+                      )}
+                    </Box>
+                    <Typography variant="caption" color="secondary.dark" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic', fontSize: '0.72rem' }}>
+                      * This HR will strictly see only employees and attendance belonging to this office.
+                    </Typography>
                   </Box>
                 </Box>
               </Paper>
@@ -827,16 +871,34 @@ export default function AddEmployeePage() {
               </FormControl>
 
               {/* Field 4: Office Location & Geofence Assignment (Multiple Locations Support) */}
-              <FormControl fullWidth required disabled={submitting}>
-                <InputLabel id="office-location-label">Assigned Office Locations</InputLabel>
+              {selectedRole === 'HR' && (
+                <Alert
+                  severity="info"
+                  icon={<LocationOnIcon />}
+                  sx={{ borderRadius: 2, bgcolor: 'rgba(156, 39, 176, 0.06)', borderColor: 'secondary.light', borderWidth: 1, borderStyle: 'solid' }}
+                >
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'secondary.dark' }}>
+                    HR Workplace Scope & Staff Visibility
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontSize: '0.82rem', mt: 0.5 }}>
+                    The office selected below is assigned as this HR's <strong>Jurisdiction</strong>. In the HR portal, this HR will <strong>only</strong> see employees, live attendance monitors, working hours, and analytics for staff belonging to this office.
+                  </Typography>
+                </Alert>
+              )}
+
+              <FormControl fullWidth required error={Boolean(officeError)} disabled={submitting}>
+                <InputLabel id="office-location-label">
+                  {selectedRole === 'HR' ? 'Assigned Workplace Jurisdiction *' : 'Assigned Office Locations *'}
+                </InputLabel>
                 <Select
                   labelId="office-location-label"
-                  label="Assigned Office Locations *"
+                  label={selectedRole === 'HR' ? 'Assigned Workplace Jurisdiction *' : 'Assigned Office Locations *'}
                   multiple
                   value={selectedOfficeIds}
                   onChange={(e) => {
                     const value = e.target.value;
                     setSelectedOfficeIds(typeof value === 'string' ? value.split(',') : value);
+                    if (officeError) setOfficeError(null);
                   }}
                   renderValue={(selected) => (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
@@ -845,9 +907,9 @@ export default function AddEmployeePage() {
                         return (
                           <Chip
                             key={id}
-                            label={`${off ? off.name : id}${idx === 0 ? ' (Primary)' : ''}`}
+                            label={`${off ? off.name : id}${idx === 0 ? ' (Primary Scope)' : ''}`}
                             size="small"
-                            color={idx === 0 ? 'primary' : 'default'}
+                            color={idx === 0 ? (selectedRole === 'HR' ? 'secondary' : 'primary') : 'default'}
                           />
                         );
                       })}
@@ -855,7 +917,7 @@ export default function AddEmployeePage() {
                   )}
                   startAdornment={
                     <InputAdornment position="start">
-                      <LocationOnIcon color="action" />
+                      <LocationOnIcon color={selectedRole === 'HR' ? 'secondary' : 'action'} />
                     </InputAdornment>
                   }
                 >
@@ -870,8 +932,12 @@ export default function AddEmployeePage() {
                     </MenuItem>
                   ))}
                 </Select>
-                <FormHelperText>
-                  Select all workplaces this employee is authorized to work and record attendance at (multi-location access). The first selected office is designated as Primary.
+                <FormHelperText error={Boolean(officeError)}>
+                  {officeError || (
+                    selectedRole === 'HR'
+                      ? 'The selected office defines this HR user\'s scope. Staff assigned to this workplace will be visible to this HR in the HR portal.'
+                      : 'Select all workplaces this employee is authorized to work and record attendance at. The first selected office is designated as Primary.'
+                  )}
                 </FormHelperText>
               </FormControl>
 
@@ -954,6 +1020,19 @@ export default function AddEmployeePage() {
                       </Box>
                       <Chip label="Role: Employee" size="small" color="primary" sx={{ mt: 1, fontWeight: 600, height: 20, fontSize: '0.7rem' }} />
                     </Card>
+                  </Box>
+                  <Box sx={{ mt: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1.5, border: '1px dashed', borderColor: 'secondary.main' }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'secondary.dark', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <LocationOnIcon fontSize="inherit" /> Assigned Workplace Jurisdiction Scope:
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>
+                      {selectedOfficeIds.length > 0
+                        ? offices.filter((o) => selectedOfficeIds.includes(o.id)).map((o) => `${o.name} (${o.code})`).join(', ')
+                        : '⚠️ No office selected yet (Required)'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                      * Only staff members assigned to this office will be visible to this HR in the HR dashboard and directory.
+                    </Typography>
                   </Box>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
                     * If duplicate emails exist, available numbered suffixes (.hr1, .hr2 / 1, 2) are automatically assigned.

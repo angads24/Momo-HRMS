@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Image,
   Linking,
   Modal,
@@ -15,7 +16,6 @@ import {
   ActivityIndicator,
   Avatar,
   Card,
-  Chip,
   Divider,
   Text,
 } from 'react-native-paper';
@@ -276,6 +276,7 @@ export default function EmployeeHomeScreen() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isTransitioningRef = useRef(false);
   const activeSessionRef = useRef<AttendanceSession | null>(null);
+  const locationRef = useRef<Location.LocationObjectCoords | null>(null);
   const [sessionStatusBanner, setSessionStatusBanner] = useState<{
     type: 'PAUSED' | 'RESUMED';
     message: string;
@@ -363,6 +364,45 @@ export default function EmployeeHomeScreen() {
       setApiError(false);
 
       try {
+        // Helper to pause active working session when location services or permissions are disabled
+        const pauseOnLocationOff = async (reasonNote: string) => {
+          const current = activeSessionRef.current;
+          if (current && current.status === 'WORKING' && !isTransitioningRef.current) {
+            isTransitioningRef.current = true;
+            try {
+              const empId = employeeProfile?.employeeCode || employeeProfile?.id;
+              const officeTarget =
+                current.officeId || assignedOffice?.id || assignedOffice?.code || 'OFFICE';
+              const updated = await recordGeofenceExit(
+                {
+                  officeId: officeTarget,
+                  clientEventId: generateUUID(),
+                  reason: 'LOCATION_OFF',
+                  location: {
+                    latitude: locationRef.current?.latitude || 0,
+                    longitude: locationRef.current?.longitude || 0,
+                    accuracyMeters: 50,
+                    timestamp: new Date().toISOString(),
+                  },
+                },
+                empId,
+              );
+              setActiveSession(updated);
+              if (typeof updated.totalWorkingSeconds === 'number') {
+                setWorkingSeconds(updated.totalWorkingSeconds);
+              }
+              setSessionStatusBanner({
+                type: 'PAUSED',
+                message: `${reasonNote}: Working timer paused automatically. Turn on location to resume.`,
+              });
+            } catch (exitErr) {
+              console.warn('Auto pause on location off error:', exitErr);
+            } finally {
+              isTransitioningRef.current = false;
+            }
+          }
+        };
+
         // Step A: Request foreground location permission
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
@@ -370,6 +410,7 @@ export default function EmployeeHomeScreen() {
           setLocationError(
             'Location access is required to verify that you are at your assigned office. Please enable location permissions in your device settings.',
           );
+          await pauseOnLocationOff('Location permission disabled');
           return;
         }
 
@@ -378,6 +419,7 @@ export default function EmployeeHomeScreen() {
         if (!isLocationServicesEnabled) {
           setGpsDisabled(true);
           setLocationError('GPS is disabled on your device. Please turn on Location services in High Accuracy mode.');
+          await pauseOnLocationOff('Device GPS turned off');
           return;
         }
 
@@ -409,6 +451,7 @@ export default function EmployeeHomeScreen() {
           accuracy: Location.Accuracy.High,
         });
         setLocation(pos.coords);
+        locationRef.current = pos.coords;
 
         // Step F: Call geofence-service verify endpoint across assigned offices
         // If employee is physically inside ANY assigned workplace (Place A or Place B), detect that office!
@@ -656,21 +699,22 @@ export default function EmployeeHomeScreen() {
       return;
     }
 
-    // Run periodic GPS check every 10 seconds while session is active
-    const interval = setInterval(() => {
-      void checkLocationAndGeofence();
-    }, 10000);
-
-    // Also watch GPS position changes for immediate reaction
+    let isMounted = true;
     let locationSub: Location.LocationSubscription | null = null;
+
+    // Heartbeat check every 8 seconds ensures turning off location or exiting is detected immediately
+    const heartbeatTimer = setInterval(() => {
+      void checkLocationAndGeofence();
+    }, 8000);
+
     void (async () => {
       try {
         const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted') {
+        if (status === 'granted' && isMounted) {
           locationSub = await Location.watchPositionAsync(
             {
-              accuracy: Location.Accuracy.High,
-              distanceInterval: 5,
+              accuracy: Location.Accuracy.Balanced,
+              distanceInterval: 8,
               timeInterval: 8000,
             },
             () => {
@@ -679,15 +723,24 @@ export default function EmployeeHomeScreen() {
           );
         }
       } catch {
-        // Fallback to interval
+        // Heartbeat timer will handle periodic verification
       }
     })();
 
+    // Listen to AppState transitions (e.g. returning from Quick Settings or Settings after turning off GPS)
+    const appStateSub = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && isMounted) {
+        void checkLocationAndGeofence();
+      }
+    });
+
     return () => {
-      clearInterval(interval);
+      isMounted = false;
+      clearInterval(heartbeatTimer);
       if (locationSub) {
         locationSub.remove();
       }
+      appStateSub.remove();
     };
   }, [activeSession?.status, checkLocationAndGeofence]);
 
@@ -1870,9 +1923,9 @@ export default function EmployeeHomeScreen() {
         <TouchableOpacity
           style={styles.historyBtn}
           activeOpacity={0.7}
-          onPress={() => navigation.navigate('AttendanceHistory')}
+          onPress={() => navigation.navigate('MyAttendance')}
         >
-          <Text style={styles.historyBtnText}>View Full Attendance History</Text>
+          <Text style={styles.historyBtnText}>View My Attendance & Calendar</Text>
           <MaterialCommunityIcons name="arrow-right" size={18} color={palette.primary} />
         </TouchableOpacity>
       </ScrollView>
@@ -1883,10 +1936,42 @@ export default function EmployeeHomeScreen() {
         onClose={() => setIsDrawerVisible(false)}
         onNavigateProfile={() => navigation.navigate('Profile')}
         onNavigateNotifications={() => navigation.navigate('Notifications')}
+        onNavigateMsgToHr={() => navigation.navigate('MsgToHr')}
+        onNavigateMyAttendance={() => navigation.navigate('MyAttendance')}
         onLogout={() => {
           Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign Out', style: 'destructive', onPress: () => void logout() },
+            {
+              text: 'Sign Out',
+              style: 'destructive',
+              onPress: async () => {
+                const current = activeSessionRef.current;
+                if (current && current.status === 'WORKING') {
+                  try {
+                    const empId = employeeProfile?.employeeCode || employeeProfile?.id;
+                    const officeTarget =
+                      current.officeId || assignedOffice?.id || assignedOffice?.code || 'OFFICE';
+                    await recordGeofenceExit(
+                      {
+                        officeId: officeTarget,
+                        clientEventId: generateUUID(),
+                        reason: 'SIGN_OUT',
+                        location: {
+                          latitude: locationRef.current?.latitude || 0,
+                          longitude: locationRef.current?.longitude || 0,
+                          accuracyMeters: 10,
+                          timestamp: new Date().toISOString(),
+                        },
+                      },
+                      empId,
+                    );
+                  } catch (e) {
+                    console.warn('Could not auto-pause on sign out:', e);
+                  }
+                }
+                await logout();
+              },
+            },
           ]);
         }}
         user={user}

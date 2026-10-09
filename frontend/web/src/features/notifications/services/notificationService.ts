@@ -125,8 +125,12 @@ export function createNotificationEventSource(
   recipientId: string,
   onNotification: (notification: AppNotification) => void,
   onError?: (error: Event) => void,
+  email?: string,
 ): EventSource {
-  const sseUrl = `${NOTIFICATION_API_URL}/stream?recipientId=${encodeURIComponent(recipientId)}`;
+  let sseUrl = `${NOTIFICATION_API_URL}/stream?recipientId=${encodeURIComponent(recipientId)}`;
+  if (email) {
+    sseUrl += `&email=${encodeURIComponent(email)}`;
+  }
   const eventSource = new EventSource(sseUrl);
 
   eventSource.onmessage = (event) => {

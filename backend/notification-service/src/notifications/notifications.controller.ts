@@ -56,8 +56,12 @@ export class NotificationsController {
   @Sse('stream')
   @ApiOperation({ summary: 'Real-time Server-Sent Events (SSE) notification stream for web and mobile' })
   @ApiQuery({ name: 'recipientId', required: true, type: String })
-  stream(@Query('recipientId') recipientId: string): Observable<MessageEvent> {
-    return this.sseService.getRecipientStream(recipientId);
+  @ApiQuery({ name: 'email', required: false, type: String })
+  stream(
+    @Query('recipientId') recipientId: string,
+    @Query('email') email?: string,
+  ): Observable<MessageEvent> {
+    return this.sseService.getRecipientStream(recipientId, email);
   }
 
   @Patch(':id/read')

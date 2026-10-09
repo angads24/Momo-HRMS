@@ -39,6 +39,7 @@ export async function fetchEmployees(query: EmployeeListQuery = {}): Promise<Pag
   if (query.departmentId) params.departmentId = query.departmentId;
   if (query.roleId) params.roleId = query.roleId;
   if (query.status) params.status = query.status;
+  if (query.officeId) params.officeId = query.officeId;
 
   const response = await api.get<any>(`${EMPLOYEE_API_URL}/employees`, { params });
   

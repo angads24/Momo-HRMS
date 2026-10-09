@@ -124,6 +124,7 @@ export interface EmployeeListQuery {
   departmentId?: string;
   roleId?: string;
   status?: EmploymentStatus;
+  officeId?: string;
 }
 
 export interface CreateEmployeePayload {

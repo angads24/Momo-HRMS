@@ -8,6 +8,8 @@ export type RootStackParamList = {
   AttendanceHistory: undefined;
   Profile: undefined;
   Notifications: undefined;
+  MsgToHr: undefined;
+  MyAttendance: undefined;
 };
 
 // Makes useNavigation() / navigate() type-safe everywhere without extra generics.

@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import ClearIcon from '@mui/icons-material/Clear';
 import SearchIcon from '@mui/icons-material/Search';
 import type { Department, EmploymentStatus, Role } from '../../../types/employee';
+import type { Office } from '../../geofence/types/geofence';
 
 interface Props {
   search: string;
@@ -20,8 +21,11 @@ interface Props {
   onRoleChange: (val: string) => void;
   status: string;
   onStatusChange: (val: string) => void;
+  officeId?: string;
+  onOfficeChange?: (val: string) => void;
   departments: Department[];
   roles: Role[];
+  offices?: Office[];
   onReset: () => void;
   loading?: boolean;
 }
@@ -43,12 +47,15 @@ export function EmployeeFilters({
   onRoleChange,
   status,
   onStatusChange,
+  officeId = '',
+  onOfficeChange,
   departments,
   roles,
+  offices = [],
   onReset,
   loading = false,
 }: Props) {
-  const hasActiveFilters = Boolean(search || departmentId || roleId || status);
+  const hasActiveFilters = Boolean(search || departmentId || roleId || status || officeId);
 
   return (
     <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
@@ -58,7 +65,7 @@ export function EmployeeFilters({
           gridTemplateColumns: {
             xs: '1fr',
             sm: '1fr 1fr',
-            md: '2fr 1.5fr 1.5fr 1.5fr auto',
+            md: '2fr 1.3fr 1.3fr 1.3fr 1.3fr auto',
           },
           gap: 2,
           alignItems: 'center',
@@ -69,7 +76,6 @@ export function EmployeeFilters({
           placeholder="Search by name, code, email..."
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          disabled={loading}
           slotProps={{
             input: {
               startAdornment: (
@@ -88,7 +94,6 @@ export function EmployeeFilters({
             value={departmentId}
             label="Department"
             onChange={(e) => onDepartmentChange(e.target.value)}
-            disabled={loading}
           >
             <MenuItem value="">
               <em>All Departments</em>
@@ -108,7 +113,6 @@ export function EmployeeFilters({
             value={roleId}
             label="Role"
             onChange={(e) => onRoleChange(e.target.value)}
-            disabled={loading}
           >
             <MenuItem value="">
               <em>All Roles</em>
@@ -128,7 +132,6 @@ export function EmployeeFilters({
             value={status}
             label="Status"
             onChange={(e) => onStatusChange(e.target.value)}
-            disabled={loading}
           >
             <MenuItem value="">
               <em>All Statuses</em>
@@ -136,6 +139,24 @@ export function EmployeeFilters({
             {STATUS_OPTIONS.map((opt) => (
               <MenuItem key={opt.value} value={opt.value}>
                 {opt.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" fullWidth>
+          <InputLabel id="filter-office-label">Office</InputLabel>
+          <Select
+            labelId="filter-office-label"
+            value={officeId}
+            label="Office"
+            onChange={(e) => onOfficeChange && onOfficeChange(e.target.value)}
+          >
+            <MenuItem value="">
+              <em>All Offices</em>
+            </MenuItem>
+            {offices.map((off) => (
+              <MenuItem key={off.id} value={off.id}>
+                {off.name}
               </MenuItem>
             ))}
           </Select>

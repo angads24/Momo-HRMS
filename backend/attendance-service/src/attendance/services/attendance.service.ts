@@ -183,11 +183,11 @@ export class AttendanceService {
       if (activeSession) {
         const sessionDateOnly = this.toDateOnly(activeSession.attendanceDate);
         if (sessionDateOnly.getTime() < attendanceDate.getTime()) {
-          // Stale active session from a previous calendar day: auto-checkout so today's shift can start
+          // Stale active session from a previous calendar day: auto-checkout at midnight (12 AM) so today's shift can start
+          const autoCheckoutTime = this.getMidnightCutoffForSession(activeSession.checkInAt);
           this.logger.warn(
-            `Employee ${employeeId} has a stale unclosed session ${activeSession.id} from ${this.formatDateOnly(sessionDateOnly)}. Auto-closing it so today's check-in can proceed.`,
+            `Employee ${employeeId} has a stale unclosed session ${activeSession.id} from ${this.formatDateOnly(sessionDateOnly)}. Auto-closing it at midnight (${autoCheckoutTime.toISOString()}) so today's check-in can proceed.`,
           );
-          const autoCheckoutTime = new Date(activeSession.checkInAt.getTime() + 8 * 3600 * 1000);
           const totalWorkingSeconds = this.workingTimeService.calculateWorkingSeconds(
             {
               status: AttendanceStatus.CHECKED_OUT,
@@ -210,6 +210,20 @@ export class AttendanceService {
               currentGraceDeadline: null,
             },
           });
+          const openPause = activeSession.pauses.find((p) => p.endedAt === null);
+          if (openPause) {
+            await tx.attendancePause.updateMany({
+              where: { id: openPause.id, endedAt: null },
+              data: {
+                endedAt: autoCheckoutTime,
+                durationSeconds: Math.max(
+                  0,
+                  Math.round((autoCheckoutTime.getTime() - openPause.startedAt.getTime()) / 1000),
+                ),
+                endReason: PauseEndReason.AUTO_CHECKOUT,
+              },
+            });
+          }
         } else {
           throw new AppException(
             ErrorCodes.ATTENDANCE_ALREADY_ACTIVE,
@@ -455,17 +469,24 @@ export class AttendanceService {
       );
     }
 
-    const stillInside = await this.geofenceProvider.isInsideOffice(
-      dto.officeId,
-      dto.location.latitude,
-      dto.location.longitude,
-    );
-    if (stillInside) {
-      throw new AppException(
-        ErrorCodes.STILL_INSIDE_GEOFENCE,
-        'Location still reports inside the office boundary; exit not confirmed',
-        HttpStatus.UNPROCESSABLE_ENTITY,
+    const isSpecialExit =
+      dto.reason === 'LOCATION_OFF' ||
+      dto.reason === 'SIGN_OUT' ||
+      dto.reason === 'MANUAL_PAUSE';
+
+    if (!isSpecialExit) {
+      const stillInside = await this.geofenceProvider.isInsideOffice(
+        dto.officeId,
+        dto.location.latitude,
+        dto.location.longitude,
       );
+      if (stillInside) {
+        throw new AppException(
+          ErrorCodes.STILL_INSIDE_GEOFENCE,
+          'Location still reports inside the office boundary; exit not confirmed',
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
     }
 
     const policy = await this.policyProvider.getPolicy(dto.officeId);
@@ -527,12 +548,26 @@ export class AttendanceService {
 
     this.logger.log(`GEOFENCE_EXIT employeeId=${employeeId} sessionId=${updated.id}`);
 
+    const notificationTitle =
+      dto.reason === 'LOCATION_OFF'
+        ? 'Location Turned Off'
+        : dto.reason === 'SIGN_OUT'
+        ? 'Signed Out from Momo HRMS'
+        : 'Geofence Exit Detected';
+
+    const notificationBody =
+      dto.reason === 'LOCATION_OFF'
+        ? 'Location services were disabled. Working timer paused automatically. Turn on location inside office to resume.'
+        : dto.reason === 'SIGN_OUT'
+        ? 'You signed out of the app. Working timer paused automatically.'
+        : `You stepped outside the office polygon. Session paused. Return before ${graceDeadline.toLocaleTimeString()} to resume.`;
+
     void this.notificationClient.sendNotification({
       recipientId: employeeId,
       type: 'GEOFENCE_EXIT_WARNING',
-      title: 'Geofence Exit Detected',
-      body: `You stepped outside the office polygon. Session paused. Return before ${graceDeadline.toLocaleTimeString()} to resume.`,
-      metadata: { sessionId: updated.id, officeId: dto.officeId, graceDeadline },
+      title: notificationTitle,
+      body: notificationBody,
+      metadata: { sessionId: updated.id, officeId: dto.officeId, graceDeadline, reason: dto.reason },
     });
 
     return { session: this.toSessionDto(updated, updated.pauses, effectiveTime), idempotentReplay: false };
@@ -1098,34 +1133,46 @@ export class AttendanceService {
       return { processed: 0, skipped: 0 };
     }
 
-    const expired = await this.prisma.attendanceSession.findMany({
+    // 1. Expired PAUSED sessions (geofence exit grace deadline exceeded)
+    const expiredPaused = await this.prisma.attendanceSession.findMany({
       where: { status: AttendanceStatus.PAUSED, currentGraceDeadline: { lte: now } },
       include: { pauses: true },
       take: batchSize,
     });
 
-    // Also sweep stale unclosed sessions from previous days
-    const startOfToday = this.toDateOnly(now);
-    const stalePreviousDay = await this.prisma.attendanceSession.findMany({
+    // 2. All active sessions (WORKING or PAUSED) to check for 12:00 AM (midnight) auto-checkout
+    const activeSessions = await this.prisma.attendanceSession.findMany({
       where: {
         status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] },
-        attendanceDate: { lt: startOfToday },
       },
       include: { pauses: true },
       take: batchSize,
     });
 
-    const sessionMap = new Map<string, SessionWithPauses>();
-    for (const s of expired) sessionMap.set(s.id, s);
-    for (const s of stalePreviousDay) sessionMap.set(s.id, s);
+    const sessionMap = new Map<string, { session: SessionWithPauses; targetCheckoutTime?: Date }>();
+    for (const s of expiredPaused) {
+      sessionMap.set(s.id, { session: s, targetCheckoutTime: s.currentGraceDeadline ?? now });
+    }
+
+    // Check for 12:00 AM (midnight) auto checkout:
+    for (const s of activeSessions) {
+      const midnightCutoff = this.getMidnightCutoffForSession(s.checkInAt);
+      if (now.getTime() >= midnightCutoff.getTime()) {
+        const existing = sessionMap.get(s.id);
+        if (!existing || (existing.targetCheckoutTime && midnightCutoff.getTime() < existing.targetCheckoutTime.getTime())) {
+          sessionMap.set(s.id, { session: s, targetCheckoutTime: midnightCutoff });
+        }
+      }
+    }
+
     const pendingSessions = Array.from(sessionMap.values());
 
     let processed = 0;
     let skipped = 0;
 
-    for (const session of pendingSessions) {
+    for (const item of pendingSessions) {
       try {
-        const handled = await this.autoCheckoutOne(session, now);
+        const handled = await this.autoCheckoutOne(item.session, now, item.targetCheckoutTime);
         if (handled) {
           processed += 1;
         } else {
@@ -1134,7 +1181,7 @@ export class AttendanceService {
       } catch (error) {
         // One bad session must never abort the whole sweep.
         this.logger.error(
-          `Auto-checkout failed for sessionId=${session.id}: ${(error as Error).message}`,
+          `Auto-checkout failed for sessionId=${item.session.id}: ${(error as Error).message}`,
         );
       }
     }
@@ -1146,9 +1193,16 @@ export class AttendanceService {
     return { processed, skipped };
   }
 
-  private async autoCheckoutOne(session: SessionWithPauses, now: Date): Promise<boolean> {
+  private async autoCheckoutOne(
+    session: SessionWithPauses,
+    now: Date,
+    targetCheckoutTime?: Date,
+  ): Promise<boolean> {
     const isPaused = session.status === AttendanceStatus.PAUSED;
-    const checkoutAt = isPaused ? (session.currentGraceDeadline ?? now) : now;
+    let checkoutAt = targetCheckoutTime ?? (isPaused ? (session.currentGraceDeadline ?? now) : now);
+    if (checkoutAt.getTime() > now.getTime()) {
+      checkoutAt = now;
+    }
     const openPause = session.pauses.find((p) => p.endedAt === null);
 
     const totalWorkingSeconds = this.workingTimeService.calculateWorkingSeconds(
@@ -1162,6 +1216,9 @@ export class AttendanceService {
       checkoutAt,
     );
 
+    const isGraceExpired = isPaused && session.currentGraceDeadline && session.currentGraceDeadline.getTime() <= now.getTime();
+    const checkoutReason = isGraceExpired ? CheckoutReason.GEOFENCE_TIMEOUT : CheckoutReason.SYSTEM_ACTION;
+
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.attendanceSession.updateMany({
         where: { id: session.id, status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] } },
@@ -1169,7 +1226,7 @@ export class AttendanceService {
           status: AttendanceStatus.CHECKED_OUT,
           checkOutAt: checkoutAt,
           checkoutType: CheckoutType.AUTO,
-          checkoutReason: isPaused ? CheckoutReason.GEOFENCE_TIMEOUT : CheckoutReason.SYSTEM_ACTION,
+          checkoutReason,
           totalWorkingSeconds,
           currentPauseStartedAt: null,
           currentGraceDeadline: null,
@@ -1214,7 +1271,7 @@ export class AttendanceService {
         },
       });
 
-      this.logger.log(`AUTO_CHECKOUT employeeId=${session.employeeId} sessionId=${session.id}`);
+      this.logger.log(`AUTO_CHECKOUT employeeId=${session.employeeId} sessionId=${session.id} reason=${checkoutReason} checkoutAt=${checkoutAt.toISOString()}`);
       return true;
     });
   }
@@ -1256,18 +1313,81 @@ export class AttendanceService {
   }
 
   private determineCheckInStatus(effectiveTime: Date, policy: AttendancePolicy): CheckInStatus {
-    const minutesOfDay = effectiveTime.getUTCHours() * 60 + effectiveTime.getUTCMinutes();
-    const windowStart = this.toMinutes(policy.checkInStartTime);
-    const windowEnd = this.toMinutes(policy.checkInEndTime);
-    const lateThreshold = windowStart + policy.lateThresholdMinutes;
+    const minutesOfDay = this.getLocalMinutesOfDay(effectiveTime);
+    const windowStart = this.toMinutes(policy.checkInStartTime || '06:00');
+    // Cutoff time after which check-in is marked as LATE (10:00 AM)
+    const lateCutoff = this.toMinutes(policy.lateCutoffTime || '10:00');
 
-    if (minutesOfDay < windowStart || minutesOfDay > windowEnd) {
+    // Check-in during early hours before office shift opens (e.g. before 06:00 AM)
+    if (minutesOfDay < windowStart) {
       return CheckInStatus.EXCEPTION;
     }
-    if (minutesOfDay > lateThreshold) {
+    // Check-in after 10:00 AM is explicitly marked as LATE
+    if (minutesOfDay > lateCutoff) {
       return CheckInStatus.LATE;
     }
+    // Check-in on or before 10:00 AM is ON_TIME
     return CheckInStatus.ON_TIME;
+  }
+
+  private getLocalMinutesOfDay(date: Date, timeZone: string = process.env.APP_TIMEZONE || 'Asia/Kolkata'): number {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false,
+      });
+      const parts = formatter.formatToParts(date);
+      const hourPart = parts.find((p) => p.type === 'hour')?.value ?? '0';
+      const minutePart = parts.find((p) => p.type === 'minute')?.value ?? '0';
+      const h = parseInt(hourPart, 10) % 24;
+      const m = parseInt(minutePart, 10);
+      return h * 60 + m;
+    } catch {
+      return date.getHours() * 60 + date.getMinutes();
+    }
+  }
+
+  /**
+   * Returns the 12:00 AM (midnight) timestamp following the day the session started,
+   * in the local office/server timezone (Asia/Kolkata).
+   */
+  private getMidnightCutoffForSession(
+    checkInAt: Date,
+    timeZone: string = process.env.APP_TIMEZONE || 'Asia/Kolkata',
+  ): Date {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const [y, m, d] = formatter.format(checkInAt).split('-').map(Number);
+      const nextDayDate = new Date(Date.UTC(y, m - 1, d + 1, 0, 0, 0));
+      const offsetParts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        timeZoneName: 'longOffset',
+      }).formatToParts(nextDayDate);
+      const tzOffsetStr = offsetParts.find((p) => p.type === 'timeZoneName')?.value;
+      let offsetMinutes = 330;
+      if (tzOffsetStr) {
+        const match = tzOffsetStr.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
+        if (match) {
+          const sign = match[1] === '-' ? -1 : 1;
+          const hours = parseInt(match[2], 10);
+          const mins = match[3] ? parseInt(match[3], 10) : 0;
+          offsetMinutes = sign * (hours * 60 + mins);
+        }
+      }
+      return new Date(Date.UTC(y, m - 1, d + 1, 0, 0, 0) - offsetMinutes * 60 * 1000);
+    } catch {
+      const nextDay = new Date(checkInAt);
+      nextDay.setDate(nextDay.getDate() + 1);
+      nextDay.setHours(0, 0, 0, 0);
+      return nextDay;
+    }
   }
 
   private toMinutes(hhmm: string): number {

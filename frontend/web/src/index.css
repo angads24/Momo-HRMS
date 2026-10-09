@@ -14,3 +14,59 @@ body,
 body {
   background: #f3f6fa;
 }
+
+/* Skip to Main Content Link for Keyboard Navigation */
+.skip-to-content {
+  position: absolute;
+  top: -120px;
+  left: 20px;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 14px;
+  z-index: 99999;
+  text-decoration: none;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  transition: top 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.skip-to-content:focus,
+.skip-to-content:focus-visible {
+  top: 16px;
+  outline: 2px solid #38bdf8 !important;
+  outline-offset: 2px !important;
+}
+
+/* Keyboard Accessibility: Visible High-Contrast Focus Ring for interactive controls */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+[tabindex="0"]:focus-visible {
+  outline: 2px solid #2563eb !important;
+  outline-offset: 2px !important;
+}
+
+/* Form inputs: MUI handles outline/focus styling cleanly on the outer container.
+   Suppress inner browser/input outlines to prevent double borders or inner blue lines. */
+input,
+textarea,
+select,
+.MuiInputBase-input,
+.MuiInputBase-root {
+  outline: none !important;
+}
+
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+.MuiInputBase-input:focus,
+.MuiInputBase-input:focus-visible,
+.MuiInputBase-root.Mui-focused {
+  outline: none !important;
+}

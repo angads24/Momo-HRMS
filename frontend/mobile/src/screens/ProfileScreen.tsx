@@ -286,6 +286,42 @@ export default function ProfileScreen() {
             />
           </Card.Content>
         </Card>
+
+        {/* 3. QUICK ACTIONS — MSG TO HR */}
+        <TouchableOpacity
+          style={styles.msgToHrCard}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('MsgToHr')}
+        >
+          <View style={styles.msgToHrIconWrap}>
+            <MaterialCommunityIcons name="clock-plus-outline" size={24} color="#7C3AED" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.msgToHrTitle}>Msg to HR (Special Hours)</Text>
+            <Text style={styles.msgToHrSubtitle}>
+              Request additional working hours for genuine situations
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={palette.muted} />
+        </TouchableOpacity>
+
+        {/* 4. QUICK ACTIONS — MY ATTENDANCE CALENDAR */}
+        <TouchableOpacity
+          style={[styles.msgToHrCard, { marginTop: 0, borderColor: '#BFDBFE', backgroundColor: '#F8FAFC' }]}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate('MyAttendance')}
+        >
+          <View style={[styles.msgToHrIconWrap, { backgroundColor: '#EFF6FF' }]}>
+            <MaterialCommunityIcons name="calendar-month-outline" size={24} color={palette.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.msgToHrTitle}>My Attendance & Calendar</Text>
+            <Text style={styles.msgToHrSubtitle}>
+              Monthly calendar view, attendance logs, and hours summary
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={palette.muted} />
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Edit Profile Modal */}
@@ -581,7 +617,7 @@ const styles = StyleSheet.create({
     color: palette.ink,
   },
   rowDivider: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: palette.borderSubtle,
   },
   modalBackdrop: {
     flex: 1,
@@ -639,5 +675,36 @@ const styles = StyleSheet.create({
   snackbarText: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  msgToHrCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 16,
+    marginTop: 14,
+    marginBottom: 20,
+    gap: 12,
+    elevation: 2,
+  },
+  msgToHrIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  msgToHrTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: palette.ink,
+  },
+  msgToHrSubtitle: {
+    fontSize: 12,
+    color: palette.muted,
+    marginTop: 2,
   },
 });

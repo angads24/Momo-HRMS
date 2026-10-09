@@ -11,9 +11,7 @@ import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import CheckIcon from '@mui/icons-material/Check';
 import DeleteIcon from '@mui/icons-material/Delete';
-import VisibilityIcon from '@mui/icons-material/Visibility';
 import type { AppNotification } from '../types/notification';
 import { NotificationTypeBadge } from './NotificationTypeBadge';
 
@@ -24,7 +22,7 @@ interface Props {
   totalPages: number;
   total: number;
   onPageChange: (newPage: number) => void;
-  onMarkRead: (notification: AppNotification) => void;
+  onMarkRead?: (notification: AppNotification) => void;
   onDelete: (notification: AppNotification) => void;
   onViewDetails: (notification: AppNotification) => void;
 }
@@ -36,7 +34,6 @@ export function NotificationTable({
   totalPages,
   total,
   onPageChange,
-  onMarkRead,
   onDelete,
   onViewDetails,
 }: Props) {
@@ -81,8 +78,28 @@ export function NotificationTable({
               <TableRow
                 key={item.id}
                 hover
+                tabIndex={0}
+                role="button"
+                aria-label={`View notification: ${item.title}`}
+                onClick={() => onViewDetails(item)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onViewDetails(item);
+                  }
+                }}
                 sx={{
+                  cursor: 'pointer',
                   bgcolor: item.isRead ? 'inherit' : 'rgba(27, 75, 143, 0.04)',
+                  transition: 'background-color 0.15s ease',
+                  '&:hover': {
+                    bgcolor: item.isRead ? 'rgba(0, 0, 0, 0.04)' : 'rgba(27, 75, 143, 0.08) !important',
+                  },
+                  '&:focus-visible': {
+                    outline: '2px solid #2563eb',
+                    outlineOffset: '-2px',
+                    bgcolor: 'rgba(27, 75, 143, 0.1) !important',
+                  },
                 }}
               >
                 <TableCell>
@@ -128,31 +145,16 @@ export function NotificationTable({
                     {new Date(item.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                   </Typography>
                 </TableCell>
-                <TableCell align="right">
+                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                   <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'flex-end' }}>
-                    {!item.isRead && (
-                      <IconButton
-                        size="small"
-                        color="primary"
-                        title="Mark as Read"
-                        onClick={() => onMarkRead(item)}
-                      >
-                        <CheckIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                    <IconButton
-                      size="small"
-                      color="inherit"
-                      title="View Details"
-                      onClick={() => onViewDetails(item)}
-                    >
-                      <VisibilityIcon fontSize="small" />
-                    </IconButton>
                     <IconButton
                       size="small"
                       color="error"
                       title="Delete Notification"
-                      onClick={() => onDelete(item)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(item);
+                      }}
                     >
                       <DeleteIcon fontSize="small" />
                     </IconButton>

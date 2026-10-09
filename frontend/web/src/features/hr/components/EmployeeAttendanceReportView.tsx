@@ -23,6 +23,7 @@ import Collapse from '@mui/material/Collapse';
 import Tooltip from '@mui/material/Tooltip';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import Stack from '@mui/material/Stack';
 import Badge from '@mui/material/Badge';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -44,8 +45,10 @@ import {
   fetchAttendanceHistory,
   fetchTodayAttendance,
   fetchEmployeeExceptions,
+  approveAttendanceException,
 } from '../../attendance/services/attendanceService';
 import { fetchEmployeeById, fetchEmployeeProfile } from '../../../services/employeeService';
+import { useAuth } from '../../../context/AuthContext';
 import type { AttendanceSession } from '../../attendance/types/attendance';
 import type { Employee } from '../../../types/employee';
 
@@ -117,6 +120,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
   onSelectEmployee,
   onBack,
 }) => {
+  const { user } = useAuth();
   // Active Tab: 0 = Overview & Analytics, 1 = Daily Attendance, 2 = Calendar, 3 = Special & Exceptions, 4 = Policies
   const [activeTab, setActiveTab] = useState(0);
 
@@ -176,6 +180,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
   // Expanded daily timeline rows & selected calendar date
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set());
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   // Load employee details and real attendance history
   const loadReportData = useCallback(
@@ -225,7 +230,27 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
           employeeId: targetId,
         }).catch(() => null);
 
-        const exceptionsPromise = fetchEmployeeExceptions(targetId).catch(() => []);
+        const exceptionsPromise = (async () => {
+          try {
+            const queryIds = Array.from(
+              new Set([targetId, targetCode, employeeId].filter(Boolean) as string[]),
+            );
+            const results = await Promise.all(
+              queryIds.map((qId) => fetchEmployeeExceptions(qId).catch(() => [])),
+            );
+            const map = new Map<string, any>();
+            for (const batch of results) {
+              if (Array.isArray(batch)) {
+                for (const item of batch) {
+                  if (item && item.id) map.set(item.id, item);
+                }
+              }
+            }
+            return Array.from(map.values());
+          } catch {
+            return [];
+          }
+        })();
 
         const [historyRes, todayRes, exRes] = await Promise.all([
           historyPromise,
@@ -1606,8 +1631,17 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                   return (
                     <Box
                       key={`${day.dateStr}-${idx}`}
+                      role={hasSession ? 'button' : undefined}
+                      tabIndex={hasSession ? 0 : undefined}
+                      aria-label={hasSession ? `${day.dateStr}, attendance: ${day.totalHours}` : undefined}
                       onClick={() => {
                         if (hasSession) {
+                          setSelectedCalendarDate((prev) => (prev === day.dateStr ? null : day.dateStr));
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (hasSession && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
                           setSelectedCalendarDate((prev) => (prev === day.dateStr ? null : day.dateStr));
                         }
                       }}
@@ -1632,6 +1666,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                         justifyContent: 'space-between',
                         transition: 'all 0.15s ease',
                         '&:hover': hasSession ? { borderColor: '#93c5fd' } : {},
+                        '&:focus-visible': hasSession ? { outline: '2px solid #2563eb', outlineOffset: 2 } : {},
                       }}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1720,7 +1755,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
             <Box>
               <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0f172a' }}>
-                HR Approved Special Working Hours ({exceptions.filter((ex) => ex.type === 'WORKING_TIME_ADJUSTMENT').length})
+                Special Working Hours Requests & Exceptions ({exceptions.filter((ex) => ex.type === 'WORKING_TIME_ADJUSTMENT').length})
               </Typography>
               <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600 }}>
                 Approved adjustments added exactly once into total working hours without double counting
@@ -1750,6 +1785,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                     <TableCell sx={{ color: '#64748b', fontWeight: 700, fontSize: '0.72rem' }}>Employee Reason</TableCell>
                     <TableCell sx={{ color: '#64748b', fontWeight: 700, fontSize: '0.72rem' }}>Decision</TableCell>
                     <TableCell sx={{ color: '#64748b', fontWeight: 700, fontSize: '0.72rem' }}>Approval Date</TableCell>
+                    <TableCell align="right" sx={{ color: '#64748b', fontWeight: 700, fontSize: '0.72rem' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1761,6 +1797,9 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                         meta.additionalHours ||
                         (meta.additionalSeconds ? (meta.additionalSeconds / 3600).toFixed(1) : '1');
 
+                      const isApproved = ex.status === 'APPROVED';
+                      const isPending = ex.status === 'PENDING';
+
                       return (
                         <TableRow key={ex.id}>
                           <TableCell sx={{ fontWeight: 700, fontSize: '0.82rem' }}>{formatDateString(ex.attendanceDate)}</TableCell>
@@ -1768,18 +1807,145 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                           <TableCell sx={{ color: '#475569', maxWidth: 280, fontSize: '0.82rem' }}>{ex.reason || '—'}</TableCell>
                           <TableCell>
                             <Chip
-                              label={ex.status}
+                              label={isPending ? 'Pending Review' : ex.status}
                               size="small"
                               sx={{
-                                height: 20,
+                                height: 22,
                                 fontWeight: 700,
                                 fontSize: '0.68rem',
-                                bgcolor: ex.status === 'APPROVED' ? '#dcfce7' : '#fee2e2',
-                                color: ex.status === 'APPROVED' ? '#15803d' : '#b91c1c',
+                                bgcolor: isApproved ? '#dcfce7' : isPending ? '#fef3c7' : '#fee2e2',
+                                color: isApproved ? '#15803d' : isPending ? '#b45309' : '#b91c1c',
+                                border: '1px solid',
+                                borderColor: isApproved ? '#bbf7d0' : isPending ? '#fde68a' : '#fecaca',
                               }}
                             />
                           </TableCell>
-                          <TableCell sx={{ color: '#64748b', fontSize: '0.78rem' }}>{formatDateString(ex.approvedAt)}</TableCell>
+                          <TableCell sx={{ color: '#475569', fontSize: '0.78rem' }}>
+                            {isApproved ? (
+                              <Box>
+                                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.78rem', color: '#15803d' }}>
+                                  {(meta.approvedByName && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meta.approvedByName))
+                                    ? meta.approvedByName
+                                    : meta.approvedByEmail ||
+                                      meta.hrEmail ||
+                                      (ex.approvedByUserId && ex.approvedByUserId === user?.id ? user.fullName || user.username || user.email : 'HR Administrator')}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>
+                                  {ex.approvedAt || meta.approvedAt
+                                    ? new Date(ex.approvedAt || meta.approvedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+                                    : 'Approved'}
+                                </Typography>
+                              </Box>
+                            ) : ex.status === 'REJECTED' ? (
+                              <Box>
+                                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.78rem', color: '#b91c1c' }}>
+                                  {(meta.approvedByName && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meta.approvedByName))
+                                    ? meta.approvedByName
+                                    : meta.approvedByEmail ||
+                                      meta.hrEmail ||
+                                      (ex.approvedByUserId && ex.approvedByUserId === user?.id ? user.fullName || user.username || user.email : 'HR Administrator')}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>
+                                  {ex.approvedAt || meta.approvedAt
+                                    ? new Date(ex.approvedAt || meta.approvedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+                                    : 'Rejected'}
+                                </Typography>
+                              </Box>
+                            ) : (
+                              <Typography variant="caption" sx={{ color: '#d97706', fontWeight: 600 }}>
+                                Awaiting HR decision
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            {isPending ? (
+                              <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                                <Button
+                                  variant="contained"
+                                  size="small"
+                                  color="success"
+                                  disabled={actionLoadingId === ex.id}
+                                  onClick={async () => {
+                                    try {
+                                      setActionLoadingId(ex.id);
+                                      const approverName = user?.fullName || user?.username || user?.email || 'HR Administrator';
+                                      const approverEmail = user?.email || undefined;
+                                      const attDateStr = ex.attendanceDate ? String(ex.attendanceDate).slice(0, 10) : undefined;
+                                      await approveAttendanceException(ex.id, {
+                                        status: 'APPROVED',
+                                        comment: `Handled via HR Attendance Report by ${approverName} on ${new Date().toLocaleString()}`,
+                                        approverName,
+                                        approverEmail,
+                                        employeeId: ex.employeeId,
+                                        attendanceDate: attDateStr,
+                                        additionalHours: addHours,
+                                        reason: ex.reason,
+                                        metadata: ex.metadata,
+                                      });
+                                      await loadReportData(true);
+                                    } catch (e) {
+                                      console.error('Failed to approve exception:', e);
+                                    } finally {
+                                      setActionLoadingId(null);
+                                    }
+                                  }}
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    py: 0.3,
+                                    px: 1.2,
+                                    minHeight: 26,
+                                    boxShadow: 'none',
+                                  }}
+                                >
+                                  Approve (+{addHours}h)
+                                </Button>
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  color="error"
+                                  disabled={actionLoadingId === ex.id}
+                                  onClick={async () => {
+                                    try {
+                                      setActionLoadingId(ex.id);
+                                      const approverName = user?.fullName || user?.username || user?.email || 'HR Administrator';
+                                      const approverEmail = user?.email || undefined;
+                                      const attDateStr = ex.attendanceDate ? String(ex.attendanceDate).slice(0, 10) : undefined;
+                                      await approveAttendanceException(ex.id, {
+                                        status: 'REJECTED',
+                                        comment: `Handled via HR Attendance Report by ${approverName} on ${new Date().toLocaleString()}`,
+                                        approverName,
+                                        approverEmail,
+                                        employeeId: ex.employeeId,
+                                        attendanceDate: attDateStr,
+                                        additionalHours: addHours,
+                                        reason: ex.reason,
+                                        metadata: ex.metadata,
+                                      });
+                                      await loadReportData(true);
+                                    } catch (e) {
+                                      console.error('Failed to reject exception:', e);
+                                    } finally {
+                                      setActionLoadingId(null);
+                                    }
+                                  }}
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    py: 0.3,
+                                    px: 1.2,
+                                    minHeight: 26,
+                                  }}
+                                >
+                                  Reject
+                                </Button>
+                              </Stack>
+                            ) : (
+                              <Typography variant="caption" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                                {isApproved ? 'Approved & Credited' : 'Rejected'}
+                              </Typography>
+                            )}
+                          </TableCell>
                         </TableRow>
                       );
                     })}

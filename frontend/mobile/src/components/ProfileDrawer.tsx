@@ -21,6 +21,8 @@ interface ProfileDrawerProps {
   onClose: () => void;
   onNavigateProfile: () => void;
   onNavigateNotifications: () => void;
+  onNavigateMsgToHr: () => void;
+  onNavigateMyAttendance: () => void;
   onLogout: () => void;
   user: AuthUser | null;
   employeeProfile: EmployeeProfile | null;
@@ -35,6 +37,8 @@ export function ProfileDrawer({
   onClose,
   onNavigateProfile,
   onNavigateNotifications,
+  onNavigateMsgToHr,
+  onNavigateMyAttendance,
   onLogout,
   user,
   employeeProfile,
@@ -224,6 +228,32 @@ export function ProfileDrawer({
               ) : (
                 <MaterialCommunityIcons name="chevron-right" size={20} color={palette.muted} />
               )}
+            </TouchableOpacity>
+
+            {/* 3. Msg to HR Option */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => handleClose(onNavigateMsgToHr)}
+            >
+              <View style={[styles.menuIconContainer, { backgroundColor: '#F5F3FF' }]}>
+                <MaterialCommunityIcons name="clock-plus-outline" size={22} color="#7C3AED" />
+              </View>
+              <Text style={styles.menuLabel}>Msg to HR</Text>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={palette.muted} />
+            </TouchableOpacity>
+
+            {/* 4. My Attendance Option */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => handleClose(onNavigateMyAttendance)}
+            >
+              <View style={[styles.menuIconContainer, { backgroundColor: '#EFF6FF' }]}>
+                <MaterialCommunityIcons name="calendar-month-outline" size={22} color={palette.primary} />
+              </View>
+              <Text style={styles.menuLabel}>My Attendance</Text>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={palette.muted} />
             </TouchableOpacity>
           </View>
 

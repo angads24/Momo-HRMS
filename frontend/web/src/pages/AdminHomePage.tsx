@@ -147,25 +147,24 @@ export default function AdminHomePage() {
           variant="outlined"
           sx={{
             p: 2.5,
-            borderRadius: 3,
-            bgcolor: '#ffffff',
+            borderRadius: 2.5,
+            borderColor: 'divider',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-            transition: 'transform 0.2s, box-shadow 0.2s',
-            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' },
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'primary.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
           }}
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 600 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
               Total Employees
             </Typography>
-            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(27, 75, 143, 0.08)', color: '#1B4B8F' }}>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'primary.50', color: 'primary.main' }}>
               <PeopleIcon fontSize="small" />
             </Box>
           </Box>
-          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1 }}>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1, letterSpacing: '-0.02em' }}>
             {loading ? <CircularProgress size={24} /> : stats.employeeCount}
           </Typography>
           <Button
@@ -183,32 +182,31 @@ export default function AdminHomePage() {
           variant="outlined"
           sx={{
             p: 2.5,
-            borderRadius: 3,
-            bgcolor: '#ffffff',
+            borderRadius: 2.5,
+            borderColor: 'divider',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-            transition: 'transform 0.2s, box-shadow 0.2s',
-            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' },
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'success.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
           }}
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 600 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
               Workplace Offices
             </Typography>
-            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(46, 125, 50, 0.08)', color: '#2e7d32' }}>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'success.50', color: 'success.main' }}>
               <LocationOnIcon fontSize="small" />
             </Box>
           </Box>
-          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1 }}>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1, letterSpacing: '-0.02em' }}>
             {loading ? <CircularProgress size={24} /> : stats.officeCount}
           </Typography>
           <Button
             size="small"
             endIcon={<ArrowForwardIcon fontSize="small" />}
             onClick={() => navigate(PATHS.geofences)}
-            sx={{ alignSelf: 'flex-start', p: 0, textTransform: 'none', fontWeight: 600, color: '#2e7d32' }}
+            sx={{ alignSelf: 'flex-start', p: 0, textTransform: 'none', fontWeight: 600, color: 'success.main' }}
           >
             Geofence boundaries
           </Button>
@@ -219,25 +217,24 @@ export default function AdminHomePage() {
           variant="outlined"
           sx={{
             p: 2.5,
-            borderRadius: 3,
-            bgcolor: '#ffffff',
+            borderRadius: 2.5,
+            borderColor: 'divider',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-            transition: 'transform 0.2s, box-shadow 0.2s',
-            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' },
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'secondary.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
           }}
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 600 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
               Active Departments
             </Typography>
-            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(156, 39, 176, 0.08)', color: '#9c27b0' }}>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'secondary.50', color: 'secondary.main' }}>
               <CorporateFareIcon fontSize="small" />
             </Box>
           </Box>
-          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1 }}>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1, letterSpacing: '-0.02em' }}>
             {loading ? <CircularProgress size={24} /> : stats.departmentCount}
           </Typography>
           <Typography variant="caption" color="text.secondary">
@@ -250,26 +247,25 @@ export default function AdminHomePage() {
           variant="outlined"
           sx={{
             p: 2.5,
-            borderRadius: 3,
-            bgcolor: '#ffffff',
+            borderRadius: 2.5,
+            borderColor: 'divider',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-            transition: 'transform 0.2s, box-shadow 0.2s',
-            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' },
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'info.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
           }}
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 600 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
               System Status
             </Typography>
-            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(2, 136, 209, 0.08)', color: '#0288d1' }}>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'info.50', color: 'info.main' }}>
               <CheckCircleIcon fontSize="small" />
             </Box>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, my: 0.5 }}>
-            <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#4caf50' }} />
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
             <Typography variant="h6" sx={{ fontWeight: 700, color: 'success.main' }}>
               Operational
             </Typography>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
@@ -8,9 +8,16 @@ import InputAdornment from '@mui/material/InputAdornment';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import Chip from '@mui/material/Chip';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
 import CircularProgress from '@mui/material/CircularProgress';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SearchIcon from '@mui/icons-material/Search';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
 import { api } from '../api/client';
 import { GEOFENCE_API_URL } from '../config/env';
 import { useAuth } from '../context/AuthContext';
@@ -23,11 +30,16 @@ import {
 } from '../features/attendance/services/attendanceService';
 import type { Employee, Department } from '../types/employee';
 import type { AttendanceSession } from '../features/attendance/types/attendance';
-import { HrOverviewCards, type OverviewMetrics } from '../features/hr/components/HrOverviewCards';
-import { HrAttendanceTrendChart, type DailyTrendPoint } from '../features/hr/components/HrAttendanceTrendChart';
+import {
+  isEmployeeInAnyOffice,
+  isEmployeeInOffice,
+  resolveHrAssignedOffices,
+} from '../utils/officeJurisdiction';
+import { HrOverviewCards, type OverviewMetrics, type OverviewTabId } from '../features/hr/components/HrOverviewCards';
+import { HrWorkforceDistributionChart } from '../features/hr/components/HrWorkforceDistributionChart';
 import { HrDepartmentChart, type DepartmentStat } from '../features/hr/components/HrDepartmentChart';
 import { HrLiveAttendanceTable, type LiveAttendanceRow } from '../features/hr/components/HrLiveAttendanceTable';
-import { HrOfficeCards, type OfficeMetric } from '../features/hr/components/HrOfficeCards';
+import { useNotifications } from '../context/NotificationContext';
 
 interface OfficeData {
   id: string;
@@ -41,6 +53,8 @@ export default function HrHomePage() {
 
   // Search & Loading State
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const [selectedFilterTab, setSelectedFilterTab] = useState<OverviewTabId>('total');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,14 +68,21 @@ export default function HrHomePage() {
   const [historySessions, setHistorySessions] = useState<AttendanceSession[]>([]);
   const [todaySessions, setTodaySessions] = useState<AttendanceSession[]>([]);
 
+  // HR Office Jurisdiction Scope State
+  const [isHrScoped, setIsHrScoped] = useState(false);
+  const [hrJurisdictionLabel, setHrJurisdictionLabel] = useState('');
+
+  // Office Filter Selection State
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string>('ALL');
+
   // Live seconds ticker for active WORKING sessions
   const [liveSecondTick, setLiveSecondTick] = useState(0);
 
   // Master Data Loading Routine
-  const loadDashboardData = useCallback(async (isBackground = false) => {
+  const loadDashboardData = useCallback(async (isBackground = false, isSilent = false) => {
     if (!isBackground) {
       setLoading(true);
-    } else {
+    } else if (!isSilent) {
       setRefreshing(true);
     }
     setError(null);
@@ -123,9 +144,25 @@ export default function HrHomePage() {
         todayPromise,
       ]);
 
-      setEmployees(Array.isArray(empRes.data) ? empRes.data : []);
+      const rawEmps = Array.isArray(empRes.data) ? empRes.data : [];
+      const hrScope = await resolveHrAssignedOffices(user, officesData as any);
+
+      if (user?.appRole === 'HR' && hrScope.isScoped) {
+        const scopedEmps = rawEmps.filter((emp) =>
+          isEmployeeInAnyOffice(emp, hrScope.assignedOffices)
+        );
+        setEmployees(scopedEmps);
+        setOffices(hrScope.assignedOffices);
+        setIsHrScoped(true);
+        setHrJurisdictionLabel(hrScope.jurisdictionLabel);
+      } else {
+        setEmployees(rawEmps);
+        setOffices(officesData);
+        setIsHrScoped(false);
+        setHrJurisdictionLabel('');
+      }
+
       setDepartments(deptsData);
-      setOffices(officesData);
       setHistorySessions(histSessions);
       setTodaySessions(todaySess);
     } catch {
@@ -134,30 +171,47 @@ export default function HrHomePage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [user]);
 
   // Initial load
   useEffect(() => {
     void loadDashboardData(false);
   }, [loadDashboardData]);
 
-  // Real-time synchronization: Poll backend every 25 seconds
+  // Real-time synchronization: Silent poll every 4 seconds while visible
   useEffect(() => {
     const interval = setInterval(() => {
-      void loadDashboardData(true);
-    }, 25000);
+      if (document.visibilityState === 'visible') {
+        void loadDashboardData(true, true);
+      }
+    }, 4000);
 
     return () => clearInterval(interval);
   }, [loadDashboardData]);
 
-  // Re-fetch on window focus (e.g. when returning from Admin tab)
+  // Instant re-fetch on window focus or tab visibility change
   useEffect(() => {
-    const onFocus = () => {
-      void loadDashboardData(true);
+    const onSync = () => {
+      if (document.visibilityState === 'visible') {
+        void loadDashboardData(true, true);
+      }
     };
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    window.addEventListener('focus', onSync);
+    document.addEventListener('visibilitychange', onSync);
+    return () => {
+      window.removeEventListener('focus', onSync);
+      document.removeEventListener('visibilitychange', onSync);
+    };
   }, [loadDashboardData]);
+
+  // Real-time notification updates (SSE)
+  const { latestNotification } = useNotifications();
+
+  useEffect(() => {
+    if (latestNotification) {
+      void loadDashboardData(true, true);
+    }
+  }, [latestNotification, loadDashboardData]);
 
   // 1-second live working timer ticker
   useEffect(() => {
@@ -182,18 +236,26 @@ export default function HrHomePage() {
     return Array.from(map.values());
   }, [historySessions, todaySessions]);
 
-  // Today's recorded sessions
+  // Set of employee IDs within current scope (for session filtering)
+  const scopedEmployeeIds = useMemo(() => {
+    return new Set(employees.flatMap((e) => [e.id, e.employeeCode]).filter(Boolean));
+  }, [employees]);
+
+  // Today's recorded sessions (strictly scoped to visible employees if HR)
   const todaysRecordedSessions = useMemo(() => {
     const todayIds = new Set(todaySessions.map((s) => s.id));
-    return allKnownSessions.filter(
-      (s) =>
+    return allKnownSessions.filter((s) => {
+      const isToday =
         todayIds.has(s.id) ||
         s.status === 'WORKING' ||
         s.status === 'PAUSED' ||
         s.attendanceDate?.startsWith(todayStr) ||
-        s.checkInAt?.startsWith(todayStr),
-    );
-  }, [allKnownSessions, todaySessions, todayStr]);
+        s.checkInAt?.startsWith(todayStr);
+      if (!isToday) return false;
+      if (isHrScoped) return scopedEmployeeIds.has(s.employeeId);
+      return true;
+    });
+  }, [allKnownSessions, todaySessions, todayStr, isHrScoped, scopedEmployeeIds]);
 
   // Map employee ID / employeeCode to their today's session
   const sessionByEmployee = useMemo(() => {
@@ -220,16 +282,34 @@ export default function HrHomePage() {
     return map;
   }, [todaysRecordedSessions, employees]);
 
-  // Total Active employees
+  // Selected Office Object
+  const selectedOffice = useMemo(() => {
+    if (selectedOfficeId === 'ALL') return null;
+    return (
+      offices.find(
+        (o) =>
+          o.id === selectedOfficeId ||
+          (o.code && o.code.toLowerCase() === selectedOfficeId.toLowerCase()),
+      ) || null
+    );
+  }, [offices, selectedOfficeId]);
+
+  // Employees Filtered by Selected Office (if any)
+  const officeFilteredEmployees = useMemo(() => {
+    if (!selectedOffice) return employees;
+    return employees.filter((emp) => isEmployeeInOffice(emp, selectedOffice));
+  }, [employees, selectedOffice]);
+
+  // Total Active employees (respecting selected office)
   const activeEmployees = useMemo(() => {
-    return employees.filter(
+    return officeFilteredEmployees.filter(
       (e) => (e.status || (e as any).employmentStatus || 'ACTIVE') === 'ACTIVE',
     );
-  }, [employees]);
+  }, [officeFilteredEmployees]);
 
   // Calculated Overview Metrics (per employee, not raw session count)
   const overviewMetrics: OverviewMetrics = useMemo(() => {
-    const totalEmployees = employees.length;
+    const totalEmployees = officeFilteredEmployees.length;
     // Get unique active sessions for active employees
     const uniqueEmployeeSessions = Array.from(
       new Map(
@@ -242,18 +322,25 @@ export default function HrHomePage() {
 
     const working = uniqueEmployeeSessions.filter((s) => s.status === 'WORKING').length;
     const paused = uniqueEmployeeSessions.filter((s) => s.status === 'PAUSED').length;
-    const checkedOut = uniqueEmployeeSessions.filter(
-      (s) => s.status === 'COMPLETED' || (s.status as any) === 'CHECKED_OUT',
-    ).length;
-    const present = working + paused + checkedOut;
-    const absent = Math.max(0, activeEmployees.length - present);
-
-    const autoCheckout = todaysRecordedSessions.filter(
+    const autoCheckout = uniqueEmployeeSessions.filter(
       (s) =>
         s.checkoutType === 'AUTO_CHECKOUT' ||
         (s.checkoutType as any) === 'AUTO' ||
-        s.checkoutReason === 'GEOFENCE_TIMEOUT',
+        (s.checkoutType as any) === 'AUTO_MIDNIGHT' ||
+        s.checkoutReason === 'GEOFENCE_TIMEOUT' ||
+        s.status === 'AUTO_CHECKED_OUT',
     ).length;
+    const checkedOut = uniqueEmployeeSessions.filter(
+      (s) =>
+        (s.status === 'COMPLETED' || (s.status as any) === 'CHECKED_OUT') &&
+        s.checkoutType !== 'AUTO_CHECKOUT' &&
+        (s.checkoutType as any) !== 'AUTO' &&
+        (s.checkoutType as any) !== 'AUTO_MIDNIGHT' &&
+        s.checkoutReason !== 'GEOFENCE_TIMEOUT' &&
+        s.status !== 'AUTO_CHECKED_OUT',
+    ).length;
+    const present = working + paused + checkedOut + autoCheckout;
+    const absent = Math.max(0, activeEmployees.length - present);
 
     return {
       totalEmployees,
@@ -264,7 +351,7 @@ export default function HrHomePage() {
       absent,
       autoCheckout,
     };
-  }, [employees, sessionByEmployee, activeEmployees, todaysRecordedSessions]);
+  }, [officeFilteredEmployees, sessionByEmployee, activeEmployees]);
 
   // 7-Day Attendance Trend Data (Real past 7 days)
   const trendData: DailyTrendPoint[] = useMemo(() => {
@@ -277,8 +364,12 @@ export default function HrHomePage() {
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const dateLabel = `${monthNames[d.getMonth()]} ${d.getDate()}`;
 
-      // Find sessions on this day
-      const daySessions = allKnownSessions.filter((s) => s.attendanceDate?.startsWith(fullDate));
+      // Find sessions on this day (strictly scoped if HR)
+      const daySessions = allKnownSessions.filter((s) => {
+        if (!s.attendanceDate?.startsWith(fullDate)) return false;
+        if (isHrScoped) return scopedEmployeeIds.has(s.employeeId);
+        return true;
+      });
       const presentCount = daySessions.length;
       const lateCount = daySessions.filter((s) => s.checkInStatus === 'LATE').length;
       const dayOfWeek = d.getDay();
@@ -347,11 +438,11 @@ export default function HrHomePage() {
     });
   }, [departments, activeEmployees, sessionByEmployee]);
 
-  // Live Attendance Monitor Rows (Filtered by search)
+  // Live Attendance Monitor Rows (Filtered by search & selected office)
   const monitorRows: LiveAttendanceRow[] = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredSearchQuery.trim().toLowerCase();
 
-    return employees
+    return officeFilteredEmployees
       .map((emp) => {
         const session = sessionByEmployee.get(emp.id) || sessionByEmployee.get(emp.employeeCode);
         const fullName = `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Employee';
@@ -360,10 +451,16 @@ export default function HrHomePage() {
         // Office Location
         let locName = emp.officeLocationName || '';
         if (!locName) {
-          const assign = (emp as any).assignments?.[0];
-          if (assign?.officeId) {
-            const matchOffice = offices.find((o) => o.id === assign.officeId);
-            if (matchOffice) locName = matchOffice.name;
+          if (emp.assignedOffices && emp.assignedOffices.length > 0) {
+            locName = emp.assignedOffices.map((o) => o.name).join(', ');
+          } else {
+            const assign = (emp as any).assignments?.[0];
+            if (assign?.officeId) {
+              const matchOffice = offices.find(
+                (o) => o.id === assign.officeId || (o.code && o.code.toLowerCase() === assign.officeId.toLowerCase()),
+              );
+              if (matchOffice) locName = matchOffice.name;
+            }
           }
         }
         if (!locName) {
@@ -381,6 +478,14 @@ export default function HrHomePage() {
             status = 'WORKING';
           } else if (session.status === 'PAUSED') {
             status = 'PAUSED';
+          } else if (
+            session.checkoutType === 'AUTO_CHECKOUT' ||
+            session.checkoutType === 'AUTO' ||
+            (session.checkoutType as any) === 'AUTO_MIDNIGHT' ||
+            session.checkoutReason === 'GEOFENCE_TIMEOUT' ||
+            session.status === 'AUTO_CHECKED_OUT'
+          ) {
+            status = 'AUTO_CHECKED_OUT';
           } else if (session.status === 'COMPLETED' || (session.status as any) === 'CHECKED_OUT') {
             status = 'CHECKED_OUT';
           }
@@ -427,6 +532,22 @@ export default function HrHomePage() {
         };
       })
       .filter((row) => {
+        // Tab Filtering
+        if (selectedFilterTab === 'present') {
+          if (row.status === 'ABSENT') return false;
+        } else if (selectedFilterTab === 'working') {
+          if (row.status !== 'WORKING') return false;
+        } else if (selectedFilterTab === 'paused') {
+          if (row.status !== 'PAUSED') return false;
+        } else if (selectedFilterTab === 'checked-out') {
+          if (row.status !== 'CHECKED_OUT') return false;
+        } else if (selectedFilterTab === 'absent') {
+          if (row.status !== 'ABSENT') return false;
+        } else if (selectedFilterTab === 'auto-checkout') {
+          if (row.status !== 'AUTO_CHECKED_OUT') return false;
+        }
+
+        // Search Filter
         if (!q) return true;
         return (
           row.name.toLowerCase().includes(q) ||
@@ -435,37 +556,7 @@ export default function HrHomePage() {
           row.location.toLowerCase().includes(q)
         );
       });
-  }, [employees, sessionByEmployee, offices, searchQuery, liveSecondTick]);
-
-  // Office Capacity Metrics for Bottom Cards
-  const officeMetrics: OfficeMetric[] = useMemo(() => {
-    return offices.map((off) => {
-      const assigned = employees.filter((e) => {
-        if (e.officeLocationId === off.id) return true;
-        const assignments = (e as any).assignments as Array<{ officeId?: string; isActive?: boolean }> | undefined;
-        return assignments?.some((a) => a.officeId === off.id && a.isActive);
-      });
-
-      const totalAssigned = assigned.length || Math.max(1, Math.round(employees.length / Math.max(offices.length, 1)));
-
-      const offSessions = todaysRecordedSessions.filter((s) => (s as any).officeId === off.id);
-      const working = offSessions.filter((s) => s.status === 'WORKING').length;
-      const paused = offSessions.filter((s) => s.status === 'PAUSED').length;
-      const out = offSessions.filter(
-        (s) => s.status === 'COMPLETED' || (s.status as any) === 'CHECKED_OUT',
-      ).length;
-
-      return {
-        id: off.id,
-        name: off.name,
-        code: off.code,
-        working,
-        paused,
-        out,
-        totalAssigned,
-      };
-    });
-  }, [offices, employees, todaysRecordedSessions]);
+  }, [officeFilteredEmployees, sessionByEmployee, offices, selectedFilterTab, deferredSearchQuery, liveSecondTick]);
 
   const currentDateDisplay = new Date().toLocaleDateString(undefined, {
     weekday: 'long',
@@ -481,6 +572,55 @@ export default function HrHomePage() {
       hideUserCard
       maxWidth="xl"
     >
+      {/* Office Jurisdiction Scope Banner (for HR users) */}
+      {isHrScoped && (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            mb: 3,
+            borderRadius: 2.5,
+            bgcolor: 'rgba(156, 39, 176, 0.04)',
+            border: '1px solid',
+            borderColor: 'rgba(156, 39, 176, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 1.5,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box
+              sx={{
+                p: 1,
+                borderRadius: 2,
+                bgcolor: 'rgba(156, 39, 176, 0.12)',
+                color: 'secondary.main',
+                display: 'flex',
+              }}
+            >
+              <LocationOnIcon fontSize="small" />
+            </Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary' }}>
+                Office Jurisdiction: {hrJurisdictionLabel}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.82rem' }}>
+                Showing staff, live attendance monitors, working hours, and analytics belonging exclusively to your assigned office.
+              </Typography>
+            </Box>
+          </Box>
+          <Chip
+            icon={<LocationOnIcon fontSize="small" />}
+            label="Workplace Scoped"
+            color="secondary"
+            size="small"
+            sx={{ fontWeight: 600, height: 26 }}
+          />
+        </Paper>
+      )}
+
       {/* Top Search & Refresh Action Toolbar */}
       <Box
         sx={{
@@ -507,7 +647,54 @@ export default function HrHomePage() {
           </Typography>
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: { xs: '100%', sm: 'auto' } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}>
+          {/* Office Selection Filter */}
+          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 }, bgcolor: '#ffffff' }}>
+            <InputLabel id="hr-office-select-label" sx={{ fontSize: '0.85rem' }}>
+              Filter by Office
+            </InputLabel>
+            <Select
+              labelId="hr-office-select-label"
+              value={selectedOfficeId}
+              label="Filter by Office"
+              onChange={(e) => setSelectedOfficeId(e.target.value)}
+              sx={{
+                borderRadius: 2.5,
+                fontSize: '0.85rem',
+                '& fieldset': { borderColor: selectedOfficeId !== 'ALL' ? '#2563eb' : '#e2e8f0' },
+              }}
+              startAdornment={
+                <InputAdornment position="start">
+                  <LocationOnIcon fontSize="small" sx={{ color: selectedOfficeId !== 'ALL' ? '#2563eb' : '#94a3b8' }} />
+                </InputAdornment>
+              }
+            >
+              <MenuItem value="ALL">
+                <em>🏢 All Offices ({employees.length} Staff)</em>
+              </MenuItem>
+              {offices.map((off) => {
+                const count = employees.filter((emp) => isEmployeeInOffice(emp, off)).length;
+                return (
+                  <MenuItem key={off.id} value={off.id}>
+                    {off.name} ({count} staff)
+                  </MenuItem>
+                );
+              })}
+            </Select>
+          </FormControl>
+
+          {/* Active Filter Clear Chip */}
+          {selectedOfficeId !== 'ALL' && selectedOffice && (
+            <Chip
+              icon={<LocationOnIcon fontSize="small" />}
+              label={`Office: ${selectedOffice.name}`}
+              color="primary"
+              size="small"
+              onDelete={() => setSelectedOfficeId('ALL')}
+              sx={{ fontWeight: 600, height: 32 }}
+            />
+          )}
+
           {/* Search Input */}
           <TextField
             size="small"
@@ -515,7 +702,7 @@ export default function HrHomePage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             sx={{
-              width: { xs: '100%', sm: 300 },
+              width: { xs: '100%', sm: 260 },
               bgcolor: '#ffffff',
               '& .MuiOutlinedInput-root': {
                 borderRadius: 2.5,
@@ -583,8 +770,13 @@ export default function HrHomePage() {
         </Alert>
       )}
 
-      {/* Section 7: Today's Overview KPI Cards */}
-      <HrOverviewCards metrics={overviewMetrics} loading={loading} />
+      {/* Section 7: Today's Overview KPI Cards (Interactive Filter Tabs) */}
+      <HrOverviewCards
+        metrics={overviewMetrics}
+        loading={loading}
+        selectedTab={selectedFilterTab}
+        onSelectTab={(tabId) => setSelectedFilterTab(tabId)}
+      />
 
       {/* Section 9 & 10: Charts Row (7-Day Attendance Trend + Department Breakdown) */}
       <Box
@@ -595,23 +787,32 @@ export default function HrHomePage() {
           mb: 3,
         }}
       >
-        {/* Left Chart: 7-Day Attendance Trend */}
-        <HrAttendanceTrendChart data={trendData} loading={loading} />
+        {/* Left Chart: Workforce Distribution Donut Chart */}
+        <HrWorkforceDistributionChart
+          metrics={overviewMetrics}
+          loading={loading}
+          onSelectTab={(tabId) => setSelectedFilterTab(tabId)}
+        />
 
-        {/* Right Chart: By Department — Today */}
-        <HrDepartmentChart data={departmentStats} loading={loading} />
+        {/* Right Chart: By Department Bar Chart */}
+        <HrDepartmentChart
+          data={departmentStats}
+          departments={departments}
+          employees={officeFilteredEmployees}
+          allSessions={allKnownSessions}
+          loading={loading}
+        />
       </Box>
 
       {/* Section 11: Live Attendance Monitor Table */}
       <HrLiveAttendanceTable
         rows={monitorRows}
-        totalEmployees={employees.length}
+        totalEmployees={officeFilteredEmployees.length}
         loading={loading}
+        selectedFilterTab={selectedFilterTab}
+        onClearFilter={() => setSelectedFilterTab('total')}
         onSelectEmployee={(empId) => navigate(PATHS.hrEmployeeReport(empId))}
       />
-
-      {/* Section 6 & 10: Office Location Status Cards */}
-      <HrOfficeCards offices={officeMetrics} loading={loading} />
     </DashboardLayout>
   );
 }

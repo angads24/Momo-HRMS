@@ -216,11 +216,32 @@ export function getCurrentCoordinates(): Promise<LocationCoordinates> {
  */
 export async function approveAttendanceException(
   exceptionId: string,
-  payload: { status: 'APPROVED' | 'REJECTED'; comment?: string },
+  payload: {
+    status: 'APPROVED' | 'REJECTED';
+    comment?: string;
+    approverName?: string;
+    approverEmail?: string;
+    employeeId?: string;
+    attendanceDate?: string;
+    additionalHours?: number;
+    reason?: string;
+    metadata?: Record<string, any>;
+  },
 ): Promise<any> {
   const response = await api.post(
     `${ATTENDANCE_API_URL}/exceptions/${exceptionId}/approve`,
     payload,
+  );
+  return unwrapResponse(response.data);
+}
+
+/**
+ * Fetches a single attendance exception by ID.
+ * GET /api/v1/attendance/exceptions/:id
+ */
+export async function fetchAttendanceExceptionById(exceptionId: string): Promise<any> {
+  const response = await api.get(
+    `${ATTENDANCE_API_URL}/exceptions/${exceptionId}`,
   );
   return unwrapResponse(response.data);
 }

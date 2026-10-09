@@ -13,6 +13,7 @@ export interface AttendanceEventPayload {
   clientEventId: string;
   location: LocationPayload;
   faceVerificationToken?: string;
+  reason?: string;
 }
 
 export interface AttendanceSession {
@@ -103,6 +104,8 @@ export async function getTodayAttendance(employeeId?: string): Promise<TodayAtte
 export async function getAttendanceHistory(
   employeeId?: string,
   limit: number = 20,
+  startDate?: string,
+  endDate?: string,
 ): Promise<AttendanceSession[]> {
   const headers: Record<string, string> = {};
   if (employeeId) {
@@ -112,6 +115,8 @@ export async function getAttendanceHistory(
   if (employeeId) {
     params.employeeId = employeeId;
   }
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
   const { data } = await attendanceClient.get<any>('/attendance/history', { headers, params });
   const responseData = data?.data ?? data;
   return responseData?.items ?? (Array.isArray(responseData) ? responseData : []);

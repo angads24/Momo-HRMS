@@ -212,7 +212,7 @@ export function FaceCameraModal({
       } finally {
         isAnalyzingRef.current = false;
       }
-    }, 650);
+    }, 1200);
 
     return () => {
       clearInterval(interval);

@@ -12,6 +12,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import SendIcon from '@mui/icons-material/Send';
 import { DashboardLayout } from '../../../components/DashboardLayout';
 import { useAuth } from '../../../context/AuthContext';
+import { useNotifications } from '../../../context/NotificationContext';
 import {
   createNotificationEventSource,
   deleteNotification,
@@ -26,6 +27,7 @@ import { NotificationPreviewDialog } from '../components/NotificationPreviewDial
 
 export default function NotificationListPage() {
   const { user } = useAuth();
+  const { unreadCount, setUnreadCount, refreshUnreadCount } = useNotifications();
   const isManagement = user?.appRole === 'ADMIN' || user?.appRole === 'HR';
   const recipientId = user?.id ?? 'ALL';
 
@@ -36,7 +38,6 @@ export default function NotificationListPage() {
 
   // Tabs: 0: All, 1: Unread Only
   const [tabValue, setTabValue] = useState(0);
-  const [unreadCount, setUnreadCount] = useState(0);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -158,6 +159,7 @@ export default function NotificationListPage() {
         prev.map((n) => (n.id === notif.id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n)),
       );
       setUnreadCount((c) => Math.max(0, c - 1));
+      void refreshUnreadCount();
       // If currently on Unread tab, refresh view so it moves out
       if (tabValue === 1) {
         await loadNotifications(page, false);
@@ -172,6 +174,7 @@ export default function NotificationListPage() {
       await markAllNotificationsAsRead(recipientId, userEmail, userRole);
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
+      void refreshUnreadCount();
       setFeedback('All notifications marked as read.');
       await loadNotifications(1, getIsReadFilter(tabValue));
     } catch {
@@ -186,6 +189,7 @@ export default function NotificationListPage() {
       setTotal((t) => Math.max(0, t - 1));
       if (!notif.isRead) {
         setUnreadCount((c) => Math.max(0, c - 1));
+        void refreshUnreadCount();
       }
       setFeedback('Notification deleted.');
     } catch {

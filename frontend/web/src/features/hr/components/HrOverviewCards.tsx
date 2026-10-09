@@ -21,12 +21,28 @@ export interface OverviewMetrics {
   autoCheckout: number;
 }
 
+export type OverviewTabId =
+  | 'total'
+  | 'present'
+  | 'working'
+  | 'paused'
+  | 'checked-out'
+  | 'absent'
+  | 'auto-checkout';
+
 interface HrOverviewCardsProps {
   metrics: OverviewMetrics;
   loading?: boolean;
+  selectedTab?: OverviewTabId;
+  onSelectTab?: (tabId: OverviewTabId) => void;
 }
 
-export const HrOverviewCards: React.FC<HrOverviewCardsProps> = ({ metrics, loading = false }) => {
+export const HrOverviewCards: React.FC<HrOverviewCardsProps> = ({
+  metrics,
+  loading = false,
+  selectedTab = 'total',
+  onSelectTab,
+}) => {
   const cards = [
     {
       id: 'total',
@@ -107,69 +123,113 @@ export const HrOverviewCards: React.FC<HrOverviewCardsProps> = ({ metrics, loadi
         mb: 3,
       }}
     >
-      {cards.map((c) => (
-        <Card
-          key={c.id}
-          elevation={0}
-          sx={{
-            p: 2,
-            borderRadius: 3,
-            bgcolor: '#ffffff',
-            border: '1px solid #e2e8f0',
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            '&:hover': {
-              boxShadow: '0 6px 18px rgba(0, 0, 0, 0.05)',
-              borderColor: c.color,
-              transform: 'translateY(-2px)',
-            },
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.2 }}>
-            <Typography
-              variant="caption"
-              sx={{
-                fontWeight: 700,
-                color: '#64748b',
-                textTransform: 'uppercase',
-                letterSpacing: 0.5,
-                fontSize: '0.68rem',
-              }}
-            >
-              {c.label}
-            </Typography>
-            <Box
-              sx={{
-                width: 30,
-                height: 30,
-                borderRadius: 2,
-                bgcolor: c.bgColor,
-                color: c.color,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              {c.icon}
-            </Box>
-          </Box>
+      {cards.map((c) => {
+        const isSelected = selectedTab === c.id;
 
-          {loading ? (
-            <Skeleton variant="text" width={48} height={40} />
-          ) : (
-            <Typography
-              variant="h4"
-              sx={{
-                fontWeight: 800,
-                color: '#0f172a',
-                lineHeight: 1.1,
-                fontSize: '1.75rem',
-              }}
-            >
-              {c.value}
-            </Typography>
-          )}
-        </Card>
-      ))}
+        return (
+          <Card
+            key={c.id}
+            variant="outlined"
+            onClick={() => onSelectTab?.(c.id as OverviewTabId)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelectTab?.(c.id as OverviewTabId);
+              }
+            }}
+            sx={{
+              p: 2,
+              borderRadius: 2.5,
+              cursor: 'pointer',
+              borderColor: isSelected ? c.color : '#e2e8f0',
+              borderWidth: isSelected ? 2 : 1,
+              bgcolor: isSelected ? c.bgColor : '#ffffff',
+              boxShadow: isSelected
+                ? `0 6px 16px ${c.bgColor}, 0 2px 4px rgba(0,0,0,0.04)`
+                : '0 1px 3px rgba(0,0,0,0.02)',
+              transform: isSelected ? 'scale(1.02)' : 'none',
+              transition: 'all 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
+              position: 'relative',
+              userSelect: 'none',
+              outline: 'none',
+              '&:hover': {
+                boxShadow: `0 8px 20px rgba(0, 0, 0, 0.06)`,
+                borderColor: c.color,
+                transform: isSelected ? 'scale(1.02)' : 'translateY(-2px)',
+              },
+              '&:focus-visible': {
+                outline: `2px solid ${c.color}`,
+                outlineOffset: 2,
+              },
+            }}
+          >
+            {/* Active Top-Line Indicator */}
+            {isSelected && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 3,
+                  bgcolor: c.color,
+                  borderTopLeftRadius: 10,
+                  borderTopRightRadius: 10,
+                }}
+              />
+            )}
+
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.2 }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: isSelected ? 800 : 700,
+                  color: isSelected ? c.color : 'text.secondary',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.5,
+                  fontSize: '0.68rem',
+                }}
+              >
+                {c.label}
+              </Typography>
+              <Box
+                sx={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 1.5,
+                  bgcolor: isSelected ? '#ffffff' : c.bgColor,
+                  color: c.color,
+                  boxShadow: isSelected ? '0 2px 4px rgba(0,0,0,0.06)' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {c.icon}
+              </Box>
+            </Box>
+
+            {loading ? (
+              <Skeleton variant="text" width={48} height={40} />
+            ) : (
+              <Typography
+                variant="h4"
+                sx={{
+                  fontWeight: 800,
+                  color: isSelected ? c.color : 'text.primary',
+                  lineHeight: 1.1,
+                  fontSize: '1.75rem',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {c.value}
+              </Typography>
+            )}
+          </Card>
+        );
+      })}
     </Box>
   );
 };

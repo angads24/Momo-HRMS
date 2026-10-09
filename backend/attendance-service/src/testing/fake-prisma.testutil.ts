@@ -200,6 +200,15 @@ export class FakePrismaService {
     },
   };
 
+  attendanceException = {
+    findMany: async ({ where }: { where?: Where } = {}) => {
+      return [];
+    },
+    findUnique: async () => null,
+    create: async ({ data }: { data: Record<string, unknown> }) => ({ id: uuidv4(), ...data }),
+    update: async ({ data }: { data: Record<string, unknown> }) => ({ ...data }),
+  };
+
   async $queryRawUnsafe(..._args: unknown[]): Promise<unknown[]> {
     return [];
   }

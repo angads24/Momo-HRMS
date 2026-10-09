@@ -39,6 +39,11 @@ export class ExceptionsController {
     return this.exceptionsService.cancelException(id);
   }
 
+  @Get(':id')
+  async getExceptionById(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exceptionsService.getExceptionById(id);
+  }
+
   @Get()
   async listExceptions(
     @Query('employeeId') employeeId?: string,

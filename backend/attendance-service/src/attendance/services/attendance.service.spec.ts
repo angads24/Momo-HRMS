@@ -502,5 +502,56 @@ describe('AttendanceService', () => {
       // Midnight cutoff is 18:30:00 UTC (12:00 AM IST)
       expect(session.checkOutAt.toISOString()).toBe('2026-10-09T18:30:00.000Z');
     });
+
+    it('preserves special condition extra time across multiple sessions and geofence exit', async () => {
+      const { service, prisma } = createTestBed();
+      const empId = 'EMP-004';
+
+      // 1. Session 1: 08:00 to 10:00 (checked in then checked out -> 7200s)
+      await service.checkIn(empId, buildLocationEvent('s1-ci', '2026-10-09T02:30:00Z'), new Date('2026-10-09T02:30:00Z'));
+      await service.checkOut(empId, { clientEventId: 's1-co', location: buildLocationEvent('s1-co', '2026-10-09T04:30:00Z').location }, new Date('2026-10-09T04:30:00Z'));
+
+      // 2. Session 2: 11:00 (checked in again)
+      await service.checkIn(empId, buildLocationEvent('s2-ci', '2026-10-09T05:30:00Z'), new Date('2026-10-09T05:30:00Z'));
+
+      // 3. Add Approved Special Condition Adjustment (+1 hour = 3600s)
+      prisma.exceptions.push({
+        id: 'exc-101',
+        employeeId: empId,
+        attendanceDate: new Date('2026-10-09T00:00:00Z'),
+        type: 'WORKING_TIME_ADJUSTMENT',
+        status: 'APPROVED',
+        reason: 'On-field client meeting',
+        metadata: { additionalSeconds: 3600 },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // 4. Employee exits geofence at 12:00 (1 hour worked in session 2 = 3600s)
+      const exitResult = await service.geofenceExit(
+        empId,
+        buildLocationEvent('s2-exit', '2026-10-09T06:30:00Z'),
+        new Date('2026-10-09T06:30:00Z'),
+      );
+
+      // Verify geofence exit return contains special condition credit
+      expect(exitResult.session.hasSpecialCondition).toBe(true);
+      expect(exitResult.session.specialConditionSeconds).toBe(3600);
+      expect(exitResult.session.specialConditionReason).toBe('On-field client meeting');
+
+      // 5. Query today attendance
+      const today = await service.getToday(empId, new Date('2026-10-09T06:30:00Z'));
+      expect(today.hasActiveSession).toBe(true);
+      expect(today.totalSpecialConditionSecondsToday).toBe(3600);
+
+      // Active session (Session 2) should have the special condition attached
+      const active = today.sessions.find((s) => s.status === 'PAUSED');
+      expect(active).toBeDefined();
+      expect(active?.hasSpecialCondition).toBe(true);
+      expect(active?.specialConditionSeconds).toBe(3600);
+
+      // Total working seconds today = Session 1 (7200) + Session 2 (3600) + Special Condition (3600) = 14400s
+      expect(today.totalWorkingSecondsToday).toBe(14400);
+    });
   });
 });

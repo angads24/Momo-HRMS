@@ -353,42 +353,6 @@ export default function HrHomePage() {
     };
   }, [officeFilteredEmployees, sessionByEmployee, activeEmployees]);
 
-  // 7-Day Attendance Trend Data (Real past 7 days)
-  const trendData: DailyTrendPoint[] = useMemo(() => {
-    const result: DailyTrendPoint[] = [];
-    const now = new Date();
-
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const fullDate = d.toISOString().split('T')[0];
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const dateLabel = `${monthNames[d.getMonth()]} ${d.getDate()}`;
-
-      // Find sessions on this day (strictly scoped if HR)
-      const daySessions = allKnownSessions.filter((s) => {
-        if (!s.attendanceDate?.startsWith(fullDate)) return false;
-        if (isHrScoped) return scopedEmployeeIds.has(s.employeeId);
-        return true;
-      });
-      const presentCount = daySessions.length;
-      const lateCount = daySessions.filter((s) => s.checkInStatus === 'LATE').length;
-      const dayOfWeek = d.getDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-      const absentCount = isWeekend
-        ? 0
-        : Math.max(0, activeEmployees.length - presentCount);
-
-      result.push({
-        date: dateLabel,
-        fullDate,
-        present: presentCount,
-        absent: absentCount,
-        late: lateCount,
-      });
-    }
-
-    return result;
-  }, [allKnownSessions, activeEmployees]);
 
   // Department Stats
   const departmentStats: DepartmentStat[] = useMemo(() => {
@@ -480,7 +444,7 @@ export default function HrHomePage() {
             status = 'PAUSED';
           } else if (
             session.checkoutType === 'AUTO_CHECKOUT' ||
-            session.checkoutType === 'AUTO' ||
+            (session.checkoutType as string) === 'AUTO' ||
             (session.checkoutType as any) === 'AUTO_MIDNIGHT' ||
             session.checkoutReason === 'GEOFENCE_TIMEOUT' ||
             session.status === 'AUTO_CHECKED_OUT'

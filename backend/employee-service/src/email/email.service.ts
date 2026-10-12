@@ -270,7 +270,12 @@ Momo HRMS Team
       console.log(`Official Email:     ${officialEmail}`);
       console.log(`Username:           ${username}`);
       if (temporaryPassword) {
-        console.log(`Temporary Password: ${temporaryPassword}`);
+        const isDev = process.env.NODE_ENV !== "production";
+        if (isDev) {
+          console.log(`Temporary Password: ${temporaryPassword.slice(0, 2)}******${temporaryPassword.slice(-1)}`);
+        } else {
+          console.log("Temporary Password: [PROTECTED_IN_PRODUCTION]");
+        }
       }
       console.log('=================================================================\n');
 

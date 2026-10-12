@@ -1,0 +1,33 @@
+# Environment & Secret files (CRITICAL: NEVER COMMIT)
+.env
+.env.*
+*.env
+!.env.example
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+
+# Build artifacts
+dist/
+build/
+.next/
+out/
+
+# Python cache & artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.onnx
+
+# Expo & Mobile
+.expo/
+.expo-shared/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

@@ -1828,7 +1828,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                                     ? meta.approvedByName
                                     : meta.approvedByEmail ||
                                       meta.hrEmail ||
-                                      (ex.approvedByUserId && ex.approvedByUserId === user?.id ? user.fullName || user.username || user.email : 'HR Administrator')}
+                                      (ex.approvedByUserId && ex.approvedByUserId === user?.id ? user?.fullName || user?.username || user?.email : 'HR Administrator')}
                                 </Typography>
                                 <Typography variant="caption" sx={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>
                                   {ex.approvedAt || meta.approvedAt
@@ -1843,7 +1843,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                                     ? meta.approvedByName
                                     : meta.approvedByEmail ||
                                       meta.hrEmail ||
-                                      (ex.approvedByUserId && ex.approvedByUserId === user?.id ? user.fullName || user.username || user.email : 'HR Administrator')}
+                                      (ex.approvedByUserId && ex.approvedByUserId === user?.id ? user?.fullName || user?.username || user?.email : 'HR Administrator')}
                                 </Typography>
                                 <Typography variant="caption" sx={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>
                                   {ex.approvedAt || meta.approvedAt

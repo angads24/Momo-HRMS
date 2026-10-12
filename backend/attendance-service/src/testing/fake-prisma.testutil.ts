@@ -78,6 +78,7 @@ export class FakePrismaService {
   sessions: Record<string, unknown>[] = [];
   pauses: Record<string, unknown>[] = [];
   events: Record<string, unknown>[] = [];
+  exceptions: Record<string, unknown>[] = [];
   locks = new Set<string>();
 
   employeeAttendanceLock = {
@@ -202,7 +203,7 @@ export class FakePrismaService {
 
   attendanceException = {
     findMany: async ({ where }: { where?: Where } = {}) => {
-      return [];
+      return this.exceptions.filter((e) => matchesWhere(e, where));
     },
     findUnique: async () => null,
     create: async ({ data }: { data: Record<string, unknown> }) => ({ id: uuidv4(), ...data }),

@@ -570,7 +570,8 @@ export class AttendanceService {
       metadata: { sessionId: updated.id, officeId: dto.officeId, graceDeadline, reason: dto.reason },
     });
 
-    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime), idempotentReplay: false };
+    const dayAdj = await this.getDayAdjustment(ids, updated.attendanceDate);
+    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime, dayAdj.seconds, dayAdj.reason), idempotentReplay: false };
   }
 
   // ---------------------------------------------------------------------
@@ -678,7 +679,8 @@ export class AttendanceService {
       metadata: { sessionId: updated.id },
     });
 
-    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime), idempotentReplay: false };
+    const dayAdj = await this.getDayAdjustment(ids, updated.attendanceDate);
+    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime, dayAdj.seconds, dayAdj.reason), idempotentReplay: false };
   }
 
   // ---------------------------------------------------------------------
@@ -769,37 +771,28 @@ export class AttendanceService {
       orderBy: { checkInAt: 'asc' },
     });
 
-    const approvedExceptions = await this.prisma.attendanceException.findMany({
-      where: {
-        employeeId: { in: ids },
-        attendanceDate,
-        type: ExceptionType.WORKING_TIME_ADJUSTMENT,
-        status: ExceptionStatus.APPROVED,
-      },
-    });
-
-    let totalAdjustmentSeconds = 0;
-    const reasons: string[] = [];
-    for (const ex of approvedExceptions) {
-      const { seconds, reason } = this.extractAdjustmentFromException(ex);
-      totalAdjustmentSeconds += seconds;
-      if (reason && !reasons.includes(reason)) reasons.push(reason);
-    }
-    const combinedReason = reasons.join('; ');
+    const dayAdj = await this.getDayAdjustment(ids, attendanceDate);
+    const totalAdjustmentSeconds = dayAdj.seconds;
+    const combinedReason = dayAdj.reason;
 
     let sessionDtos: AttendanceSessionResponseDto[] = [];
     if (sessions.length > 0) {
+      const activeIdx = sessions.findIndex(
+        (s) => s.status === AttendanceStatus.WORKING || s.status === AttendanceStatus.PAUSED,
+      );
+      const targetIdx = activeIdx !== -1 ? activeIdx : sessions.length - 1;
+
       sessionDtos = sessions.map((s, idx) => {
-        const adj = idx === 0 ? totalAdjustmentSeconds : 0;
-        const r = idx === 0 ? combinedReason : undefined;
+        const adj = idx === targetIdx ? totalAdjustmentSeconds : 0;
+        const r = idx === targetIdx ? combinedReason : undefined;
         return this.toSessionDto(s, s.pauses, now, adj, r);
       });
-    } else if (totalAdjustmentSeconds > 0 && approvedExceptions.length > 0) {
+    } else if (totalAdjustmentSeconds > 0 && dayAdj.exceptions.length > 0) {
       sessionDtos = [
         this.createSynthesizedSpecialSession(
           ids[0] || employeeId,
           attendanceDateStr,
-          approvedExceptions[0],
+          dayAdj.exceptions[0],
           totalAdjustmentSeconds,
           combinedReason,
         ),
@@ -1446,6 +1439,30 @@ export class AttendanceService {
 
     this.logger.error(`Unexpected error processing sync event ${clientEventId}: ${(error as Error).message}`);
     return { clientEventId, status: SyncResultStatus.REJECTED, message: 'Unexpected server error' };
+  }
+
+  private async getDayAdjustment(employeeIds: string[], attendanceDate: Date) {
+    const approvedExceptions = await this.prisma.attendanceException.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        attendanceDate,
+        type: ExceptionType.WORKING_TIME_ADJUSTMENT,
+        status: ExceptionStatus.APPROVED,
+      },
+    });
+
+    let totalAdjustmentSeconds = 0;
+    const reasons: string[] = [];
+    for (const ex of approvedExceptions) {
+      const { seconds, reason } = this.extractAdjustmentFromException(ex);
+      totalAdjustmentSeconds += seconds;
+      if (reason && !reasons.includes(reason)) reasons.push(reason);
+    }
+    return {
+      seconds: totalAdjustmentSeconds,
+      reason: reasons.join('; '),
+      exceptions: approvedExceptions,
+    };
   }
 
   private extractAdjustmentFromException(ex: { metadata?: Prisma.JsonValue | null; reason: string }) {

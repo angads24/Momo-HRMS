@@ -40,7 +40,7 @@ function describeDonutArc(
   outerR: number,
   startAngle: number,
   endAngle: number,
-) {
+): string {
   const delta = endAngle - startAngle;
   if (delta >= 359.99) {
     const mid = startAngle + 180;

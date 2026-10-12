@@ -28,7 +28,6 @@ export const attendanceClient = axios.create({
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
-    'x-gateway-secret': 'dev-gateway-secret',
   },
 });
 
@@ -37,7 +36,6 @@ export const geofenceClient = axios.create({
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
-    'x-gateway-secret': 'dev-gateway-secret',
   },
 });
 

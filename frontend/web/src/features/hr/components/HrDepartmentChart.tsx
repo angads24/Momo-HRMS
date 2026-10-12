@@ -88,7 +88,7 @@ function formatDepartmentLabel(name: string, code?: string): { short: string; fu
 
 export const HrDepartmentChart: React.FC<HrDepartmentChartProps> = ({
   data,
-  departments = [],
+  departments: _departments = [],
   employees = [],
   allSessions = [],
   loading = false,
@@ -136,7 +136,7 @@ export const HrDepartmentChart: React.FC<HrDepartmentChartProps> = ({
       // Find employees of this department
       const deptEmployees = employees.filter(
         (e) =>
-          e.departmentId === dept.id ||
+          (e as any).departmentId === dept.id ||
           e.department?.id === dept.id ||
           e.department?.name?.toLowerCase() === dept.name.toLowerCase() ||
           e.department?.code?.toLowerCase() === dept.code.toLowerCase(),

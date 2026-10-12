@@ -6,6 +6,7 @@ export interface LocationPayload {
   altitudeMeters?: number;
   accuracyMeters?: number;
   timestamp: string;
+  isMocked?: boolean;
 }
 
 export interface AttendanceEventPayload {
@@ -28,6 +29,7 @@ export interface AttendanceSession {
   totalPausedSeconds?: number;
   regularWorkingSeconds?: number;
   specialConditionSeconds?: number;
+  approvedAdjustmentSeconds?: number;
   hasSpecialCondition?: boolean;
   specialConditionStatus?: string;
   specialConditionReason?: string;

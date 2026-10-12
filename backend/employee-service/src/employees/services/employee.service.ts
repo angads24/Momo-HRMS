@@ -214,7 +214,7 @@ export class EmployeeService implements OnModuleInit {
       const targetEmail = dto.personalEmail?.trim() || dto.email?.trim();
 
       this.logger.log(
-        `[CREDENTIAL_GENERATE] Provisioning credentials for ${result.email} (${result.employeeCode}): tempPass=${tempPass}, targetEmail=${targetEmail}`,
+        `[CREDENTIAL_GENERATE] Provisioning credentials for ${result.email} (${result.employeeCode}): tempPass=[MASKED], targetEmail=${targetEmail}`,
       );
 
       // Automatically sync/provision credentials to auth-service so login immediately works

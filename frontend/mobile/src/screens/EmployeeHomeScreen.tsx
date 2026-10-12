@@ -351,6 +351,36 @@ export default function EmployeeHomeScreen() {
     }
   }, [employeeProfile?.employeeCode, employeeProfile?.id, navigation]);
 
+  // Helper to update active session and preserve cumulative daily time + special condition credits
+  const updateSessionAndWorkingSeconds = useCallback((updatedSession: AttendanceSession) => {
+    setActiveSession(updatedSession);
+    setTodayData((prevToday) => {
+      if (!prevToday) {
+        if (typeof updatedSession.totalWorkingSeconds === 'number') {
+          const adj = updatedSession.approvedAdjustmentSeconds || 0;
+          setWorkingSeconds(updatedSession.totalWorkingSeconds + adj);
+        }
+        return prevToday;
+      }
+      const otherSessionsSeconds = (prevToday.sessions || [])
+        .filter((s) => s.id !== updatedSession.id)
+        .reduce((sum, s) => sum + (s.totalWorkingSeconds || 0), 0);
+      const sessionSeconds = typeof updatedSession.totalWorkingSeconds === 'number'
+        ? updatedSession.totalWorkingSeconds
+        : 0;
+      const specialSeconds = prevToday.totalSpecialConditionSecondsToday || updatedSession.approvedAdjustmentSeconds || 0;
+      const newTotal = otherSessionsSeconds + sessionSeconds + specialSeconds;
+      setWorkingSeconds(newTotal);
+
+      const updatedSessions = prevToday.sessions.map((s) => (s.id === updatedSession.id ? updatedSession : s));
+      return {
+        ...prevToday,
+        sessions: updatedSessions,
+        totalWorkingSecondsToday: newTotal,
+      };
+    });
+  }, []);
+
   // 3. Resolve assigned office & evaluate geofence with GPS
   const checkLocationAndGeofence = useCallback(
     async (arg?: unknown) => {
@@ -387,10 +417,8 @@ export default function EmployeeHomeScreen() {
                 },
                 empId,
               );
-              setActiveSession(updated);
-              if (typeof updated.totalWorkingSeconds === 'number') {
-                setWorkingSeconds(updated.totalWorkingSeconds);
-              }
+              updateSessionAndWorkingSeconds(updated);
+              void loadAttendance();
               setSessionStatusBanner({
                 type: 'PAUSED',
                 message: `${reasonNote}: Working timer paused automatically. Turn on location to resume.`,
@@ -450,6 +478,14 @@ export default function EmployeeHomeScreen() {
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
+        if (Boolean((pos as any)?.mocked)) {
+          Alert.alert(
+            "Security Alert",
+            "Spoofed or Mock Location detected! Please disable fake GPS apps to record attendance."
+          );
+          setGeofenceResult(null);
+          return;
+        }
         setLocation(pos.coords);
         locationRef.current = pos.coords;
 
@@ -548,10 +584,8 @@ export default function EmployeeHomeScreen() {
                   },
                   empId,
                 );
-                setActiveSession(updated);
-                if (typeof updated.totalWorkingSeconds === 'number') {
-                  setWorkingSeconds(updated.totalWorkingSeconds);
-                }
+                updateSessionAndWorkingSeconds(updated);
+                void loadAttendance();
                 setSessionStatusBanner({
                   type: 'PAUSED',
                   message: 'Outside office boundary: Working timer paused automatically.',
@@ -577,10 +611,8 @@ export default function EmployeeHomeScreen() {
                   },
                   empId,
                 );
-                setActiveSession(updated);
-                if (typeof updated.totalWorkingSeconds === 'number') {
-                  setWorkingSeconds(updated.totalWorkingSeconds);
-                }
+                updateSessionAndWorkingSeconds(updated);
+                void loadAttendance();
                 setSessionStatusBanner({
                   type: 'RESUMED',
                   message: 'Returned inside office boundary: Working timer resumed.',

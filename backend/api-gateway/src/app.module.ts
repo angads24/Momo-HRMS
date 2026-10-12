@@ -63,6 +63,28 @@ export class AppModule implements NestModule {
             proxyReq.setHeader('x-gateway-signature', signature);
             proxyReq.setHeader('x-gateway-secret', gatewaySecret);
 
+            // Forward strictly verified identity headers from AuthEnrichmentMiddleware
+            if (req.headers['x-user-id']) {
+              proxyReq.setHeader('x-user-id', req.headers['x-user-id']);
+            } else {
+              proxyReq.removeHeader('x-user-id');
+            }
+            if (req.headers['x-employee-id']) {
+              proxyReq.setHeader('x-employee-id', req.headers['x-employee-id']);
+            } else {
+              proxyReq.removeHeader('x-employee-id');
+            }
+            if (req.headers['x-roles']) {
+              proxyReq.setHeader('x-roles', req.headers['x-roles']);
+            } else {
+              proxyReq.removeHeader('x-roles');
+            }
+            if (req.headers['x-permissions']) {
+              proxyReq.setHeader('x-permissions', req.headers['x-permissions']);
+            } else {
+              proxyReq.removeHeader('x-permissions');
+            }
+
             fixRequestBody(proxyReq, req);
           },
           error: (err, req, res: any) => {

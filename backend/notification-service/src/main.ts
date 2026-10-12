@@ -13,7 +13,14 @@ async function bootstrap() {
   const apiPrefix = configService.get<string>('apiPrefix', 'api/v1');
 
   app.enableCors({
-    origin: '*',
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const isLocalNetwork = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(
+        origin,
+      );
+      if (isLocalNetwork) return callback(null, true);
+      return callback(null, true);
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
@@ -32,7 +39,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`Notification Service running on http://localhost:${port}/${apiPrefix}`);
   logger.log(`Swagger documentation: http://localhost:${port}/docs`);
 }

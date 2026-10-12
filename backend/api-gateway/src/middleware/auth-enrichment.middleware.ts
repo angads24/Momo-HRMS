@@ -15,30 +15,47 @@ export class AuthEnrichmentMiddleware implements NestMiddleware {
   }
 
   use(req: Request, res: Response, next: NextFunction) {
-    // Always inject gateway shared secret for downstream service verification
+    // 1. CRITICAL SECURITY: Sanitize all untrusted client-supplied identity & gateway headers.
+    // External clients must NEVER be able to inject or spoof these internal headers.
+    delete req.headers['x-user-id'];
+    delete req.headers['x-employee-id'];
+    delete req.headers['x-roles'];
+    delete req.headers['x-permissions'];
+    delete req.headers['x-gateway-secret'];
+    delete req.headers['x-gateway-signature'];
+    delete req.headers['x-gateway-timestamp'];
+
+    // 2. Inject internal gateway shared secret for downstream service verification
     req.headers['x-gateway-secret'] = this.gatewaySecret;
 
+    // 3. Decode & verify the JWT access token from Authorization header
     const authHeader = req.headers['authorization'];
     if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7).trim();
       try {
         const decoded = jwt.verify(token, this.jwtSecret) as any;
-        if (decoded) {
-          if (decoded.sub && !req.headers['x-user-id']) {
-            req.headers['x-user-id'] = decoded.sub;
+        if (decoded && typeof decoded === 'object') {
+          // Strictly populate authenticated identity from validated JWT claims
+          if (decoded.sub) {
+            req.headers['x-user-id'] = String(decoded.sub);
           }
-          if (decoded.employeeId && !req.headers['x-employee-id']) {
-            req.headers['x-employee-id'] = decoded.employeeId;
+          if (decoded.employeeId) {
+            req.headers['x-employee-id'] = String(decoded.employeeId);
           }
-          if (decoded.roles && !req.headers['x-roles']) {
-            req.headers['x-roles'] = Array.isArray(decoded.roles) ? decoded.roles.join(',') : String(decoded.roles);
+          if (decoded.roles) {
+            req.headers['x-roles'] = Array.isArray(decoded.roles)
+              ? decoded.roles.join(',')
+              : String(decoded.roles);
           }
-          if (decoded.permissions && !req.headers['x-permissions']) {
-            req.headers['x-permissions'] = Array.isArray(decoded.permissions) ? decoded.permissions.join(',') : String(decoded.permissions);
+          if (decoded.permissions) {
+            req.headers['x-permissions'] = Array.isArray(decoded.permissions)
+              ? decoded.permissions.join(',')
+              : String(decoded.permissions);
           }
         }
       } catch (err) {
-        // Token might be expired or invalid - downstream services or guards will reject it
+        // Token is expired, malformed, or has an invalid signature.
+        // Identity headers remain strictly stripped; downstream services will reject unauthenticated access.
         this.logger.debug(`Could not verify JWT token in gateway: ${(err as Error).message}`);
       }
     }

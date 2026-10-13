@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules } from 'react-native';
 import Constants from 'expo-constants';
 
 /**
@@ -10,7 +10,6 @@ import Constants from 'expo-constants';
  */
 function resolveHost(): string {
   try {
-    // 1. Check Expo Constants hostUri (e.g. "10.131.179.237:8081")
     const hostUri =
       Constants.expoConfig?.hostUri ||
       (Constants as any).manifest2?.extra?.expoClient?.hostUri ||
@@ -22,7 +21,6 @@ function resolveHost(): string {
       }
     }
 
-    // 2. Check React Native scriptURL
     const scriptURL: string | undefined = NativeModules?.SourceCode?.scriptURL;
     if (scriptURL) {
       const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
@@ -44,15 +42,25 @@ function resolveHost(): string {
 }
 
 const currentHost = resolveHost();
-const prodUrl = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "") : "";
+const rawEnvUrl = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/+$/, '');
 
-export const GATEWAY_URL = prodUrl ? (prodUrl.endsWith("/api/v1") ? prodUrl : `${prodUrl}/api/v1`) : `${currentHost}:8000/api/v1`;
-export const AUTH_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3001/api/v1`;
-export const EMPLOYEE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3004/api/v1`;
-export const ATTENDANCE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3002/api/v1`;
-export const GEOFENCE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3003/api/v1`;
-export const NOTIFICATION_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3005/api/v1`;
-export const FACE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3006/api/v1`;
+// Only treat as unified production gateway if it explicitly points to a remote cloud host (https) or port 8000
+const isUnifiedGateway =
+  rawEnvUrl.startsWith('https://') ||
+  rawEnvUrl.includes(':8000') ||
+  process.env.EXPO_PUBLIC_USE_GATEWAY === 'true';
+
+const unifiedGatewayUrl = isUnifiedGateway
+  ? (rawEnvUrl.endsWith('/api/v1') ? rawEnvUrl : `${rawEnvUrl}/api/v1`)
+  : `${currentHost}:8000/api/v1`;
+
+export const GATEWAY_URL = unifiedGatewayUrl;
+export const AUTH_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3001/api/v1`;
+export const ATTENDANCE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3002/api/v1`;
+export const GEOFENCE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3003/api/v1`;
+export const EMPLOYEE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3004/api/v1`;
+export const NOTIFICATION_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3005/api/v1`;
+export const FACE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3006/api/v1`;
 
 export const API_URL = AUTH_API_URL;
 export const COMPANY_NAME = 'Momo HRMS';

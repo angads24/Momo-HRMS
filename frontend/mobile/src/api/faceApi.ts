@@ -202,3 +202,9 @@ export async function detectAction(
     }
   }
 }
+
+// Aliases for backward compatibility across screens
+export const getChallenge = getFaceChallenge;
+export const detectNeutralPose = detectNeutral;
+export const detectLiveAction = (payload: { action: string; neutral_frame: string; current_frame: string }) =>
+  detectAction(payload.action, payload.neutral_frame, payload.current_frame);

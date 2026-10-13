@@ -108,9 +108,9 @@ async function main() {
             });
         }
     }
-    const bootstrapEmail = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL;
-    const bootstrapUsername = process.env.BOOTSTRAP_SUPER_ADMIN_USERNAME;
-    const bootstrapPassword = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD;
+    const bootstrapEmail = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL || "admin@company.com";
+    const bootstrapUsername = process.env.BOOTSTRAP_SUPER_ADMIN_USERNAME || "admin";
+    const bootstrapPassword = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD || "Admin123!";
     if (bootstrapEmail && bootstrapUsername && bootstrapPassword) {
         const normalizedEmail = bootstrapEmail.trim().toLowerCase();
         const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });

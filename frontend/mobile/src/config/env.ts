@@ -44,14 +44,15 @@ function resolveHost(): string {
 }
 
 const currentHost = resolveHost();
+const prodUrl = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, "") : "";
 
-export const AUTH_API_URL = `${currentHost}:3001/api/v1`;
-export const EMPLOYEE_API_URL = `${currentHost}:3004/api/v1`;
-export const ATTENDANCE_API_URL = `${currentHost}:3002/api/v1`;
-export const GEOFENCE_API_URL = `${currentHost}:3003/api/v1`;
-export const NOTIFICATION_API_URL = `${currentHost}:3005/api/v1`;
-export const FACE_API_URL = `${currentHost}:3006/api/v1`;
-export const GATEWAY_URL = `${currentHost}:8000/api/v1`;
+export const GATEWAY_URL = prodUrl ? (prodUrl.endsWith("/api/v1") ? prodUrl : `${prodUrl}/api/v1`) : `${currentHost}:8000/api/v1`;
+export const AUTH_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3001/api/v1`;
+export const EMPLOYEE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3004/api/v1`;
+export const ATTENDANCE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3002/api/v1`;
+export const GEOFENCE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3003/api/v1`;
+export const NOTIFICATION_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3005/api/v1`;
+export const FACE_API_URL = prodUrl ? GATEWAY_URL : `${currentHost}:3006/api/v1`;
 
 export const API_URL = AUTH_API_URL;
 export const COMPANY_NAME = 'Momo HRMS';

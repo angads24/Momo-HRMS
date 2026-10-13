@@ -32,24 +32,24 @@ if [ -n "$DATABASE_URL" ]; then
   echo "--> Deploying database schemas to all microservice databases..."
 
   echo "--> 1. Pushing auth_service schema..."
-  DATABASE_URL="$AUTH_DATABASE_URL" npx --prefix backend/auth-service prisma db push --skip-generate --accept-data-loss || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --skip-generate --accept-data-loss || true
+  DATABASE_URL="$AUTH_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/auth-service/prisma/schema.prisma --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/auth-service/prisma/schema.prisma --skip-generate --accept-data-loss || true
 
   echo "--> 2. Pushing employee_db schema..."
-  DATABASE_URL="$EMPLOYEE_DATABASE_URL" npx --prefix backend/employee-service prisma db push --skip-generate --accept-data-loss || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/employee-service prisma db push --skip-generate --accept-data-loss || true
+  DATABASE_URL="$EMPLOYEE_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/employee-service/prisma/schema.prisma --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/employee-service/prisma/schema.prisma --skip-generate --accept-data-loss || true
 
   echo "--> 3. Pushing attendance_service schema..."
-  DATABASE_URL="$ATTENDANCE_DATABASE_URL" npx --prefix backend/attendance-service prisma db push --skip-generate --accept-data-loss || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/attendance-service prisma db push --skip-generate --accept-data-loss || true
+  DATABASE_URL="$ATTENDANCE_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/attendance-service/prisma/schema.prisma --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/attendance-service/prisma/schema.prisma --skip-generate --accept-data-loss || true
 
   echo "--> 4. Pushing geofence_db schema..."
-  DATABASE_URL="$GEOFENCE_DATABASE_URL" npx --prefix backend/geofence-service prisma db push --skip-generate --accept-data-loss || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/geofence-service prisma db push --skip-generate --accept-data-loss || true
+  DATABASE_URL="$GEOFENCE_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/geofence-service/prisma/schema.prisma --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/geofence-service/prisma/schema.prisma --skip-generate --accept-data-loss || true
 
   echo "--> 5. Pushing notification_db schema..."
-  DATABASE_URL="$NOTIFICATION_DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss || true
+  DATABASE_URL="$NOTIFICATION_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/notification-service/prisma/schema.prisma --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/notification-service/prisma/schema.prisma --skip-generate --accept-data-loss || true
 
   echo "--> 6. Pushing face_ai_db schema..."
   DATABASE_URL="$FACE_AI_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/face-ai-service/prisma/schema.prisma --skip-generate --accept-data-loss || \

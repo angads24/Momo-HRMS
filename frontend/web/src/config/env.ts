@@ -1,13 +1,17 @@
-/** Base URL of the auth-service (see .env.example). */
-const rawUrl = import.meta.env.VITE_API_URL as string | undefined;
-export const API_URL: string = (rawUrl ?? 'http://localhost:3001/api/v1').replace(/\/+$/, '');
-
-const rawEmployeeUrl = import.meta.env.VITE_EMPLOYEE_API_URL as string | undefined;
-export const EMPLOYEE_API_URL: string = (rawEmployeeUrl ?? 'http://localhost:3004/api/v1').replace(/\/+$/, '');
-
 /** Primary API Gateway entry point for microservices (port 8000). */
 const rawGatewayUrl = import.meta.env.VITE_GATEWAY_URL as string | undefined;
 export const GATEWAY_API_URL: string = (rawGatewayUrl ?? 'http://localhost:8000/api/v1').replace(/\/+$/, '');
+
+/** Base URL of the auth-service. Gracefully strips trailing "/auth" to avoid /auth/auth/login. */
+const rawUrl = import.meta.env.VITE_API_URL as string | undefined;
+export const API_URL: string = (rawUrl ?? GATEWAY_API_URL ?? 'http://localhost:3001/api/v1')
+  .replace(/\/+$/, '')
+  .replace(/\/auth$/, '');
+
+const rawEmployeeUrl = import.meta.env.VITE_EMPLOYEE_API_URL as string | undefined;
+export const EMPLOYEE_API_URL: string = (rawEmployeeUrl ?? GATEWAY_API_URL ?? 'http://localhost:3004/api/v1')
+  .replace(/\/+$/, '')
+  .replace(/\/employees$/, '');
 
 const rawAttendanceUrl = import.meta.env.VITE_ATTENDANCE_API_URL as string | undefined;
 export const ATTENDANCE_API_URL: string = (rawAttendanceUrl ?? `${GATEWAY_API_URL}/attendance`).replace(/\/+$/, '');

@@ -36,6 +36,14 @@ export class AppModule implements NestModule {
     // 2. Auth & identity enrichment middleware
     consumer.apply((req, res, next) => this.authEnrichment.use(req, res, next)).forRoutes('*');
 
+    // 3. Normalizer to gracefully rewrite duplicate prefixes (e.g. /api/v1/auth/auth/login)
+    consumer.apply((req: any, res: any, next: any) => {
+      if (req.url && req.url.includes('/api/v1/auth/auth/')) {
+        req.url = req.url.replace('/api/v1/auth/auth/', '/api/v1/auth/');
+      }
+      next();
+    }).forRoutes('*');
+
     const authTarget = this.configService.get<string>('services.auth', 'http://localhost:3001');
     const attendanceTarget = this.configService.get<string>('services.attendance', 'http://localhost:3002');
     const geofenceTarget = this.configService.get<string>('services.geofence', 'http://localhost:3003');

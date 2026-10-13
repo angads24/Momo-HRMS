@@ -19,6 +19,7 @@ if [ -n "$DATABASE_URL" ]; then
   export ATTENDANCE_DATABASE_URL="${ATTENDANCE_DATABASE_URL:-${BASE_URL}/attendance_service${QUERY_PARAMS}}"
   export GEOFENCE_DATABASE_URL="${GEOFENCE_DATABASE_URL:-${BASE_URL}/geofence_db${QUERY_PARAMS}}"
   export NOTIFICATION_DATABASE_URL="${NOTIFICATION_DATABASE_URL:-${BASE_URL}/notification_db${QUERY_PARAMS}}"
+  export FACE_AI_DATABASE_URL="${FACE_AI_DATABASE_URL:-${BASE_URL}/face_ai_db${QUERY_PARAMS}}"
 
   echo "--> Deploying database schemas to all microservice databases..."
 
@@ -43,7 +44,11 @@ if [ -n "$DATABASE_URL" ]; then
   DATABASE_URL="$NOTIFICATION_DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || \
   DATABASE_URL="$DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || true
 
-  echo "--> 6. Seeding initial admin credentials & system roles..."
+  echo "--> 6. Pushing face_ai_db schema..."
+  DATABASE_URL="$FACE_AI_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/face-ai-service/prisma/schema.prisma --skip-generate --accept-data-loss 2>/dev/null || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/face-ai-service/prisma/schema.prisma --skip-generate --accept-data-loss 2>/dev/null || true
+
+  echo "--> 7. Seeding initial admin credentials & system roles..."
   DATABASE_URL="$AUTH_DATABASE_URL" node backend/auth-service/dist/prisma/seed.js 2>/dev/null || \
   DATABASE_URL="$DATABASE_URL" node backend/auth-service/dist/prisma/seed.js 2>/dev/null || true
 
@@ -52,6 +57,9 @@ if [ -n "$DATABASE_URL" ]; then
 
   DATABASE_URL="$GEOFENCE_DATABASE_URL" node backend/geofence-service/dist/prisma/seed.js 2>/dev/null || \
   DATABASE_URL="$DATABASE_URL" node backend/geofence-service/dist/prisma/seed.js 2>/dev/null || true
+
+  DATABASE_URL="$NOTIFICATION_DATABASE_URL" node backend/notification-service/dist/prisma/seed.js 2>/dev/null || \
+  DATABASE_URL="$DATABASE_URL" node backend/notification-service/dist/prisma/seed.js 2>/dev/null || true
 fi
 
 # 3. Launch internal microservices pointing to their respective databases
@@ -73,10 +81,10 @@ DATABASE_URL="${NOTIFICATION_DATABASE_URL:-$DATABASE_URL}" PORT=3005 node backen
 # 4. Launch Face AI service (:3006)
 if command -v uvicorn >/dev/null 2>&1; then
   echo "--> Launching Python Face AI service (:3006)..."
-  (cd backend/face-ai-service && uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+  DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" (cd backend/face-ai-service && uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 else
   echo "--> Launching Node Face AI service (:3006)..."
-  PORT=3006 node backend/face-ai-service/mock_server.js &
+  DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" PORT=3006 node backend/face-ai-service/mock_server.js &
 fi
 
 # Wait 4 seconds for all services to bind

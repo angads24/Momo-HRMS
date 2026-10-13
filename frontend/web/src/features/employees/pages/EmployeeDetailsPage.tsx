@@ -30,6 +30,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import EditIcon from '@mui/icons-material/Edit';
 import HistoryIcon from '@mui/icons-material/History';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -88,6 +89,12 @@ export default function EmployeeDetailsPage() {
   const [statusSubmitting, setStatusSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [resetCredsDialog, setResetCredsDialog] = useState<{
+    open: boolean;
+    email: string;
+    temporaryPassword?: string;
+    message: string;
+  } | null>(null);
 
   // Attendance Information
   const [todayAttendance, setTodayAttendance] = useState<{
@@ -174,6 +181,14 @@ export default function EmployeeDetailsPage() {
     try {
       const res = await resendCredentials(id);
       setFeedback(res.message || `Credentials sent to ${res.deliveredTo}`);
+      if (res.temporaryPassword) {
+        setResetCredsDialog({
+          open: true,
+          email: data?.employee?.email || '',
+          temporaryPassword: res.temporaryPassword,
+          message: res.message || 'New temporary credentials generated.',
+        });
+      }
       loadProfile();
     } catch (err: unknown) {
       const msg =
@@ -744,6 +759,72 @@ export default function EmployeeDetailsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Credentials Reset Dialog */}
+      {resetCredsDialog && (
+        <Dialog
+          open={resetCredsDialog.open}
+          onClose={() => setResetCredsDialog(null)}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle sx={{ fontWeight: 800 }}>
+            Temporary Credentials Generated
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {resetCredsDialog.message}
+            </Typography>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                borderRadius: 2,
+                bgcolor: '#fffbeb',
+                border: '2px solid #f59e0b',
+              }}
+            >
+              <Typography variant="caption" sx={{ color: '#92400e', fontWeight: 800, textTransform: 'uppercase' }}>
+                Temporary Password
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'monospace', color: '#d97706', my: 1, letterSpacing: '0.06em' }}>
+                {resetCredsDialog.temporaryPassword}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<ContentCopyIcon fontSize="small" />}
+                  sx={{ bgcolor: '#d97706', '&:hover': { bgcolor: '#b45309' }, fontWeight: 700 }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(resetCredsDialog.temporaryPassword || '');
+                    setFeedback('Temporary password copied to clipboard!');
+                  }}
+                >
+                  Copy Password
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  sx={{ color: '#92400e', borderColor: '#d97706', fontWeight: 600 }}
+                  onClick={() => {
+                    const full = `Momo HRMS Credentials\nLogin Email: ${resetCredsDialog.email}\nTemporary Password: ${resetCredsDialog.temporaryPassword}\nLogin URL: ${window.location.origin}/login`;
+                    navigator.clipboard.writeText(full);
+                    setFeedback('Full credentials copied to clipboard!');
+                  }}
+                >
+                  Copy All
+                </Button>
+              </Box>
+            </Paper>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setResetCredsDialog(null)} sx={{ fontWeight: 600 }}>
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       {/* Feedback Snackbar */}
       <Snackbar open={Boolean(feedback)} autoHideDuration={4000} onClose={() => setFeedback(null)}>

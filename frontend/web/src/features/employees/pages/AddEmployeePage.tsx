@@ -24,6 +24,7 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import KeyIcon from '@mui/icons-material/Key';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
@@ -464,6 +465,91 @@ export default function AddEmployeePage() {
 
             <Divider sx={{ my: 2 }} />
 
+            {/* DUAL ACCOUNTS HERO CREDENTIALS BANNER */}
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2.5,
+                mb: 3,
+                borderRadius: 2.5,
+                bgcolor: '#fffbeb',
+                border: '2px solid #f59e0b',
+                boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                <KeyIcon sx={{ color: '#d97706', fontSize: 30 }} />
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 800, color: '#92400e', lineHeight: 1.2 }}>
+                    Generated HR & Attendance Credentials
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#b45309', fontWeight: 500 }}>
+                    Copy and share these credentials with the HR employee:
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mt: 1.5 }}>
+                {/* HR Web Account Creds */}
+                <Box sx={{ p: 2, bgcolor: '#ffffff', borderRadius: 2, border: '1px solid #fde68a' }}>
+                  <Typography variant="caption" sx={{ color: '#6d28d9', fontWeight: 800, textTransform: 'uppercase' }}>
+                    1. HR Portal Account (Web)
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#1e293b', wordBreak: 'break-all', mt: 0.5 }}>
+                    {createdDualAccounts.hrAccount.email}
+                  </Typography>
+                  <Box sx={{ mt: 1, p: 1, bgcolor: '#fef3c7', borderRadius: 1 }}>
+                    <Typography variant="caption" sx={{ color: '#78350f', fontWeight: 700, display: 'block' }}>Temp Password:</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 800, fontFamily: 'monospace', color: '#d97706' }}>
+                      {createdDualAccounts.hrAccount.temporaryPassword || 'Generated'}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<ContentCopyIcon fontSize="small" />}
+                    sx={{ mt: 1.5, width: '100%', fontWeight: 600, color: '#6d28d9', borderColor: '#c4b5fd' }}
+                    onClick={() => {
+                      const full = `Momo HRMS HR Portal Account\nEmail: ${createdDualAccounts.hrAccount.email}\nPassword: ${createdDualAccounts.hrAccount.temporaryPassword}\nLogin URL: ${window.location.origin}/login`;
+                      navigator.clipboard.writeText(full);
+                      setFeedback('HR Portal credentials copied!');
+                    }}
+                  >
+                    Copy HR Login
+                  </Button>
+                </Box>
+
+                {/* Attendance App Account Creds */}
+                <Box sx={{ p: 2, bgcolor: '#ffffff', borderRadius: 2, border: '1px solid #fde68a' }}>
+                  <Typography variant="caption" sx={{ color: '#1d4ed8', fontWeight: 800, textTransform: 'uppercase' }}>
+                    2. Attendance Account (Mobile)
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#1e293b', wordBreak: 'break-all', mt: 0.5 }}>
+                    {createdDualAccounts.attendanceAccount.email}
+                  </Typography>
+                  <Box sx={{ mt: 1, p: 1, bgcolor: '#fef3c7', borderRadius: 1 }}>
+                    <Typography variant="caption" sx={{ color: '#78350f', fontWeight: 700, display: 'block' }}>Temp Password:</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 800, fontFamily: 'monospace', color: '#d97706' }}>
+                      {createdDualAccounts.attendanceAccount.temporaryPassword || 'Generated'}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<ContentCopyIcon fontSize="small" />}
+                    sx={{ mt: 1.5, width: '100%', fontWeight: 600, color: '#1d4ed8', borderColor: '#93c5fd' }}
+                    onClick={() => {
+                      const full = `Momo HRMS Mobile Attendance Account\nEmail: ${createdDualAccounts.attendanceAccount.email}\nPassword: ${createdDualAccounts.attendanceAccount.temporaryPassword}\nApp: Momo HRMS Mobile`;
+                      navigator.clipboard.writeText(full);
+                      setFeedback('Attendance Mobile credentials copied!');
+                    }}
+                  >
+                    Copy Mobile Login
+                  </Button>
+                </Box>
+              </Box>
+            </Paper>
+
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2.5, mb: 3 }}>
               {/* Account 1 Card */}
               <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, borderColor: 'secondary.light', bgcolor: 'rgba(156, 39, 176, 0.03)' }}>
@@ -662,6 +748,81 @@ export default function AddEmployeePage() {
             </Box>
 
             <Divider sx={{ my: 2 }} />
+
+            {/* HERO CREDENTIALS BANNER */}
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2.5,
+                mb: 3,
+                borderRadius: 2.5,
+                bgcolor: '#fffbeb',
+                border: '2px solid #f59e0b',
+                boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                <KeyIcon sx={{ color: '#d97706', fontSize: 30 }} />
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 800, color: '#92400e', lineHeight: 1.2 }}>
+                    Generated Official Credentials
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#b45309', fontWeight: 500 }}>
+                    Provide these credentials to the user so they can log in immediately:
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mt: 1.5 }}>
+                <Box sx={{ p: 1.5, bgcolor: '#ffffff', borderRadius: 2, border: '1px solid #fde68a' }}>
+                  <Typography variant="caption" sx={{ color: '#78350f', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Login ID (Official Email)
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#1e293b', wordBreak: 'break-all', mt: 0.5 }}>
+                    {createdEmployee.email}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ p: 1.5, bgcolor: '#ffffff', borderRadius: 2, border: '2px solid #f59e0b' }}>
+                  <Typography variant="caption" sx={{ color: '#92400e', fontWeight: 800, textTransform: 'uppercase' }}>
+                    Temporary Password
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'monospace', color: '#d97706', letterSpacing: '0.06em', mt: 0.5 }}>
+                    {createdEmployee.temporaryPassword || 'Saved in Database'}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1.5, mt: 2, flexWrap: 'wrap' }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<ContentCopyIcon fontSize="small" />}
+                  sx={{ bgcolor: '#d97706', '&:hover': { bgcolor: '#b45309' }, fontWeight: 700 }}
+                  onClick={() => {
+                    if (createdEmployee.temporaryPassword) {
+                      navigator.clipboard.writeText(createdEmployee.temporaryPassword);
+                      setFeedback('Temporary password copied to clipboard!');
+                    }
+                  }}
+                >
+                  Copy Password
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<ContentCopyIcon fontSize="small" />}
+                  sx={{ color: '#92400e', borderColor: '#d97706', '&:hover': { borderColor: '#b45309', bgcolor: '#fef3c7' }, fontWeight: 600 }}
+                  onClick={() => {
+                    const full = `Momo HRMS Credentials\nUser: ${createdEmployee.firstName} ${createdEmployee.lastName}\nLogin Email: ${createdEmployee.email}\nTemporary Password: ${createdEmployee.temporaryPassword}\nLogin URL: ${window.location.origin}/login`;
+                    navigator.clipboard.writeText(full);
+                    setFeedback('Full credentials copied to clipboard!');
+                  }}
+                >
+                  Copy Full Credentials
+                </Button>
+              </Box>
+            </Paper>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, bgcolor: 'background.default', p: 3, borderRadius: 2 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>

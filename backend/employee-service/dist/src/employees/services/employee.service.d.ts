@@ -47,9 +47,9 @@ export declare class EmployeeService implements OnModuleInit {
     getEmployeeByUserId(userId: string): Promise<any>;
     resendCredentials(idOrCode: string): Promise<{
         success: boolean;
-        delivered: boolean;
-        mode: "smtp" | "console";
-        message: string;
+        delivered: any;
+        mode: any;
+        message: any;
         deliveredTo: any;
         temporaryPassword: string;
     }>;

@@ -197,22 +197,31 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
                 result.userId = authUserId;
             }
             result.temporaryPassword = tempPass;
-            try {
-                const delivery = await this.emailService.sendCredentialEmail({
-                    toEmail: targetEmail,
-                    employeeName: `${result.firstName} ${result.lastName}`,
-                    officialEmail: result.email,
-                    username: result.employeeCode.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, '_'),
-                    temporaryPassword: tempPass,
-                    roleName: dto.roleId || 'EMPLOYEE',
-                    isPasswordReset: false,
-                });
-                result.credentialDelivery = delivery;
-                result.credentialsSentAt = new Date().toISOString();
-            }
-            catch (err) {
+            result.credentialDelivery = {
+                delivered: true,
+                mode: this.emailService.isConfigured ? "smtp" : "console",
+                message: this.emailService.isConfigured
+                    ? `Credentials email queued for delivery to ${targetEmail}`
+                    : `Credentials generated for ${targetEmail}`,
+                deliveredTo: targetEmail,
+            };
+            result.credentialsSentAt = new Date().toISOString();
+            this.emailService
+                .sendCredentialEmail({
+                toEmail: targetEmail,
+                employeeName: `${result.firstName} ${result.lastName}`,
+                officialEmail: result.email,
+                username: result.employeeCode.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_"),
+                temporaryPassword: tempPass,
+                roleName: dto.roleId || "EMPLOYEE",
+                isPasswordReset: false,
+            })
+                .then((delivery) => {
+                this.logger.log(`Credentials email dispatched for ${result.employeeCode}: ${delivery.message}`);
+            })
+                .catch((err) => {
                 this.logger.warn(`Failed to dispatch credentials email for ${result.employeeCode}: ${err.message}`);
-            }
+            });
         }
         return result;
     }
@@ -571,15 +580,26 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
                 data: { userId: authUserId },
             });
         }
-        const delivery = await this.emailService.sendCredentialEmail({
-            toEmail: targetEmail,
-            employeeName: `${employee.firstName} ${employee.lastName}`,
-            officialEmail: employee.email,
-            username: employee.employeeCode.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, '_'),
-            temporaryPassword: tempPass,
-            roleName: employee.role?.name || 'EMPLOYEE',
-            isPasswordReset: true,
-        });
+        let delivery;
+        try {
+            delivery = await this.emailService.sendCredentialEmail({
+                toEmail: targetEmail,
+                employeeName: `${employee.firstName} ${employee.lastName}`,
+                officialEmail: employee.email,
+                username: employee.employeeCode.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_"),
+                temporaryPassword: tempPass,
+                roleName: employee.role?.name || "EMPLOYEE",
+                isPasswordReset: true,
+            });
+        }
+        catch (err) {
+            delivery = {
+                delivered: false,
+                mode: "error",
+                message: `Email dispatch failed: ${err.message}`,
+                deliveredTo: targetEmail,
+            };
+        }
         return {
             success: true,
             delivered: delivery.delivered,

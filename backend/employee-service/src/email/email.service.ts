@@ -55,18 +55,24 @@ export class EmailService implements OnModuleInit {
           user: this.user,
           pass: this.pass,
         },
+        connectionTimeout: 5000,
+        greetingTimeout: 5000,
+        socketTimeout: 8000,
       });
     }
   }
 
   async onModuleInit() {
     if (this.isConfigured && this.transporter) {
-      try {
-        await this.transporter.verify();
-        this.logger.log(`SMTP transport initialized & verified with ${this.host}:${this.port} (${this.user})`);
-      } catch (err: any) {
-        this.logger.warn(`SMTP transport verification failed: ${err.message}`);
-      }
+      // Non-blocking verification on startup
+      this.transporter
+        .verify()
+        .then(() => {
+          this.logger.log(`SMTP transport initialized & verified with ${this.host}:${this.port} (${this.user})`);
+        })
+        .catch((err: any) => {
+          this.logger.warn(`SMTP transport verification failed: ${err.message}`);
+        });
     } else {
       this.logger.warn('SMTP not fully configured; credential emails will be simulated to console.');
     }
@@ -91,48 +97,42 @@ export class EmailService implements OnModuleInit {
     } = options;
 
     const isWebAdminOrHr =
-      roleName.toUpperCase().includes('ADMIN') ||
-      roleName.toUpperCase().includes('HR') ||
-      roleName.toUpperCase().includes('MANAGER');
+      roleName.includes('HR') ||
+      roleName.includes('ADMIN') ||
+      roleName === 'SUPER_ADMIN' ||
+      roleName === 'HR_ADMIN';
 
     const loginUrl = `${this.frontendUrl}/login`;
-
     const subject = isPasswordReset
-      ? 'Your Momo HRMS Password Has Been Reset'
+      ? 'Your Momo HRMS Account Password Has Been Reset'
       : isWebAdminOrHr
-      ? 'Welcome to Momo HRMS – Admin & HR Management Portal Credentials'
-      : 'Welcome to Momo HRMS – Mobile App Login Credentials';
+      ? 'Welcome to Momo HRMS - Admin & HR Management Portal Access'
+      : 'Welcome to Momo HRMS - Mobile App Login Credentials';
 
     const textContent = `
 Hello ${employeeName},
 
 ${
   isPasswordReset
-    ? 'An administrator has reset your password for Momo HRMS.'
+    ? 'Your password has been reset by an administrator.'
     : isWebAdminOrHr
-    ? 'Your administrative account has been created for the Momo HRMS Web Management Portal.'
-    : 'Your employee account has been created for the Momo HRMS Mobile Application.'
+    ? 'Your administrative access account for the Momo HRMS Web Management Portal has been provisioned.'
+    : 'Your employee profile has been created for the Momo HRMS Mobile Application.'
 }
 
-------------------------------------------
-LOGIN CREDENTIALS:
-------------------------------------------
-Role:                ${roleName}
-Login Email:         ${officialEmail}
-Username:            ${username}
-${temporaryPassword ? `Temporary Password:  ${temporaryPassword}\n` : ''}------------------------------------------
+Account Credentials:
+- Role: ${roleName}
+- Login Email: ${officialEmail}
+- Username: ${username}
+${temporaryPassword ? `- Temporary Password: ${temporaryPassword}` : ''}
 
 ${
   isWebAdminOrHr
-    ? `Sign in to the web management portal using your browser at:\n${loginUrl}`
-    : `ACCESS POLICY NOTICE:\n• Web portal access is reserved exclusively for Admin & HR staff.\n• Standard employees must sign in using the Momo HRMS Mobile App on Android or iOS.\n• Please download or open the mobile app on your smartphone to clock attendance and view your profile.`
+    ? `Sign in at: ${loginUrl}`
+    : `Please log in exclusively via the Momo HRMS Mobile App using the credentials above.`
 }
 
-IMPORTANT SECURITY NOTICE:
-You are required to change your temporary password upon your first login. Please do not share these credentials with anyone.
-
-Best regards,
-Momo HRMS Team
+Important: You will be required to change your temporary password on first sign-in.
 `;
 
     const htmlContent = `
@@ -141,12 +141,12 @@ Momo HRMS Team
 <head>
   <meta charset="utf-8">
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 24px; color: #1e293b; }
-    .card { background-color: #ffffff; max-width: 600px; margin: 0 auto; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .header { margin-bottom: 24px; border-bottom: 1px solid #f1f5f9; padding-bottom: 16px; }
-    .title { font-size: 20px; font-weight: 700; color: #0f172a; margin: 0; }
-    .subtitle { color: #64748b; font-size: 14px; margin-top: 4px; }
-    .badge { display: inline-block; padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600; margin-top: 8px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px; color: #1e293b; }
+    .card { background-color: #ffffff; max-width: 580px; margin: 0 auto; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0; }
+    .header { text-align: center; margin-bottom: 24px; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; }
+    .title { color: #0f172a; font-size: 20px; font-weight: 700; margin: 0 0 8px 0; }
+    .subtitle { color: #64748b; font-size: 14px; margin: 0; }
+    .badge { display: inline-block; padding: 6px 12px; border-radius: 9999px; font-size: 12px; font-weight: 700; margin-top: 10px; }
     .badge-web { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
     .badge-mobile { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
     .creds-box { background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; margin: 24px 0; }

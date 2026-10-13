@@ -110,9 +110,9 @@ export declare class EmployeeController {
     }>;
     resendCredentials(id: string): Promise<{
         success: boolean;
-        delivered: boolean;
-        mode: "smtp" | "console";
-        message: string;
+        delivered: any;
+        mode: any;
+        message: any;
         deliveredTo: any;
         temporaryPassword: string;
     }>;

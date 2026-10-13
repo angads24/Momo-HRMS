@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { EmploymentStatus } from '@prisma/client';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -104,7 +105,13 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ description: 'Automatically provision auth user account' })
   @IsOptional()
+  @IsBoolean()
   provisionAccount?: boolean;
+
+  @ApiPropertyOptional({ description: 'Automatically dispatch email credentials' })
+  @IsOptional()
+  @IsBoolean()
+  sendEmail?: boolean;
 
   @ApiPropertyOptional({ description: 'Date of birth' })
   @IsOptional()

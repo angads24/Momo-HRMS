@@ -126,8 +126,15 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Automatically provision auth user account' }),
     (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], CreateEmployeeDto.prototype, "provisionAccount", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Automatically dispatch email credentials' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], CreateEmployeeDto.prototype, "sendEmail", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Date of birth' }),
     (0, class_validator_1.IsOptional)(),

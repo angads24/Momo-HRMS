@@ -184,28 +184,31 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             });
             return this.formatEmployee(created);
         });
-        if (dto.provisionAccount !== false) {
-            const tempPass = `Momo@${Math.floor(100000 + Math.random() * 900000)}`;
-            const targetEmail = dto.personalEmail?.trim() || dto.email?.trim();
-            this.logger.log(`[CREDENTIAL_GENERATE] Provisioning credentials for ${result.email} (${result.employeeCode}): tempPass=[MASKED], targetEmail=${targetEmail}`);
-            const authUserId = await this.syncCredentialsToAuthService(result.email, tempPass, `${result.firstName} ${result.lastName}`, result.employeeCode, dto.roleId || 'EMPLOYEE');
-            if (authUserId && !result.userId) {
-                await this.prisma.employee.update({
-                    where: { id: result.id },
-                    data: { userId: authUserId },
-                });
-                result.userId = authUserId;
-            }
-            result.temporaryPassword = tempPass;
-            result.credentialDelivery = {
-                delivered: true,
-                mode: this.emailService.isConfigured ? "smtp" : "console",
-                message: this.emailService.isConfigured
+        const tempPass = this.generateStrongTemporaryPassword();
+        const targetEmail = dto.personalEmail?.trim() || dto.email?.trim();
+        this.logger.log(`[CREDENTIAL_GENERATE] Provisioning credentials for ${result.email} (${result.employeeCode}): targetEmail=${targetEmail}`);
+        const authUserId = await this.syncCredentialsToAuthService(result.email, tempPass, `${result.firstName} ${result.lastName}`, result.employeeCode, dto.roleId || 'EMPLOYEE');
+        if (authUserId && !result.userId) {
+            await this.prisma.employee.update({
+                where: { id: result.id },
+                data: { userId: authUserId },
+            });
+            result.userId = authUserId;
+        }
+        result.temporaryPassword = tempPass;
+        const shouldSendEmail = dto.provisionAccount !== false && dto.sendEmail !== false;
+        result.credentialDelivery = {
+            delivered: shouldSendEmail,
+            mode: this.emailService.isConfigured ? "smtp" : "console",
+            message: shouldSendEmail
+                ? (this.emailService.isConfigured
                     ? `Credentials email queued for delivery to ${targetEmail}`
-                    : `Credentials generated for ${targetEmail}`,
-                deliveredTo: targetEmail,
-            };
-            result.credentialsSentAt = new Date().toISOString();
+                    : `Credentials generated for ${targetEmail}`)
+                : `Credentials saved in database for ${result.email}`,
+            deliveredTo: targetEmail,
+        };
+        result.credentialsSentAt = new Date().toISOString();
+        if (shouldSendEmail) {
             this.emailService
                 .sendCredentialEmail({
                 toEmail: targetEmail,
@@ -571,7 +574,7 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
     }
     async resendCredentials(idOrCode) {
         const employee = await this.getEmployeeById(idOrCode);
-        const tempPass = `Momo@${Math.floor(100000 + Math.random() * 900000)}`;
+        const tempPass = this.generateStrongTemporaryPassword();
         const targetEmail = employee.personalEmail || employee.email;
         const authUserId = await this.syncCredentialsToAuthService(employee.email, tempPass, `${employee.firstName} ${employee.lastName}`, employee.employeeCode, employee.role?.name || 'EMPLOYEE');
         if (authUserId && !employee.userId) {
@@ -608,6 +611,19 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             deliveredTo: targetEmail,
             temporaryPassword: tempPass,
         };
+    }
+    generateStrongTemporaryPassword() {
+        const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+        const lowers = 'abcdefghjkmnpqrstuvwxyz';
+        const numbers = '23456789';
+        const symbols = '!@#$%^&*';
+        const u1 = uppers.charAt(Math.floor(Math.random() * uppers.length));
+        const l1 = lowers.charAt(Math.floor(Math.random() * lowers.length));
+        const l2 = lowers.charAt(Math.floor(Math.random() * lowers.length));
+        const n1 = numbers.charAt(Math.floor(Math.random() * numbers.length));
+        const n2 = numbers.charAt(Math.floor(Math.random() * numbers.length));
+        const s1 = symbols.charAt(Math.floor(Math.random() * symbols.length));
+        return `Momo${s1}${n1}${n2}${u1}${l1}${l2}!`;
     }
     async syncCredentialsToAuthService(email, temporaryPassword, fullName, employeeCode, role = 'EMPLOYEE') {
         try {

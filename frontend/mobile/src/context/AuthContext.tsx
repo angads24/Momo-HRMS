@@ -192,7 +192,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (email: string, password: string) => {
       const session = await loginUser({ email: email.trim(), password: password.trim() });
-      await saveTokens(session.accessToken, session.refreshToken);
+      const accessTok = session?.accessToken || (session as any)?.data?.accessToken || '';
+      const refreshTok = session?.refreshToken || (session as any)?.data?.refreshToken || accessTok;
+      await saveTokens(accessTok, refreshTok);
 
       const loggedIn = toAuthUser(session.user);
       if (!loggedIn.appRole) {

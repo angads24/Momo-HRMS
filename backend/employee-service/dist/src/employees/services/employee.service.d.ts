@@ -53,6 +53,7 @@ export declare class EmployeeService implements OnModuleInit {
         deliveredTo: any;
         temporaryPassword: string;
     }>;
+    private generateStrongTemporaryPassword;
     private syncCredentialsToAuthService;
     resolveIdentifier(identifier: string): Promise<{
         found: boolean;

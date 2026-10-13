@@ -289,7 +289,7 @@ export default function AddEmployeePage() {
           jobTitle: 'HR Specialist',
           departmentId: hrDepartment.id,
           roleId: hrRole.id,
-          provisionAccount: autoSendCredentials,
+          provisionAccount: true,
           officeLocationId: assignedOfficeId,
           officeLocationName: assignedOfficeName,
           primaryOfficeId: assignedOfficeId,
@@ -309,7 +309,7 @@ export default function AddEmployeePage() {
           jobTitle: 'HR Specialist (Attendance)',
           departmentId: hrDepartment.id,
           roleId: employeeRole.id,
-          provisionAccount: autoSendCredentials,
+          provisionAccount: true,
           officeLocationId: assignedOfficeId,
           officeLocationName: assignedOfficeName,
           primaryOfficeId: assignedOfficeId,
@@ -363,7 +363,7 @@ export default function AddEmployeePage() {
           jobTitle,
           departmentId: defaultDepartment.id,
           roleId: matchedRole.id,
-          provisionAccount: autoSendCredentials,
+          provisionAccount: true,
           officeLocationId: assignedOfficeId,
           officeLocationName: assignedOfficeName,
           primaryOfficeId: assignedOfficeId,
@@ -814,7 +814,7 @@ export default function AddEmployeePage() {
                   startIcon={<ContentCopyIcon fontSize="small" />}
                   sx={{ color: '#92400e', borderColor: '#d97706', '&:hover': { borderColor: '#b45309', bgcolor: '#fef3c7' }, fontWeight: 600 }}
                   onClick={() => {
-                    const full = `Momo HRMS Credentials\nUser: ${createdEmployee.firstName} ${createdEmployee.lastName}\nLogin Email: ${createdEmployee.email}\nTemporary Password: ${createdEmployee.temporaryPassword}\nLogin URL: ${window.location.origin}/login`;
+                    const full = `Momo HRMS Credentials\nUser: ${createdEmployee.firstName} ${createdEmployee.lastName}\nLogin Email: ${createdEmployee.email}\nTemporary Password: ${createdEmployee.temporaryPassword || 'Saved in Database'}\nLogin URL: ${window.location.origin}/login`;
                     navigator.clipboard.writeText(full);
                     setFeedback('Full credentials copied to clipboard!');
                   }}

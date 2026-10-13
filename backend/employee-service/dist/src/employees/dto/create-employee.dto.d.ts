@@ -18,6 +18,7 @@ export declare class CreateEmployeeDto {
     jobTitle?: string;
     roleId?: string;
     provisionAccount?: boolean;
+    sendEmail?: boolean;
     dateOfBirth?: string;
     gender?: string;
     address?: string;

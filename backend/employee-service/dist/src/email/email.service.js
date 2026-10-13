@@ -185,94 +185,145 @@ Momo HRMS Team
 <html>
 <head>
   <meta charset="utf-8">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px; color: #1e293b; }
-    .card { background-color: #ffffff; max-width: 580px; margin: 0 auto; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); padding: 32px; border: 1px solid #e2e8f0; }
-    .header { text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 24px; }
-    .title { font-size: 22px; font-weight: 700; color: #0f172a; margin: 0 0 8px 0; }
-    .subtitle { font-size: 14px; color: #64748b; margin: 0; }
-    .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 9999px; margin-top: 12px; }
-    .badge-web { background-color: #ede9fe; color: #6d28d9; }
-    .badge-mobile { background-color: #dbeafe; color: #1d4ed8; }
-    .creds-box { background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; margin: 24px 0; }
-    .cred-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
-    .cred-row:last-child { margin-bottom: 0; }
-    .cred-label { font-weight: 600; color: #475569; }
-    .cred-value { font-family: monospace; font-size: 15px; color: #0f172a; font-weight: 700; background: #e2e8f0; padding: 2px 8px; border-radius: 4px; }
-    .btn { display: inline-block; background-color: #2563eb; color: #ffffff !important; text-decoration: none; font-weight: 600; padding: 12px 24px; border-radius: 6px; margin: 16px 0; }
-    .alert-box { background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; font-size: 13px; color: #92400e; margin: 20px 0; border-radius: 0 4px 4px 0; }
-    .mobile-notice { background-color: #f0fdf4; border-left: 4px solid #10b981; padding: 14px 16px; font-size: 13px; color: #065f46; margin: 20px 0; border-radius: 0 4px 4px 0; }
-    .step-box { background-color: #f8fafc; border-radius: 8px; padding: 16px; margin: 16px 0; border: 1px dashed #cbd5e1; }
-    .step-box ol { margin: 8px 0 0 20px; padding: 0; }
-    .step-box li { margin-bottom: 6px; font-size: 13px; color: #334155; }
-    .footer { font-size: 12px; color: #94a3b8; margin-top: 24px; text-align: center; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Momo HRMS Credentials</title>
 </head>
-<body>
-  <div class="card">
-    <div class="header">
-      <h1 class="title">${isPasswordReset
-            ? 'Password Reset Notice'
+<body style="margin: 0; padding: 24px 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f1f5f9; padding: 20px 0;">
+    <tr>
+      <td align="center">
+        <!-- Main Container -->
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; background-color: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); padding: 32px 24px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0 0 6px 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Momo HRMS</h1>
+              <p style="color: #bfdbfe; margin: 0 0 12px 0; font-size: 14px; font-weight: 500;">Smart Employee Attendance & Workforce Management</p>
+              <div style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; padding: 4px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                ${isWebAdminOrHr ? '💻 Web Management Portal' : '📱 Mobile App Access'}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Body Content -->
+          <tr>
+            <td style="padding: 32px 28px;">
+              <h2 style="color: #0f172a; margin: 0 0 12px 0; font-size: 18px; font-weight: 700;">
+                ${isPasswordReset ? 'Password Reset Notice' : `Welcome, ${employeeName}!`}
+              </h2>
+              <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 20px 0;">
+                ${isPasswordReset
+            ? 'Your account password has been reset by an administrator. Please find your new login credentials below:'
             : isWebAdminOrHr
-                ? 'Welcome to Momo HRMS Admin & HR Portal'
-                : 'Welcome to Momo HRMS'}</h1>
-      <div class="subtitle">Smart Employee Attendance & Management System</div>
-      <div class="badge ${isWebAdminOrHr ? 'badge-web' : 'badge-mobile'}">
-        ${isWebAdminOrHr ? '💻 Web Management Portal Access' : '📱 Mobile App Access Only'}
-      </div>
-    </div>
-    <p>Hello <strong>${employeeName}</strong>,</p>
-    <p>${isPasswordReset
-            ? 'Your account password has been reset by an administrator.'
-            : isWebAdminOrHr
-                ? 'Your administrative account has been provisioned. You can sign in to the Web Management Portal using the credentials below:'
-                : 'Your employee account has been provisioned for the Momo HRMS Mobile Application. Please use the credentials below to log in:'}</p>
+                ? 'Your official administrative account has been provisioned. You can sign in to the Web Management Portal using the credentials below:'
+                : 'Your official employee account has been created for the Momo HRMS Mobile Application. Please use the credentials below to log in:'}
+              </p>
 
-    <div class="creds-box">
-      <div class="cred-row">
-        <span class="cred-label">Role:</span>
-        <span class="cred-value">${roleName}</span>
-      </div>
-      <div class="cred-row">
-        <span class="cred-label">Login Email:</span>
-        <span class="cred-value">${officialEmail}</span>
-      </div>
-      <div class="cred-row">
-        <span class="cred-label">Username:</span>
-        <span class="cred-value">${username}</span>
-      </div>
-      ${temporaryPassword
-            ? `<div class="cred-row">
-               <span class="cred-label">Temporary Password:</span>
-               <span class="cred-value">${temporaryPassword}</span>
-             </div>`
-            : ''}
-    </div>
+              <!-- PROMINENT CREDENTIALS CARD -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 2px solid #2563eb; border-radius: 10px; margin: 20px 0; overflow: hidden;">
+                <tr>
+                  <td style="background-color: #eff6ff; padding: 12px 20px; border-bottom: 1px solid #bfdbfe;">
+                    <strong style="color: #1e40af; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">🔑 Official Login Credentials</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 16px 20px;">
+                    <table width="100%" cellpadding="6" cellspacing="0" border="0">
+                      <tr>
+                        <td width="35%" style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Role / Access:</td>
+                        <td width="65%" style="color: #0f172a; font-size: 14px; font-weight: 700; padding: 6px 0;">${roleName}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Login Email (ID):</td>
+                        <td style="padding: 6px 0;">
+                          <span style="font-family: 'Courier New', Courier, monospace; font-size: 15px; font-weight: 700; color: #1d4ed8; background-color: #e0e7ff; padding: 4px 10px; border-radius: 4px; word-break: break-all; display: inline-block;">${officialEmail}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Username:</td>
+                        <td style="color: #0f172a; font-size: 14px; font-family: monospace; font-weight: 700; padding: 6px 0;">${username}</td>
+                      </tr>
+                      ${temporaryPassword ? `
+                      <tr>
+                        <td style="color: #b45309; font-size: 13px; font-weight: 700; padding: 10px 0 6px 0; border-top: 1px dashed #cbd5e1;">Temporary Password:</td>
+                        <td style="padding: 10px 0 6px 0; border-top: 1px dashed #cbd5e1;">
+                          <span style="font-family: 'Courier New', Courier, monospace; font-size: 18px; font-weight: 800; color: #b45309; background-color: #fef3c7; border: 1.5px solid #f59e0b; padding: 6px 14px; border-radius: 6px; letter-spacing: 0.06em; display: inline-block;">${temporaryPassword}</span>
+                        </td>
+                      </tr>
+                      ` : ''}
+                    </table>
+                  </td>
+                </tr>
+              </table>
 
-    <div class="alert-box">
-      <strong>Important:</strong> You must change this temporary password upon your first sign in before accessing the system.
-    </div>
+              <!-- Security Alert Box -->
+              <table width="100%" cellpadding="12" cellspacing="0" border="0" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 0 6px 6px 0; margin-bottom: 24px;">
+                <tr>
+                  <td style="color: #92400e; font-size: 13px; line-height: 1.5;">
+                    <strong>⚠️ Security Notice:</strong><br>
+                    You must change this temporary password upon your first sign in before accessing the system. Do not share your login credentials with anyone.
+                  </td>
+                </tr>
+              </table>
 
-    ${isWebAdminOrHr
-            ? `<div style="text-align: center;">
-             <a href="${loginUrl}" class="btn" target="_blank">Sign In to Admin & HR Portal</a>
-           </div>`
-            : `<div class="mobile-notice">
-             <strong>Platform Policy:</strong> Web browser access is reserved for Admin & HR staff. Standard employees must log in exclusively via the <strong>Momo HRMS Mobile App</strong> (Android / iOS).
-           </div>
-           <div class="step-box">
-             <strong>How to Sign In:</strong>
-             <ol>
-               <li>Open the Momo HRMS App on your mobile smartphone.</li>
-               <li>Sign in with your Login Email or Username and the Temporary Password above.</li>
-               <li>You will immediately be guided to set your permanent secure password.</li>
-             </ol>
-           </div>`}
+              <!-- Action Section -->
+              ${isWebAdminOrHr ? `
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 24px 0 16px 0; text-align: center;">
+                  <tr>
+                    <td align="center">
+                      <a href="${loginUrl}" target="_blank" style="display: inline-block; background-color: #2563eb; color: #ffffff !important; text-decoration: none; font-size: 15px; font-weight: 700; padding: 14px 28px; border-radius: 8px; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);">
+                        Sign In to Web Management Portal &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding-top: 12px; color: #94a3b8; font-size: 12px;">
+                      Portal URL: <a href="${loginUrl}" style="color: #2563eb; text-decoration: underline;">${loginUrl}</a>
+                    </td>
+                  </tr>
+                </table>
+              ` : `
+                <!-- Mobile App Notice -->
+                <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #f0fdf4; border-left: 4px solid #10b981; border-radius: 0 6px 6px 0; margin-bottom: 20px;">
+                  <tr>
+                    <td style="color: #065f46; font-size: 13px; line-height: 1.5;">
+                      <strong>📱 Mobile Application Sign-in:</strong><br>
+                      Browser login is reserved for Admin & HR management. All employees mark daily attendance, view punch logs, and manage profile exclusively via the <strong>Momo HRMS Mobile App</strong> (Android / iOS).
+                    </td>
+                  </tr>
+                </table>
 
-    <div class="footer">
-      This is an automated system email from Momo HRMS. Please do not reply directly to this email.
-    </div>
-  </div>
+                <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
+                  <tr>
+                    <td>
+                      <strong style="color: #334155; font-size: 13px;">How to Sign In:</strong>
+                      <ol style="margin: 8px 0 0 18px; padding: 0; color: #475569; font-size: 13px; line-height: 1.6;">
+                        <li>Open the <strong>Momo HRMS App</strong> on your smartphone.</li>
+                        <li>Enter your <strong>Login Email</strong> and the <strong>Temporary Password</strong> above.</li>
+                        <li>Follow the prompt to set your permanent, secure password.</li>
+                      </ol>
+                    </td>
+                  </tr>
+                </table>
+              `}
+
+              <!-- Footer -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 20px;">
+                <tr>
+                  <td align="center" style="color: #94a3b8; font-size: 12px; line-height: 1.5;">
+                    This is an automated system email from <strong>Momo HRMS</strong>.<br>
+                    Please do not reply directly to this email. For assistance, contact your system administrator.
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
 `;

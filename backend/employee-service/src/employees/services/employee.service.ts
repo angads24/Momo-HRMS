@@ -208,44 +208,47 @@ export class EmployeeService implements OnModuleInit {
       return this.formatEmployee(created);
     });
 
-    // Dispatch credentials email via SMTP if account is being created / provisioned
-    if (dto.provisionAccount !== false) {
-      const tempPass = `Momo@${Math.floor(100000 + Math.random() * 900000)}`;
-      const targetEmail = dto.personalEmail?.trim() || dto.email?.trim();
+    // Always generate strong temporary credentials and provision user in auth_service
+    const tempPass = this.generateStrongTemporaryPassword();
+    const targetEmail = dto.personalEmail?.trim() || dto.email?.trim();
 
-      this.logger.log(
-        `[CREDENTIAL_GENERATE] Provisioning credentials for ${result.email} (${result.employeeCode}): tempPass=[MASKED], targetEmail=${targetEmail}`,
-      );
+    this.logger.log(
+      `[CREDENTIAL_GENERATE] Provisioning credentials for ${result.email} (${result.employeeCode}): targetEmail=${targetEmail}`,
+    );
 
-      // Automatically sync/provision credentials to auth-service so login immediately works
-      const authUserId = await this.syncCredentialsToAuthService(
-        result.email,
-        tempPass,
-        `${result.firstName} ${result.lastName}`,
-        result.employeeCode,
-        dto.roleId || 'EMPLOYEE',
-      );
+    // Automatically sync/provision credentials to auth-service so login immediately works
+    const authUserId = await this.syncCredentialsToAuthService(
+      result.email,
+      tempPass,
+      `${result.firstName} ${result.lastName}`,
+      result.employeeCode,
+      dto.roleId || 'EMPLOYEE',
+    );
 
-      if (authUserId && !result.userId) {
-        await this.prisma.employee.update({
-          where: { id: result.id },
-          data: { userId: authUserId },
-        });
-        result.userId = authUserId;
-      }
+    if (authUserId && !result.userId) {
+      await this.prisma.employee.update({
+        where: { id: result.id },
+        data: { userId: authUserId },
+      });
+      result.userId = authUserId;
+    }
 
-      result.temporaryPassword = tempPass;
+    result.temporaryPassword = tempPass;
 
-      result.credentialDelivery = {
-        delivered: true,
-        mode: this.emailService.isConfigured ? "smtp" : "console",
-        message: this.emailService.isConfigured
-          ? `Credentials email queued for delivery to ${targetEmail}`
-          : `Credentials generated for ${targetEmail}`,
-        deliveredTo: targetEmail,
-      };
-      result.credentialsSentAt = new Date().toISOString();
+    const shouldSendEmail = dto.provisionAccount !== false && (dto as any).sendEmail !== false;
+    result.credentialDelivery = {
+      delivered: shouldSendEmail,
+      mode: this.emailService.isConfigured ? "smtp" : "console",
+      message: shouldSendEmail
+        ? (this.emailService.isConfigured
+            ? `Credentials email queued for delivery to ${targetEmail}`
+            : `Credentials generated for ${targetEmail}`)
+        : `Credentials saved in database for ${result.email}`,
+      deliveredTo: targetEmail,
+    };
+    result.credentialsSentAt = new Date().toISOString();
 
+    if (shouldSendEmail) {
       // Non-blocking asynchronous dispatch so employee creation responds in <50ms
       this.emailService
         .sendCredentialEmail({
@@ -684,7 +687,7 @@ export class EmployeeService implements OnModuleInit {
    */
   async resendCredentials(idOrCode: string) {
     const employee = await this.getEmployeeById(idOrCode);
-    const tempPass = `Momo@${Math.floor(100000 + Math.random() * 900000)}`;
+    const tempPass = this.generateStrongTemporaryPassword();
     const targetEmail = employee.personalEmail || employee.email;
 
     // Automatically sync updated temporary password to auth-service
@@ -736,6 +739,26 @@ export class EmployeeService implements OnModuleInit {
    * Synchronize or provision credentials directly into auth_service database.
    * Guarantees 100% synchronization so login immediately succeeds with temporary password.
    */
+  /**
+   * Generates a strong temporary password meeting all 5 security rules:
+   * length >= 8, uppercase, lowercase, number, symbol
+   */
+  private generateStrongTemporaryPassword(): string {
+    const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowers = 'abcdefghjkmnpqrstuvwxyz';
+    const numbers = '23456789';
+    const symbols = '!@#$%^&*';
+
+    const u1 = uppers.charAt(Math.floor(Math.random() * uppers.length));
+    const l1 = lowers.charAt(Math.floor(Math.random() * lowers.length));
+    const l2 = lowers.charAt(Math.floor(Math.random() * lowers.length));
+    const n1 = numbers.charAt(Math.floor(Math.random() * numbers.length));
+    const n2 = numbers.charAt(Math.floor(Math.random() * numbers.length));
+    const s1 = symbols.charAt(Math.floor(Math.random() * symbols.length));
+
+    return `Momo${s1}${n1}${n2}${u1}${l1}${l2}!`;
+  }
+
   private async syncCredentialsToAuthService(
     email: string,
     temporaryPassword: string,

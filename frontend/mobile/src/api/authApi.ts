@@ -18,10 +18,11 @@ export async function loginUser(payload: { email: string; password: string }): P
 
   // Try direct login with provided identifier first
   try {
-    const { data } = await api.post<AuthResponse>('/auth/login', {
+    const res = await api.post<any>('/auth/login', {
       email: trimmedIdentifier,
       password: trimmedPassword,
     });
+    const data = res.data?.data || res.data;
     return data;
   } catch (initialErr) {
     // If invalid credentials or non-company email/employee code was used, attempt identifier resolution
@@ -36,11 +37,11 @@ export async function loginUser(payload: { email: string; password: string }): P
 
       const resData = resolveRes.data?.data || (resolveRes.data as any);
       if (resData?.found && resData.officialEmail && resData.officialEmail.toLowerCase() !== trimmedIdentifier.toLowerCase()) {
-        const retryRes = await api.post<AuthResponse>('/auth/login', {
+        const retryRes = await api.post<any>('/auth/login', {
           email: resData.officialEmail,
           password: trimmedPassword,
         });
-        return retryRes.data;
+        return retryRes.data?.data || retryRes.data;
       }
     } catch {
       // If resolution fails or retry fails, throw initial error

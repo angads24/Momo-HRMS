@@ -11,6 +11,7 @@ venv/
 
 # Build artifacts
 dist/
+!backend/*/dist/
 build/
 .next/
 out/

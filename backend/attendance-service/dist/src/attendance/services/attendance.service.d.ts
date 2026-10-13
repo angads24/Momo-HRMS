@@ -1,0 +1,61 @@
+import { PrismaService } from '../../database/prisma.service';
+import { EmployeeProvider } from '../../employee/interfaces/employee-provider.interface';
+import { GeofenceProvider } from '../../geofence/interfaces/geofence-provider.interface';
+import { AttendancePolicyProvider } from '../../policy/interfaces/attendance-policy-provider.interface';
+import { FaceAiProvider } from '../../face/interfaces/face-ai-provider.interface';
+import { WorkingTimeService } from './working-time.service';
+import { NotificationClientService } from '../../notifications/notification-client.service';
+import { CheckInDto } from '../dto/check-in.dto';
+import { CheckOutDto } from '../dto/check-out.dto';
+import { GeofenceExitDto } from '../dto/geofence-exit.dto';
+import { GeofenceReturnDto } from '../dto/geofence-return.dto';
+import { SyncDto } from '../dto/sync.dto';
+import { HistoryQueryDto } from '../dto/history-query.dto';
+import { AttendanceSessionResponseDto, PaginatedHistoryResponseDto, SyncResponseDto, TodayAttendanceResponseDto } from '../dto/attendance-session-response.dto';
+import { AttendanceEventSource } from '../enums';
+interface ActionResult {
+    session: AttendanceSessionResponseDto;
+    idempotentReplay: boolean;
+}
+export declare class AttendanceService {
+    private readonly prisma;
+    private readonly workingTimeService;
+    private readonly geofenceProvider;
+    private readonly employeeProvider;
+    private readonly policyProvider;
+    private readonly faceAiProvider;
+    private readonly notificationClient;
+    private readonly logger;
+    constructor(prisma: PrismaService, workingTimeService: WorkingTimeService, geofenceProvider: GeofenceProvider, employeeProvider: EmployeeProvider, policyProvider: AttendancePolicyProvider, faceAiProvider: FaceAiProvider, notificationClient: NotificationClientService);
+    private resolveEmployeeIds;
+    checkIn(employeeId: string, dto: CheckInDto, effectiveTime?: Date, source?: AttendanceEventSource): Promise<ActionResult>;
+    checkOut(employeeId: string, dto: CheckOutDto, effectiveTime?: Date, source?: AttendanceEventSource): Promise<ActionResult>;
+    geofenceExit(employeeId: string, dto: GeofenceExitDto, effectiveTime?: Date, source?: AttendanceEventSource): Promise<ActionResult>;
+    geofenceReturn(employeeId: string, dto: GeofenceReturnDto, effectiveTime?: Date, source?: AttendanceEventSource): Promise<ActionResult>;
+    sync(employeeId: string, dto: SyncDto): Promise<SyncResponseDto>;
+    getToday(employeeId: string, now?: Date): Promise<TodayAttendanceResponseDto>;
+    getAllToday(now?: Date): Promise<TodayAttendanceResponseDto>;
+    getAllHistory(query: HistoryQueryDto): Promise<PaginatedHistoryResponseDto>;
+    getHistory(employeeId: string, query: HistoryQueryDto): Promise<PaginatedHistoryResponseDto>;
+    getById(employeeId: string, sessionId: string): Promise<AttendanceSessionResponseDto>;
+    runAutoCheckoutSweep(batchSize: number, now?: Date): Promise<{
+        processed: number;
+        skipped: number;
+    }>;
+    private autoCheckoutOne;
+    private requireLocation;
+    private validateLocationAccuracy;
+    private determineCheckInStatus;
+    private getLocalMinutesOfDay;
+    private getMidnightCutoffForSession;
+    private toMinutes;
+    private toDateOnly;
+    private formatDateOnly;
+    private findIdempotentReplay;
+    private toSyncResult;
+    private getDayAdjustment;
+    private extractAdjustmentFromException;
+    private createSynthesizedSpecialSession;
+    private toSessionDto;
+}
+export {};

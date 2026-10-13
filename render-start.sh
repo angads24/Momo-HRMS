@@ -1,47 +1,55 @@
 #!/bin/bash
-set -e
 
 echo "=== Starting Momo HRMS Backend Services ==="
 
-# 1. Build any missing service dist/main.js automatically
-for s in auth-service attendance-service geofence-service employee-service notification-service api-gateway; do
-  if [ ! -f "backend/$s/dist/main.js" ]; then
-    echo "--> [Warning] backend/$s/dist/main.js not found. Compiling now..."
-    (cd "backend/$s" && npm install --include=dev && npx prisma generate 2>/dev/null || true && npm run build)
-  fi
-done
+# Helper to run a service checking both dist/main.js and dist/src/main.js
+start_service() {
+  local service_name="$1"
+  local port="$2"
+  local s_dir="backend/$service_name"
 
-# 2. Run Prisma database schema push if DATABASE_URL is reachable
+  if [ -f "$s_dir/dist/main.js" ]; then
+    echo "--> Starting $service_name on port $port (dist/main.js)"
+    PORT="$port" node "$s_dir/dist/main.js" &
+  elif [ -f "$s_dir/dist/src/main.js" ]; then
+    echo "--> Starting $service_name on port $port (dist/src/main.js)"
+    PORT="$port" node "$s_dir/dist/src/main.js" &
+  else
+    echo "--> [Warning] main.js not found for $service_name"
+  fi
+}
+
+# 1. Non-blocking Prisma schema sync (max 5s timeout per service)
 if [ -n "$DATABASE_URL" ]; then
-  echo "--> Checking Prisma database connectivity..."
-  (cd backend/auth-service && npx prisma db push --skip-generate --accept-data-loss || echo "Prisma push skipped or failed, continuing...")
-  (cd backend/employee-service && npx prisma db push --skip-generate --accept-data-loss || true)
-  (cd backend/attendance-service && npx prisma db push --skip-generate --accept-data-loss || true)
-  (cd backend/geofence-service && npx prisma db push --skip-generate --accept-data-loss || true)
-  (cd backend/notification-service && npx prisma db push --skip-generate --accept-data-loss || true)
+  echo "--> Checking database connection..."
+  (cd backend/auth-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
+  (cd backend/employee-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
+  (cd backend/attendance-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
+  (cd backend/geofence-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
+  (cd backend/notification-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
 fi
 
-# Capture Render's assigned public PORT for API Gateway (Render provides PORT, e.g. 10000)
-PUBLIC_PORT="${PORT:-8000}"
+# 2. Launch all 5 internal microservices on their designated internal ports
+start_service "auth-service" 3001
+start_service "attendance-service" 3002
+start_service "geofence-service" 3003
+start_service "employee-service" 3004
+start_service "notification-service" 3005
 
-# 3. Start internal microservices on their designated fixed ports in background
-echo "--> Starting internal services..."
-PORT=3001 node backend/auth-service/dist/main.js &
-PORT=3002 node backend/attendance-service/dist/main.js &
-PORT=3003 node backend/geofence-service/dist/main.js &
-PORT=3004 node backend/employee-service/dist/main.js &
-PORT=3005 node backend/notification-service/dist/main.js &
-
-# Optional: Start Face AI service if uvicorn is available
+# Optional: Launch Face AI service if uvicorn is available
 if command -v uvicorn >/dev/null 2>&1; then
-  echo "--> Starting Face AI service..."
+  echo "--> Starting Face AI service on port 3006"
   (cd backend/face-ai-service && uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 fi
 
-# Give internal services 5 seconds to bind ports
-echo "--> Waiting for internal microservices to initialize..."
-sleep 5
+# Wait 3 seconds for internal ports to initialize
+sleep 3
 
-# 4. Start API Gateway on the public port in foreground
-echo "--> Starting API Gateway on port $PUBLIC_PORT..."
-PORT="$PUBLIC_PORT" node backend/api-gateway/dist/main.js
+# 3. Start API Gateway on Render's assigned public port (in foreground)
+PUBLIC_PORT="${PORT:-8000}"
+echo "--> Starting API Gateway on public port $PUBLIC_PORT..."
+if [ -f "backend/api-gateway/dist/main.js" ]; then
+  PORT="$PUBLIC_PORT" node backend/api-gateway/dist/main.js
+else
+  PORT="$PUBLIC_PORT" node backend/api-gateway/dist/src/main.js
+fi

@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HealthController = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
+const net = require("net");
 let HealthController = class HealthController {
     constructor(configService) {
         this.configService = configService;
@@ -50,6 +51,56 @@ let HealthController = class HealthController {
             microservices: checks,
         };
     }
+    async dbCheck() {
+        const rawUrl = process.env.DATABASE_URL || process.env.MYSQL_URL || '';
+        if (!rawUrl) {
+            return {
+                ok: false,
+                error: 'DATABASE_URL environment variable is NOT set in Render environment!',
+            };
+        }
+        const maskedUrl = rawUrl.replace(/:([^:@]+)@/, ':****@');
+        let host = '';
+        let port = 3306;
+        try {
+            const u = new URL(rawUrl.replace(/^mysql:/, 'http:'));
+            host = u.hostname;
+            port = parseInt(u.port || '3306', 10);
+        }
+        catch (e) {
+            return { ok: false, error: `Invalid URL: ${e.message}`, maskedUrl };
+        }
+        const isInternal = host.includes('railway.internal');
+        const tcpResult = await new Promise((resolve) => {
+            const socket = new net.Socket();
+            socket.setTimeout(4000);
+            socket.on('connect', () => {
+                socket.destroy();
+                resolve({ connected: true });
+            });
+            socket.on('timeout', () => {
+                socket.destroy();
+                resolve({ connected: false, error: 'Connection timed out (4s)' });
+            });
+            socket.on('error', (err) => {
+                resolve({ connected: false, error: err.message });
+            });
+            socket.connect(port, host);
+        });
+        return {
+            ok: tcpResult.connected,
+            host,
+            port,
+            isInternalRailwayDomain: isInternal,
+            diagnosis: isInternal
+                ? 'CRITICAL ERROR: mysql.railway.internal is a private Railway internal domain that CANNOT be resolved from outside Railway (e.g. from Render). You must use the Public TCP Proxy URL from Railway (e.g. *.proxy.rlwy.net:PORT).'
+                : tcpResult.connected
+                    ? 'TCP connection to database host succeeded!'
+                    : `Cannot connect to database host: ${tcpResult.error}`,
+            tcpTest: tcpResult,
+            maskedUrl,
+        };
+    }
 };
 exports.HealthController = HealthController;
 __decorate([
@@ -58,6 +109,12 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], HealthController.prototype, "check", null);
+__decorate([
+    (0, common_1.Get)('db-check'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], HealthController.prototype, "dbCheck", null);
 exports.HealthController = HealthController = __decorate([
     (0, common_1.Controller)('health'),
     __metadata("design:paramtypes", [config_1.ConfigService])

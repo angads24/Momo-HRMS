@@ -9,6 +9,10 @@ export GATEWAY_SHARED_SECRET="${GATEWAY_SHARED_SECRET:-render-default-gateway-sh
 
 # 2. Configure dedicated database URLs for each microservice
 if [ -n "$DATABASE_URL" ]; then
+  if echo "$DATABASE_URL" | grep -q "railway.internal"; then
+    echo "⚠️  WARNING: DATABASE_URL contains 'railway.internal'. This internal hostname only works within Railway's private network and CANNOT be accessed from Render. Please use Railway's public TCP Proxy URL (e.g., mysql://...proxy.rlwy.net:PORT/dbname) in Render environment variables."
+  fi
+
   # Strip any existing database name from end of DATABASE_URL (e.g. ...:12345/railway -> ...:12345)
   BASE_URL=$(echo "$DATABASE_URL" | sed -E 's|/[a-zA-Z0-9_\-]+(\?.*)?$||')
   # Capture any SSL / query parameters from URL
@@ -21,45 +25,48 @@ if [ -n "$DATABASE_URL" ]; then
   export NOTIFICATION_DATABASE_URL="${NOTIFICATION_DATABASE_URL:-${BASE_URL}/notification_db${QUERY_PARAMS}}"
   export FACE_AI_DATABASE_URL="${FACE_AI_DATABASE_URL:-${BASE_URL}/face_ai_db${QUERY_PARAMS}}"
 
+  echo "--> Ensuring all microservice databases exist on MySQL server..."
+  echo "CREATE DATABASE IF NOT EXISTS auth_service; CREATE DATABASE IF NOT EXISTS employee_db; CREATE DATABASE IF NOT EXISTS attendance_service; CREATE DATABASE IF NOT EXISTS geofence_db; CREATE DATABASE IF NOT EXISTS notification_db; CREATE DATABASE IF NOT EXISTS face_ai_db;" | \
+  npx --prefix backend/auth-service prisma db execute --stdin --url="$DATABASE_URL" 2>&1 || true
+
   echo "--> Deploying database schemas to all microservice databases..."
 
-  # Push schemas to each individual database (with fallback to default DATABASE_URL if DB doesn't exist)
   echo "--> 1. Pushing auth_service schema..."
-  DATABASE_URL="$AUTH_DATABASE_URL" npx --prefix backend/auth-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || true
+  DATABASE_URL="$AUTH_DATABASE_URL" npx --prefix backend/auth-service prisma db push --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --skip-generate --accept-data-loss || true
 
   echo "--> 2. Pushing employee_db schema..."
-  DATABASE_URL="$EMPLOYEE_DATABASE_URL" npx --prefix backend/employee-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/employee-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || true
+  DATABASE_URL="$EMPLOYEE_DATABASE_URL" npx --prefix backend/employee-service prisma db push --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/employee-service prisma db push --skip-generate --accept-data-loss || true
 
   echo "--> 3. Pushing attendance_service schema..."
-  DATABASE_URL="$ATTENDANCE_DATABASE_URL" npx --prefix backend/attendance-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/attendance-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || true
+  DATABASE_URL="$ATTENDANCE_DATABASE_URL" npx --prefix backend/attendance-service prisma db push --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/attendance-service prisma db push --skip-generate --accept-data-loss || true
 
   echo "--> 4. Pushing geofence_db schema..."
-  DATABASE_URL="$GEOFENCE_DATABASE_URL" npx --prefix backend/geofence-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/geofence-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || true
+  DATABASE_URL="$GEOFENCE_DATABASE_URL" npx --prefix backend/geofence-service prisma db push --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/geofence-service prisma db push --skip-generate --accept-data-loss || true
 
   echo "--> 5. Pushing notification_db schema..."
-  DATABASE_URL="$NOTIFICATION_DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss 2>/dev/null || true
+  DATABASE_URL="$NOTIFICATION_DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/notification-service prisma db push --skip-generate --accept-data-loss || true
 
   echo "--> 6. Pushing face_ai_db schema..."
-  DATABASE_URL="$FACE_AI_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/face-ai-service/prisma/schema.prisma --skip-generate --accept-data-loss 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/face-ai-service/prisma/schema.prisma --skip-generate --accept-data-loss 2>/dev/null || true
+  DATABASE_URL="$FACE_AI_DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/face-ai-service/prisma/schema.prisma --skip-generate --accept-data-loss || \
+  DATABASE_URL="$DATABASE_URL" npx --prefix backend/auth-service prisma db push --schema backend/face-ai-service/prisma/schema.prisma --skip-generate --accept-data-loss || true
 
   echo "--> 7. Seeding initial admin credentials & system roles..."
-  DATABASE_URL="$AUTH_DATABASE_URL" node backend/auth-service/dist/prisma/seed.js 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" node backend/auth-service/dist/prisma/seed.js 2>/dev/null || true
+  DATABASE_URL="$AUTH_DATABASE_URL" node backend/auth-service/dist/prisma/seed.js || \
+  DATABASE_URL="$DATABASE_URL" node backend/auth-service/dist/prisma/seed.js || true
 
-  DATABASE_URL="$EMPLOYEE_DATABASE_URL" node backend/employee-service/dist/prisma/seed.js 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" node backend/employee-service/dist/prisma/seed.js 2>/dev/null || true
+  DATABASE_URL="$EMPLOYEE_DATABASE_URL" node backend/employee-service/dist/prisma/seed.js || \
+  DATABASE_URL="$DATABASE_URL" node backend/employee-service/dist/prisma/seed.js || true
 
-  DATABASE_URL="$GEOFENCE_DATABASE_URL" node backend/geofence-service/dist/prisma/seed.js 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" node backend/geofence-service/dist/prisma/seed.js 2>/dev/null || true
+  DATABASE_URL="$GEOFENCE_DATABASE_URL" node backend/geofence-service/dist/prisma/seed.js || \
+  DATABASE_URL="$DATABASE_URL" node backend/geofence-service/dist/prisma/seed.js || true
 
-  DATABASE_URL="$NOTIFICATION_DATABASE_URL" node backend/notification-service/dist/prisma/seed.js 2>/dev/null || \
-  DATABASE_URL="$DATABASE_URL" node backend/notification-service/dist/prisma/seed.js 2>/dev/null || true
+  DATABASE_URL="$NOTIFICATION_DATABASE_URL" node backend/notification-service/dist/prisma/seed.js || \
+  DATABASE_URL="$DATABASE_URL" node backend/notification-service/dist/prisma/seed.js || true
 fi
 
 # 3. Launch internal microservices pointing to their respective databases

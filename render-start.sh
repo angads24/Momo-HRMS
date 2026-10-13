@@ -24,14 +24,19 @@ start_service() {
   fi
 }
 
-# 2. Database schema sync & initial user seed
+# 2. Database schema push & seeding (runs with pure node)
 if [ -n "$DATABASE_URL" ]; then
-  echo "--> Syncing database schemas & seeding initial data..."
-  (cd backend/auth-service && timeout 10s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null && timeout 10s npx ts-node prisma/seed.ts 2>/dev/null || true)
-  (cd backend/employee-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
-  (cd backend/attendance-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
-  (cd backend/geofence-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
-  (cd backend/notification-service && timeout 5s npx prisma db push --skip-generate --accept-data-loss 2>/dev/null || true)
+  echo "--> Pushing Prisma database schemas to MySQL..."
+  (cd backend/auth-service && npx prisma db push --skip-generate --accept-data-loss || true)
+  (cd backend/employee-service && npx prisma db push --skip-generate --accept-data-loss || true)
+  (cd backend/attendance-service && npx prisma db push --skip-generate --accept-data-loss || true)
+  (cd backend/geofence-service && npx prisma db push --skip-generate --accept-data-loss || true)
+  (cd backend/notification-service && npx prisma db push --skip-generate --accept-data-loss || true)
+
+  echo "--> Seeding default data & admin credentials..."
+  node backend/auth-service/dist/prisma/seed.js || true
+  node backend/employee-service/dist/prisma/seed.js 2>/dev/null || true
+  node backend/geofence-service/dist/prisma/seed.js 2>/dev/null || true
 fi
 
 # 3. Launch all 5 internal microservices on their designated internal ports
@@ -41,19 +46,19 @@ start_service "geofence-service" 3003
 start_service "employee-service" 3004
 start_service "notification-service" 3005
 
-# Face AI service (launches Python uvicorn if available, or lightweight Node server on Render)
+# 4. Launch Face AI service
 if command -v uvicorn >/dev/null 2>&1; then
-  echo "--> Starting Python Face AI service on port 3006..."
+  echo "--> Starting Python Face AI service on port 3006"
   (cd backend/face-ai-service && uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 else
-  echo "--> Starting Face AI service on port 3006..."
+  echo "--> Starting Node Face AI service on port 3006"
   PORT=3006 node backend/face-ai-service/mock_server.js &
 fi
 
 # Wait 4 seconds for internal ports to initialize
 sleep 4
 
-# 4. Start API Gateway on Render's assigned public port (in foreground)
+# 5. Start API Gateway on Render's assigned public port (in foreground)
 PUBLIC_PORT="${PORT:-8000}"
 echo "--> Starting API Gateway on public port $PUBLIC_PORT..."
 if [ -f "backend/api-gateway/dist/main.js" ]; then

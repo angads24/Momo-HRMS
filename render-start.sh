@@ -81,7 +81,7 @@ DATABASE_URL="${NOTIFICATION_DATABASE_URL:-$DATABASE_URL}" PORT=3005 node backen
 # 4. Launch Face AI service (:3006)
 if command -v uvicorn >/dev/null 2>&1; then
   echo "--> Launching Python Face AI service (:3006)..."
-  DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" (cd backend/face-ai-service && uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+  (cd backend/face-ai-service && DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 else
   echo "--> Launching Node Face AI service (:3006)..."
   DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" PORT=3006 node backend/face-ai-service/mock_server.js &

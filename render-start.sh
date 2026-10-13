@@ -41,10 +41,13 @@ start_service "geofence-service" 3003
 start_service "employee-service" 3004
 start_service "notification-service" 3005
 
-# Optional Face AI service
+# Face AI service (launches Python uvicorn if available, or lightweight Node server on Render)
 if command -v uvicorn >/dev/null 2>&1; then
-  echo "--> Starting Face AI service on port 3006"
+  echo "--> Starting Python Face AI service on port 3006..."
   (cd backend/face-ai-service && uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+else
+  echo "--> Starting Face AI service on port 3006..."
+  PORT=3006 node backend/face-ai-service/mock_server.js &
 fi
 
 # Wait 4 seconds for internal ports to initialize

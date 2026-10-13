@@ -158,6 +158,7 @@ async function resolveEmployeeOffices(
   // 1. Check profile.assignedOffices array
   if (Array.isArray(profile.assignedOffices) && profile.assignedOffices.length > 0) {
     for (const assignment of profile.assignedOffices) {
+      if (!assignment) continue;
       if (assignment.isActive === false) continue;
       const targetId = assignment.id?.trim().toLowerCase();
       const targetCode = assignment.code?.trim().toLowerCase();

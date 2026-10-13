@@ -290,6 +290,7 @@ export default function AddEmployeePage() {
           departmentId: hrDepartment.id,
           roleId: hrRole.id,
           provisionAccount: true,
+          sendEmail: autoSendCredentials,
           officeLocationId: assignedOfficeId,
           officeLocationName: assignedOfficeName,
           primaryOfficeId: assignedOfficeId,
@@ -310,6 +311,7 @@ export default function AddEmployeePage() {
           departmentId: hrDepartment.id,
           roleId: employeeRole.id,
           provisionAccount: true,
+          sendEmail: autoSendCredentials,
           officeLocationId: assignedOfficeId,
           officeLocationName: assignedOfficeName,
           primaryOfficeId: assignedOfficeId,
@@ -364,6 +366,7 @@ export default function AddEmployeePage() {
           departmentId: defaultDepartment.id,
           roleId: matchedRole.id,
           provisionAccount: true,
+          sendEmail: autoSendCredentials,
           officeLocationId: assignedOfficeId,
           officeLocationName: assignedOfficeName,
           primaryOfficeId: assignedOfficeId,
@@ -702,9 +705,15 @@ export default function AddEmployeePage() {
               </Paper>
             </Box>
 
-            <Alert severity="success" sx={{ mb: 3 }}>
-              Official login credentials for both accounts have been generated and dispatched to the employee's registered personal email: <strong>{createdDualAccounts.hrAccount.personalEmail}</strong>.
-            </Alert>
+            {createdDualAccounts.hrAccount.credentialDelivery?.delivered ? (
+              <Alert severity="success" sx={{ mb: 3 }}>
+                Official login credentials for both accounts have been generated and dispatched to the employee's registered personal email: <strong>{createdDualAccounts.hrAccount.personalEmail}</strong>.
+              </Alert>
+            ) : (
+              <Alert severity="info" sx={{ mb: 3 }}>
+                Official login credentials for both accounts have been generated and are displayed above. Email dispatch was skipped as requested.
+              </Alert>
+            )}
 
             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <Button

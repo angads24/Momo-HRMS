@@ -151,6 +151,7 @@ export interface CreateEmployeePayload {
   officeIds?: string[];
   userId?: string;
   provisionAccount?: boolean;
+  sendEmail?: boolean;
 }
 
 export interface UpdateEmployeePayload {

@@ -66,9 +66,9 @@ export class EmailService implements OnModuleInit {
           pass: this.pass,
         },
         family: 4, // CRITICAL: Force IPv4 to prevent ENETUNREACH on Render/cloud containers
-        connectionTimeout: 8000,
-        greetingTimeout: 8000,
-        socketTimeout: 10000,
+        connectionTimeout: 20000,
+        greetingTimeout: 20000,
+        socketTimeout: 30000,
         tls: {
           rejectUnauthorized: false,
         },

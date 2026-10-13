@@ -140,7 +140,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const session = await refreshSession();
         if (cancelled) return;
 
-        const restored = toAuthUser(session.user);
+        const sessionUser = session?.user || (session as any)?.data?.user;
+        if (!sessionUser) {
+          await clearTokens();
+          if (!cancelled) endSession();
+          return;
+        }
+
+        const restored = toAuthUser(sessionUser);
         if (!restored.appRole) {
           await clearTokens();
           endSession(NO_MODULE_MESSAGE);
@@ -196,7 +203,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const refreshTok = session?.refreshToken || (session as any)?.data?.refreshToken || accessTok;
       await saveTokens(accessTok, refreshTok);
 
-      const loggedIn = toAuthUser(session.user);
+      const sessionUser = session?.user || (session as any)?.data?.user;
+      if (!sessionUser) {
+        throw new Error('Authentication response is missing user information. Please try again.');
+      }
+
+      const loggedIn = toAuthUser(sessionUser);
       if (!loggedIn.appRole) {
         await logoutUser().catch(() => {});
         await clearTokens();

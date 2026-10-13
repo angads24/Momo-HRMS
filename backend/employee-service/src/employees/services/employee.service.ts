@@ -236,36 +236,60 @@ export class EmployeeService implements OnModuleInit {
     result.temporaryPassword = tempPass;
 
     const shouldSendEmail = dto.provisionAccount !== false && (dto as any).sendEmail !== false;
-    result.credentialDelivery = {
-      delivered: shouldSendEmail,
-      mode: this.emailService.isConfigured ? "smtp" : "console",
-      message: shouldSendEmail
-        ? (this.emailService.isConfigured
-            ? `Credentials email queued for delivery to ${targetEmail}`
-            : `Credentials generated for ${targetEmail}`)
-        : `Credentials saved in database for ${result.email}`,
-      deliveredTo: targetEmail,
-    };
-    result.credentialsSentAt = new Date().toISOString();
 
-    if (shouldSendEmail) {
-      // Non-blocking asynchronous dispatch so employee creation responds in <50ms
-      this.emailService
-        .sendCredentialEmail({
-          toEmail: targetEmail,
-          employeeName: `${result.firstName} ${result.lastName}`,
-          officialEmail: result.email,
-          username: result.employeeCode.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_"),
-          temporaryPassword: tempPass,
-          roleName: dto.roleId || "EMPLOYEE",
-          isPasswordReset: false,
-        })
-        .then((delivery) => {
-          this.logger.log(`Credentials email dispatched for ${result.employeeCode}: ${delivery.message}`);
-        })
-        .catch((err: any) => {
-          this.logger.warn(`Failed to dispatch credentials email for ${result.employeeCode}: ${err.message}`);
-        });
+    if (shouldSendEmail && tempPass) {
+      result.credentialsSentAt = new Date().toISOString();
+      const sendPromise = this.emailService.sendCredentialEmail({
+        toEmail: targetEmail,
+        employeeName: `${result.firstName} ${result.lastName}`,
+        officialEmail: result.email,
+        username: result.employeeCode.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_"),
+        temporaryPassword: tempPass,
+        roleName: dto.roleId || "EMPLOYEE",
+        isPasswordReset: false,
+      });
+
+      // Allow up to 6 seconds for live SMTP delivery confirmation
+      const timeoutPromise = new Promise<{ delivered: boolean; mode: any; message: string; deliveredTo: string }>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              delivered: true,
+              mode: 'queued',
+              message: `Credentials email queued for delivery to ${targetEmail}`,
+              deliveredTo: targetEmail,
+            }),
+          6000,
+        ),
+      );
+
+      try {
+        const deliveryResult = await Promise.race([sendPromise, timeoutPromise]);
+        result.credentialDelivery = deliveryResult as any;
+        if ((deliveryResult as any).mode === 'queued') {
+          sendPromise
+            .then((res) => {
+              this.logger.log(`Background credentials email finished for ${result.employeeCode}: ${res.message}`);
+            })
+            .catch((err) => {
+              this.logger.warn(`Background credentials email failed for ${result.employeeCode}: ${err.message}`);
+            });
+        }
+      } catch (err: any) {
+        result.credentialDelivery = {
+          delivered: false,
+          mode: 'failed',
+          message: `Failed to deliver email: ${err.message}`,
+          deliveredTo: targetEmail,
+        };
+      }
+    } else {
+      result.credentialDelivery = {
+        delivered: false,
+        mode: 'skipped',
+        message: 'Credentials generated on screen (Email delivery disabled)',
+        deliveredTo: targetEmail,
+      };
     }
 
     return result;

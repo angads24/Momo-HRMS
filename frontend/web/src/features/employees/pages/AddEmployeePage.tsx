@@ -21,6 +21,9 @@ import Snackbar from '@mui/material/Snackbar';
 import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import Tooltip from '@mui/material/Tooltip';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
@@ -493,6 +496,21 @@ export default function AddEmployeePage() {
                     <Typography variant="caption" color="text.secondary">Assigned Role:</Typography>
                     <Chip label="HR_ADMIN" size="small" color="secondary" sx={{ fontWeight: 600, width: 'fit-content' }} />
                   </Box>
+                  {createdDualAccounts.hrAccount.temporaryPassword && (
+                    <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(156, 39, 176, 0.08)', borderRadius: 1, border: '1px dashed', borderColor: 'secondary.main', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'secondary.dark' }}>Temp Pass:</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, fontFamily: 'monospace', bgcolor: 'background.paper', px: 1, py: 0.2, borderRadius: 0.5 }}>
+                          {createdDualAccounts.hrAccount.temporaryPassword}
+                        </Typography>
+                        <Tooltip title="Copy password">
+                          <IconButton size="small" color="secondary" onClick={() => navigator.clipboard.writeText(createdDualAccounts.hrAccount.temporaryPassword || '')}>
+                            <ContentCopyIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  )}
                   <Box>
                     <Typography variant="caption" color="text.secondary">Office Jurisdiction Scope:</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
@@ -555,6 +573,21 @@ export default function AddEmployeePage() {
                     <Typography variant="caption" color="text.secondary">Assigned Role:</Typography>
                     <Chip label="EMPLOYEE" size="small" color="primary" sx={{ fontWeight: 600, width: 'fit-content' }} />
                   </Box>
+                  {createdDualAccounts.attendanceAccount.temporaryPassword && (
+                    <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(25, 118, 210, 0.08)', borderRadius: 1, border: '1px dashed', borderColor: 'primary.main', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.dark' }}>Temp Pass:</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, fontFamily: 'monospace', bgcolor: 'background.paper', px: 1, py: 0.2, borderRadius: 0.5 }}>
+                          {createdDualAccounts.attendanceAccount.temporaryPassword}
+                        </Typography>
+                        <Tooltip title="Copy password">
+                          <IconButton size="small" color="primary" onClick={() => navigator.clipboard.writeText(createdDualAccounts.attendanceAccount.temporaryPassword || '')}>
+                            <ContentCopyIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  )}
                   <Box>
                     <Typography variant="caption" color="text.secondary">Assigned Workplaces:</Typography>
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
@@ -710,6 +743,22 @@ export default function AddEmployeePage() {
                 <Typography variant="subtitle2" color="text.secondary">Password Status:</Typography>
                 <Chip label="Generated Temporary Password (Reset on First Login)" color="info" size="small" variant="outlined" />
               </Box>
+
+              {createdEmployee.temporaryPassword && (
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, p: 1.5, bgcolor: 'rgba(25, 118, 210, 0.08)', borderRadius: 1.5, border: '1px dashed', borderColor: 'primary.main' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'primary.dark' }}>Temporary Password:</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body1" sx={{ fontWeight: 700, fontFamily: 'monospace', bgcolor: 'background.paper', px: 1.5, py: 0.5, borderRadius: 1, border: '1px solid', borderColor: 'divider', letterSpacing: '0.05em' }}>
+                      {createdEmployee.temporaryPassword}
+                    </Typography>
+                    <Tooltip title="Copy temporary password">
+                      <IconButton size="small" color="primary" onClick={() => navigator.clipboard.writeText(createdEmployee.temporaryPassword || '')}>
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
+              )}
             </Box>
 
             {createdEmployee.credentialDelivery?.delivered ? (

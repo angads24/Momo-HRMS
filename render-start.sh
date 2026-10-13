@@ -1,4 +1,7 @@
 #!/bin/bash
+# Force Node.js runtime to use IPv4 DNS resolution first to prevent ENETUNREACH in Render cloud containers
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first"
+
 
 echo "=== Starting Momo HRMS Backend Services ==="
 

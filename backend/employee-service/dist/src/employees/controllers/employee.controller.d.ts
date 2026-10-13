@@ -120,47 +120,95 @@ export declare class EmployeeController {
         toEmail?: string;
     }): Promise<{
         success: boolean;
+        provider: string;
+        recipient: string;
+        data: any;
+        message: string;
+        error?: undefined;
+        configured?: undefined;
+        messageId?: undefined;
+    } | {
+        success: boolean;
+        provider: string;
+        error: any;
+        recipient?: undefined;
+        data?: undefined;
+        message?: undefined;
+        configured?: undefined;
+        messageId?: undefined;
+    } | {
+        success: boolean;
         error: string;
         configured: boolean;
-        messageId?: undefined;
+        provider?: undefined;
         recipient?: undefined;
+        data?: undefined;
         message?: undefined;
+        messageId?: undefined;
     } | {
         success: boolean;
         messageId: string;
         recipient: string;
         configured: boolean;
         message: string;
+        provider?: undefined;
+        data?: undefined;
         error?: undefined;
     } | {
         success: boolean;
         error: any;
         recipient: string;
         configured: boolean;
-        messageId?: undefined;
+        provider?: undefined;
+        data?: undefined;
         message?: undefined;
+        messageId?: undefined;
     }>;
     testSmtpGet(toEmail?: string): Promise<{
         success: boolean;
+        provider: string;
+        recipient: string;
+        data: any;
+        message: string;
+        error?: undefined;
+        configured?: undefined;
+        messageId?: undefined;
+    } | {
+        success: boolean;
+        provider: string;
+        error: any;
+        recipient?: undefined;
+        data?: undefined;
+        message?: undefined;
+        configured?: undefined;
+        messageId?: undefined;
+    } | {
+        success: boolean;
         error: string;
         configured: boolean;
-        messageId?: undefined;
+        provider?: undefined;
         recipient?: undefined;
+        data?: undefined;
         message?: undefined;
+        messageId?: undefined;
     } | {
         success: boolean;
         messageId: string;
         recipient: string;
         configured: boolean;
         message: string;
+        provider?: undefined;
+        data?: undefined;
         error?: undefined;
     } | {
         success: boolean;
         error: any;
         recipient: string;
         configured: boolean;
-        messageId?: undefined;
+        provider?: undefined;
+        data?: undefined;
         message?: undefined;
+        messageId?: undefined;
     }>;
     registerDevice(id: string, body: any): Promise<{
         id: string;

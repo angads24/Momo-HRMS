@@ -1,3 +1,5 @@
+import * as dns from "dns";
+try { dns.setDefaultResultOrder("ipv4first"); } catch {}
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';

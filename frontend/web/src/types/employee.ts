@@ -67,10 +67,12 @@ export interface Employee {
   employmentType?: EmploymentType;
   status: EmploymentStatus;
   hasAccount?: boolean;
+  temporaryPassword?: string;
   credentialsSentAt?: string | null;
   credentialDelivery?: {
     delivered: boolean;
-    mode: 'smtp' | 'console' | 'failed';
+    mode: 'brevo' | 'resend' | 'smtp' | 'console' | 'failed';
+    temporaryPassword?: string;
     deliveredTo: string;
     message: string;
   };

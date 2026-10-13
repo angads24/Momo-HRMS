@@ -6,7 +6,7 @@ import Constants from 'expo-constants';
  * 1. Checks Expo Constants hostUri (auto-detected from Metro bundler on phone).
  * 2. Checks NativeModules.SourceCode.scriptURL.
  * 3. Checks EXPO_PUBLIC_API_URL from .env.
- * 4. Falls back to current PC LAN IP: 10.131.179.237.
+ * 4. Falls back to current PC LAN IP: 10.37.165.35.
  */
 function resolveHost(): string {
   try {
@@ -38,19 +38,24 @@ function resolveHost(): string {
     } catch {}
   }
 
-  return 'http://10.131.179.237';
+  return 'http://10.37.165.35';
 }
 
 const currentHost = resolveHost();
-const rawEnvUrl = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/+$/, '');
 
-// Only treat as unified production gateway if it explicitly points to a remote cloud host (https) or port 8000
+// Sanitize raw env URL: Port 8081 is the Expo Metro bundler, NEVER the backend API Gateway (port 8000).
+let rawEnvUrl = (process.env.EXPO_PUBLIC_API_URL || '').trim().replace(/\/+$/, '');
+if (rawEnvUrl.includes(':8081')) {
+  rawEnvUrl = rawEnvUrl.replace(':8081', ':8000');
+}
+
 const isUnifiedGateway =
   rawEnvUrl.startsWith('https://') ||
   rawEnvUrl.includes(':8000') ||
-  process.env.EXPO_PUBLIC_USE_GATEWAY === 'true';
+  process.env.EXPO_PUBLIC_USE_GATEWAY === 'true' ||
+  !rawEnvUrl;
 
-const unifiedGatewayUrl = isUnifiedGateway
+const unifiedGatewayUrl = rawEnvUrl
   ? (rawEnvUrl.endsWith('/api/v1') ? rawEnvUrl : `${rawEnvUrl}/api/v1`)
   : `${currentHost}:8000/api/v1`;
 

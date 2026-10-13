@@ -23,6 +23,9 @@ export async function loginUser(payload: { email: string; password: string }): P
       password: trimmedPassword,
     });
     const data = res.data?.data || res.data;
+    if (!data || !data.user || !data.accessToken) {
+      throw new Error('Received invalid authentication response. Please verify your backend server address.');
+    }
     return data;
   } catch (initialErr) {
     // If invalid credentials or non-company email/employee code was used, attempt identifier resolution
@@ -41,7 +44,11 @@ export async function loginUser(payload: { email: string; password: string }): P
           email: resData.officialEmail,
           password: trimmedPassword,
         });
-        return retryRes.data?.data || retryRes.data;
+        const retryData = retryRes.data?.data || retryRes.data;
+        if (!retryData || !retryData.user || !retryData.accessToken) {
+          throw new Error('Received invalid authentication response. Please verify your backend server address.');
+        }
+        return retryData;
       }
     } catch {
       // If resolution fails or retry fails, throw initial error

@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 15.0.0"
+    "version": ">= 15.0.0",
+    "appVersionSource": "local"
   },
   "build": {
     "development": {
@@ -11,11 +12,19 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://momo-hrms-backend.onrender.com",
+        "EXPO_PUBLIC_USE_GATEWAY": "true"
       }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://momo-hrms-backend.onrender.com",
+        "EXPO_PUBLIC_USE_GATEWAY": "true"
       }
     }
   },

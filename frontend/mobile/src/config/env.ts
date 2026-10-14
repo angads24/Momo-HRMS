@@ -2,12 +2,11 @@ import { NativeModules } from 'react-native';
 import Constants from 'expo-constants';
 
 /**
- * Dynamically resolves the host IP:
- * 1. Checks Expo Constants hostUri (auto-detected from Metro bundler on phone).
- * 2. Checks NativeModules.SourceCode.scriptURL.
- * 3. Checks EXPO_PUBLIC_API_URL from .env.
- * 4. Falls back to current PC LAN IP: 10.37.165.35.
+ * Default production backend gateway deployed on Render.
+ * Guaranteed fallback if .env is omitted during EAS cloud builds.
  */
+export const DEFAULT_PRODUCTION_GATEWAY = 'https://momo-hrms-backend.onrender.com';
+
 function resolveHost(): string {
   try {
     const hostUri =
@@ -38,34 +37,30 @@ function resolveHost(): string {
     } catch {}
   }
 
-  return 'http://10.37.165.35';
+  return DEFAULT_PRODUCTION_GATEWAY;
 }
 
 const currentHost = resolveHost();
 
-// Sanitize raw env URL: Port 8081 is the Expo Metro bundler, NEVER the backend API Gateway (port 8000).
-let rawEnvUrl = (process.env.EXPO_PUBLIC_API_URL || '').trim().replace(/\/+$/, '');
+// Read and sanitize env URL, defaulting to deployed Render production gateway
+let rawEnvUrl = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_PRODUCTION_GATEWAY).trim().replace(/\/+$/, '');
 if (rawEnvUrl.includes(':8081')) {
   rawEnvUrl = rawEnvUrl.replace(':8081', ':8000');
 }
 
-const isUnifiedGateway =
-  rawEnvUrl.startsWith('https://') ||
-  rawEnvUrl.includes(':8000') ||
-  process.env.EXPO_PUBLIC_USE_GATEWAY === 'true' ||
-  !rawEnvUrl;
+const isUnifiedGateway = true;
 
-const unifiedGatewayUrl = rawEnvUrl
-  ? (rawEnvUrl.endsWith('/api/v1') ? rawEnvUrl : `${rawEnvUrl}/api/v1`)
-  : `${currentHost}:8000/api/v1`;
+const unifiedGatewayUrl = rawEnvUrl.endsWith('/api/v1')
+  ? rawEnvUrl
+  : `${rawEnvUrl}/api/v1`;
 
 export const GATEWAY_URL = unifiedGatewayUrl;
-export const AUTH_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3001/api/v1`;
-export const ATTENDANCE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3002/api/v1`;
-export const GEOFENCE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3003/api/v1`;
-export const EMPLOYEE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3004/api/v1`;
-export const NOTIFICATION_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3005/api/v1`;
-export const FACE_API_URL = isUnifiedGateway ? unifiedGatewayUrl : `${currentHost}:3006/api/v1`;
+export const AUTH_API_URL = unifiedGatewayUrl;
+export const ATTENDANCE_API_URL = unifiedGatewayUrl;
+export const GEOFENCE_API_URL = unifiedGatewayUrl;
+export const EMPLOYEE_API_URL = unifiedGatewayUrl;
+export const NOTIFICATION_API_URL = unifiedGatewayUrl;
+export const FACE_API_URL = unifiedGatewayUrl;
 
 export const API_URL = AUTH_API_URL;
 export const COMPANY_NAME = 'Momo HRMS';

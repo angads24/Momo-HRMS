@@ -104,7 +104,7 @@ export default function FaceRegistrationScreen() {
     try {
       setErrorMessage(null);
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.85,
+        quality: 0.5,
         base64: true,
       });
 

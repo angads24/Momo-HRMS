@@ -78,7 +78,27 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             where: { email: dto.email },
         });
         if (duplicateEmail) {
-            throw new app_exception_1.AppException(error_codes_1.ErrorCodes.DUPLICATE_EMAIL, `Employee with email ${dto.email} already exists`, common_1.HttpStatus.CONFLICT);
+            throw new app_exception_1.AppException(error_codes_1.ErrorCodes.DUPLICATE_EMAIL, 'already account is created!', common_1.HttpStatus.CONFLICT);
+        }
+        if (dto.personalEmail && dto.personalEmail.trim()) {
+            const cleanPersonal = dto.personalEmail.trim().toLowerCase();
+            const duplicatePersonal = await this.prisma.employee.findFirst({
+                where: {
+                    OR: [
+                        { personalEmail: cleanPersonal },
+                        { email: cleanPersonal },
+                    ],
+                },
+                include: { designation: true },
+            });
+            if (duplicatePersonal && duplicatePersonal.email !== dto.email) {
+                const isDualHrPair = (dto.jobTitle?.includes('HR') || duplicatePersonal.designation?.title?.includes('HR')) &&
+                    duplicatePersonal.firstName.toLowerCase() === dto.firstName.toLowerCase() &&
+                    duplicatePersonal.lastName.toLowerCase() === dto.lastName.toLowerCase();
+                if (!isDualHrPair) {
+                    throw new app_exception_1.AppException(error_codes_1.ErrorCodes.DUPLICATE_EMAIL, 'already account is created!', common_1.HttpStatus.CONFLICT);
+                }
+            }
         }
         const result = await this.prisma.$transaction(async (tx) => {
             let designationId = dto.designationId || null;
@@ -197,20 +217,9 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
         }
         result.temporaryPassword = tempPass;
         const shouldSendEmail = dto.provisionAccount !== false && dto.sendEmail !== false;
-        result.credentialDelivery = {
-            delivered: shouldSendEmail,
-            mode: this.emailService.isConfigured ? "smtp" : "console",
-            message: shouldSendEmail
-                ? (this.emailService.isConfigured
-                    ? `Credentials email queued for delivery to ${targetEmail}`
-                    : `Credentials generated for ${targetEmail}`)
-                : `Credentials saved in database for ${result.email}`,
-            deliveredTo: targetEmail,
-        };
-        result.credentialsSentAt = new Date().toISOString();
-        if (shouldSendEmail) {
-            this.emailService
-                .sendCredentialEmail({
+        if (shouldSendEmail && tempPass) {
+            result.credentialsSentAt = new Date().toISOString();
+            const sendPromise = this.emailService.sendCredentialEmail({
                 toEmail: targetEmail,
                 employeeName: `${result.firstName} ${result.lastName}`,
                 officialEmail: result.email,
@@ -218,13 +227,42 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
                 temporaryPassword: tempPass,
                 roleName: dto.roleId || "EMPLOYEE",
                 isPasswordReset: false,
-            })
-                .then((delivery) => {
-                this.logger.log(`Credentials email dispatched for ${result.employeeCode}: ${delivery.message}`);
-            })
-                .catch((err) => {
-                this.logger.warn(`Failed to dispatch credentials email for ${result.employeeCode}: ${err.message}`);
             });
+            const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({
+                delivered: true,
+                mode: 'queued',
+                message: `Credentials email queued for delivery to ${targetEmail}`,
+                deliveredTo: targetEmail,
+            }), 6000));
+            try {
+                const deliveryResult = await Promise.race([sendPromise, timeoutPromise]);
+                result.credentialDelivery = deliveryResult;
+                if (deliveryResult.mode === 'queued') {
+                    sendPromise
+                        .then((res) => {
+                        this.logger.log(`Background credentials email finished for ${result.employeeCode}: ${res.message}`);
+                    })
+                        .catch((err) => {
+                        this.logger.warn(`Background credentials email failed for ${result.employeeCode}: ${err.message}`);
+                    });
+                }
+            }
+            catch (err) {
+                result.credentialDelivery = {
+                    delivered: false,
+                    mode: 'failed',
+                    message: `Failed to deliver email: ${err.message}`,
+                    deliveredTo: targetEmail,
+                };
+            }
+        }
+        else {
+            result.credentialDelivery = {
+                delivered: false,
+                mode: 'skipped',
+                message: 'Credentials generated on screen (Email delivery disabled)',
+                deliveredTo: targetEmail,
+            };
         }
         return result;
     }

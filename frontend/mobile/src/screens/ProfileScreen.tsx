@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -8,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import {
   Avatar,
   Card,
@@ -20,7 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import { updateEmployeeMe } from '../api/employeeApi';
+import { updateEmployeeMe, uploadProfilePhoto } from '../api/employeeApi';
 import type { UpdateEmployeeProfileInput } from '../api/employeeApi';
 import { AppButton } from '../components/AppButton';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -37,6 +39,79 @@ export default function ProfileScreen() {
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [updatingPhoto, setUpdatingPhoto] = useState(false);
+
+  const handlePickPhoto = () => {
+    Alert.alert(
+      'Profile Photo',
+      'Choose an option to update your profile photo',
+      [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Camera access is required to take a profile photo.');
+                return;
+              }
+              const result = await ImagePicker.launchCameraAsync({
+                cameraType: ImagePicker.CameraType.front,
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.6,
+                base64: true,
+              });
+              if (!result.canceled && result.assets && result.assets[0]) {
+                await savePhoto(result.assets[0]);
+              }
+            } catch (err: unknown) {
+              setSnackbarMessage(getErrorMessage(err, 'Failed to capture photo'));
+            }
+          },
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Gallery access is required to select a photo.');
+                return;
+              }
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [1, 1],
+                quality: 0.6,
+                base64: true,
+              });
+              if (!result.canceled && result.assets && result.assets[0]) {
+                await savePhoto(result.assets[0]);
+              }
+            } catch (err: unknown) {
+              setSnackbarMessage(getErrorMessage(err, 'Failed to select photo'));
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  };
+
+  const savePhoto = async (asset: ImagePicker.ImagePickerAsset) => {
+    setUpdatingPhoto(true);
+    try {
+      const dataUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+      await uploadProfilePhoto(dataUri);
+      await refreshProfile();
+      setSnackbarMessage('Profile photo updated successfully!');
+    } catch (err: unknown) {
+      setSnackbarMessage(getErrorMessage(err, 'Failed to upload photo. Please try again.'));
+    } finally {
+      setUpdatingPhoto(false);
+    }
+  };
 
   // Form Fields
   const [firstName, setFirstName] = useState('');
@@ -148,12 +223,35 @@ export default function ProfileScreen() {
         {/* Top Profile Card */}
         <Card style={styles.headerCard} mode="elevated">
           <Card.Content style={styles.headerCardContent}>
-            <Avatar.Text
-              size={80}
-              label={getInitials()}
-              style={styles.avatar}
-              labelStyle={styles.avatarLabel}
-            />
+            <View style={styles.avatarContainer}>
+              {employeeProfile?.profilePhotoUrl ? (
+                <Avatar.Image
+                  size={84}
+                  source={{ uri: employeeProfile.profilePhotoUrl }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <Avatar.Text
+                  size={84}
+                  label={getInitials()}
+                  style={styles.avatar}
+                  labelStyle={styles.avatarLabel}
+                />
+              )}
+              <TouchableOpacity
+                style={styles.cameraBadge}
+                onPress={handlePickPhoto}
+                activeOpacity={0.8}
+                disabled={updatingPhoto}
+                accessibilityLabel="Change profile photo"
+              >
+                <MaterialCommunityIcons
+                  name="camera"
+                  size={16}
+                  color="#FFFFFF"
+                />
+              </TouchableOpacity>
+            </View>
 
             <Text style={styles.nameText}>{fullName}</Text>
             <Text style={styles.jobText}>{employeeProfile?.jobTitle || 'Team Member'}</Text>
@@ -486,9 +584,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 24,
   },
+  avatarContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: -2,
+    backgroundColor: palette.primary,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+  },
   avatar: {
     backgroundColor: palette.primary,
-    marginBottom: 12,
   },
   avatarLabel: {
     fontSize: 28,

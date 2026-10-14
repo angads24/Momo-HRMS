@@ -388,7 +388,16 @@ export default function AddEmployeePage() {
       }
     } catch (err: unknown) {
       const msg = getErrorMessage(err, 'Failed to create employee. Please try again.');
-      setServerError(msg);
+      if (
+        msg.toLowerCase().includes('already account is created') ||
+        msg.toLowerCase().includes('duplicate_email') ||
+        msg.toLowerCase().includes('already exists')
+      ) {
+        setEmailError('already account is created!');
+        setServerError('already account is created!');
+      } else {
+        setServerError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1168,7 +1177,11 @@ export default function AddEmployeePage() {
                 label="Valid Personal Email Address"
                 placeholder="e.g. employee@gmail.com"
                 value={personalEmail}
-                onChange={(e) => setPersonalEmail(e.target.value)}
+                onChange={(e) => {
+                  setPersonalEmail(e.target.value);
+                  if (emailError) setEmailError(null);
+                  if (serverError === 'already account is created!') setServerError(null);
+                }}
                 error={Boolean(emailError)}
                 helperText={emailError ?? 'Official login credentials will be dispatched to this personal email address.'}
                 slotProps={{

@@ -47,9 +47,9 @@ let EmailService = EmailService_1 = class EmailService {
                     pass: this.pass,
                 },
                 family: 4,
-                connectionTimeout: 8000,
-                greetingTimeout: 8000,
-                socketTimeout: 10000,
+                connectionTimeout: 20000,
+                greetingTimeout: 20000,
+                socketTimeout: 30000,
                 tls: {
                     rejectUnauthorized: false,
                 },

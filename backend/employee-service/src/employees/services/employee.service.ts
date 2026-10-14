@@ -101,9 +101,36 @@ export class EmployeeService implements OnModuleInit {
     if (duplicateEmail) {
       throw new AppException(
         ErrorCodes.DUPLICATE_EMAIL,
-        `Employee with email ${dto.email} already exists`,
+        'already account is created!',
         HttpStatus.CONFLICT,
       );
+    }
+
+    if (dto.personalEmail && dto.personalEmail.trim()) {
+      const cleanPersonal = dto.personalEmail.trim().toLowerCase();
+      const duplicatePersonal = await this.prisma.employee.findFirst({
+        where: {
+          OR: [
+            { personalEmail: cleanPersonal },
+            { email: cleanPersonal },
+          ],
+        },
+        include: { designation: true },
+      });
+      if (duplicatePersonal && duplicatePersonal.email !== dto.email) {
+        const isDualHrPair =
+          (dto.jobTitle?.includes('HR') || duplicatePersonal.designation?.title?.includes('HR')) &&
+          duplicatePersonal.firstName.toLowerCase() === dto.firstName.toLowerCase() &&
+          duplicatePersonal.lastName.toLowerCase() === dto.lastName.toLowerCase();
+
+        if (!isDualHrPair) {
+          throw new AppException(
+            ErrorCodes.DUPLICATE_EMAIL,
+            'already account is created!',
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
     }
 
     const result = await this.prisma.$transaction(async (tx) => {

@@ -79,7 +79,7 @@ function parseAndNormalizeDate(input: string): {
 } {
   const clean = input.trim();
   if (!clean) {
-    return { normalized: null, age: null, error: 'Date of birth is required' };
+    return { normalized: null, age: null, error: null };
   }
 
   let year: number;
@@ -269,35 +269,22 @@ export default function ProfileCompletionScreen() {
     setStepError(null);
 
     if (currentStep === 1) {
-      if (!personalEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail.trim())) {
+      if (personalEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail.trim())) {
         setStepError('Please enter a valid personal email address.');
         return false;
       }
-      if (!phone.trim() || phone.trim().length < 7) {
+      if (phone.trim() && phone.trim().length < 7) {
         setStepError('Please enter a valid mobile number (at least 7 digits).');
         return false;
       }
-      if (parsedDob.error) {
+      if (dateOfBirth.trim() && parsedDob.error) {
         setStepError(parsedDob.error);
-        return false;
-      }
-      if (!gender) {
-        setStepError('Please select your gender.');
         return false;
       }
       return true;
     }
 
     if (currentStep === 2) {
-      if (!address.trim() || address.trim().length < 5) {
-        setStepError('Current residential address must be at least 5 characters.');
-        return false;
-      }
-      const perm = sameAsCurrent ? address : permanentAddress;
-      if (!perm.trim() || perm.trim().length < 5) {
-        setStepError('Permanent residential address is required.');
-        return false;
-      }
       return true;
     }
 
@@ -307,11 +294,7 @@ export default function ProfileCompletionScreen() {
     }
 
     if (currentStep === 4) {
-      if (!emergencyName.trim()) {
-        setStepError('Emergency contact name is required.');
-        return false;
-      }
-      if (!emergencyPhone.trim() || emergencyPhone.trim().length < 7) {
+      if (emergencyPhone.trim() && emergencyPhone.trim().length < 7) {
         setStepError('Please enter a valid emergency contact phone number.');
         return false;
       }
@@ -991,18 +974,29 @@ export default function ProfileCompletionScreen() {
           {/* Action Navigation Controls */}
           <View style={styles.buttonContainer}>
             {currentStep < TOTAL_STEPS ? (
-              <View style={styles.stepButtonRow}>
-                {currentStep > 1 && (
-                  <AppButton mode="outlined" onPress={handleBack} style={styles.halfBtn}>
-                    Back
+              <View>
+                <View style={styles.stepButtonRow}>
+                  {currentStep > 1 && (
+                    <AppButton mode="outlined" onPress={handleBack} style={styles.halfBtn}>
+                      Back
+                    </AppButton>
+                  )}
+                  <AppButton
+                    mode="contained"
+                    onPress={handleNext}
+                    style={currentStep === 1 ? styles.fullBtn : styles.halfBtn}
+                  >
+                    Continue
                   </AppButton>
-                )}
+                </View>
                 <AppButton
-                  mode="contained"
-                  onPress={handleNext}
-                  style={currentStep === 1 ? styles.fullBtn : styles.halfBtn}
+                  mode="text"
+                  onPress={handleCompleteOnboarding}
+                  loading={saving}
+                  disabled={saving}
+                  style={{ marginTop: 8 }}
                 >
-                  Continue
+                  Skip & Enter Home
                 </AppButton>
               </View>
             ) : (

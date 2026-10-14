@@ -18,6 +18,8 @@ import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { DashboardLayout } from '../../../components/DashboardLayout';
 import { useAuth } from '../../../context/AuthContext';
 import { PATHS } from '../../../routes/paths';
@@ -87,6 +89,13 @@ export default function EmployeeListPage() {
   const [statusReason, setStatusReason] = useState('');
   const [statusSubmitting, setStatusSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [resetCredsDialog, setResetCredsDialog] = useState<{
+    open: boolean;
+    employeeName?: string;
+    email: string;
+    temporaryPassword?: string;
+    message: string;
+  } | null>(null);
 
   // Load dropdown options & resolve HR scope once
   useEffect(() => {
@@ -253,14 +262,23 @@ export default function EmployeeListPage() {
   const handleResendCredentials = async (employee: Employee) => {
     try {
       const res = await resendCredentials(employee.id);
-      setFeedback(res.message || `Credentials sent to ${res.deliveredTo}`);
+      if (res?.temporaryPassword) {
+        setResetCredsDialog({
+          open: true,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+          email: employee.email || res.deliveredTo || '',
+          temporaryPassword: res.temporaryPassword,
+          message: res.message || `Credentials dispatched to ${res.deliveredTo || employee.email}`,
+        });
+      }
+      setFeedback(res?.message || `Credentials dispatched for ${employee.firstName}`);
       loadEmployees();
     } catch (err: unknown) {
       const msg =
         axios.isAxiosError(err) && err.response?.data?.error?.message
           ? err.response.data.error.message
           : 'Failed to dispatch credentials. Please try again.';
-      setError(msg);
+      setFeedback(msg);
     }
   };
 
@@ -436,6 +454,92 @@ export default function EmployeeListPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Credentials Dialog */}
+      {resetCredsDialog && (
+        <Dialog
+          open={resetCredsDialog.open}
+          onClose={() => setResetCredsDialog(null)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ fontWeight: 800, pb: 1, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <CheckCircleIcon sx={{ color: '#d97706', fontSize: 28 }} />
+            Credentials Generated & Dispatched
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              {resetCredsDialog.message}
+            </Typography>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2.5,
+                borderRadius: 2.5,
+                bgcolor: '#fffbeb',
+                border: '1.5px solid #fde68a',
+              }}
+            >
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+                <Box sx={{ p: 1.5, bgcolor: '#ffffff', borderRadius: 2, border: '1px solid #fde68a' }}>
+                  <Typography variant="caption" sx={{ color: '#78350f', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Login ID (Official Email)
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#1e293b', wordBreak: 'break-all', mt: 0.5 }}>
+                    {resetCredsDialog.email}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ p: 1.5, bgcolor: '#ffffff', borderRadius: 2, border: '2px solid #f59e0b' }}>
+                  <Typography variant="caption" sx={{ color: '#92400e', fontWeight: 800, textTransform: 'uppercase' }}>
+                    Temporary Password
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'monospace', color: '#d97706', letterSpacing: '0.06em', mt: 0.5 }}>
+                    {resetCredsDialog.temporaryPassword}
+                  </Typography>
+                </Box>
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1.5, mt: 2, flexWrap: 'wrap' }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<ContentCopyIcon fontSize="small" />}
+                  sx={{ bgcolor: '#d97706', '&:hover': { bgcolor: '#b45309' }, fontWeight: 700 }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(resetCredsDialog.temporaryPassword || '');
+                    setFeedback('Temporary password copied to clipboard!');
+                  }}
+                >
+                  Copy Password
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ContentCopyIcon fontSize="small" />}
+                  sx={{ color: '#92400e', borderColor: '#d97706', '&:hover': { borderColor: '#b45309', bgcolor: '#fef3c7' }, fontWeight: 600 }}
+                  onClick={() => {
+                    const full = `Momo HRMS Credentials
+${resetCredsDialog.employeeName ? `User: ${resetCredsDialog.employeeName}
+` : ''}Login Email: ${resetCredsDialog.email}
+Temporary Password: ${resetCredsDialog.temporaryPassword}
+Login URL: ${window.location.origin}/login`;
+                    navigator.clipboard.writeText(full);
+                    setFeedback('Full credentials copied to clipboard!');
+                  }}
+                >
+                  Copy Full Credentials
+                </Button>
+              </Box>
+            </Paper>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
+            <Button onClick={() => setResetCredsDialog(null)} variant="outlined" sx={{ fontWeight: 600 }}>
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       {/* Feedback Snackbar */}
       <Snackbar

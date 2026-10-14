@@ -422,10 +422,10 @@ export async function changeDeviceStatus(
 export async function resendCredentials(
   id: string,
 ): Promise<{ success: boolean; message: string; deliveredTo?: string; temporaryPassword?: string }> {
-  const response = await api.post<ApiResponse<{ success: boolean; message: string; deliveredTo?: string; temporaryPassword?: string }>>(
+  const response = await api.post<any>(
     `${EMPLOYEE_API_URL}/employees/${id}/resend-credentials`,
   );
-  const data = response.data.data;
+  const data = response.data?.data || response.data;
 
   // Synchronize the newly generated temporary password to auth-service!
   if (data?.temporaryPassword) {

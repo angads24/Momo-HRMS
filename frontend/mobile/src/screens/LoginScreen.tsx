@@ -83,7 +83,7 @@ export default function LoginScreen() {
             render={({ field: { onChange, onBlur, value } }) => (
               <PasswordInput
                 label="Password"
-                placeholder="Temporary or personal password"
+                placeholder="Enter password"
                 value={value}
                 onChangeText={onChange}
                 onBlur={onBlur}

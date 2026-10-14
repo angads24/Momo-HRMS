@@ -88,13 +88,14 @@ DATABASE_URL="${EMPLOYEE_DATABASE_URL:-$DATABASE_URL}" PORT=3004 node backend/em
 echo "--> Launching notification-service (:3005)..."
 DATABASE_URL="${NOTIFICATION_DATABASE_URL:-$DATABASE_URL}" PORT=3005 node backend/notification-service/dist/src/main.js &
 
-# 4. Launch Face AI service (:3006)
-if command -v uvicorn >/dev/null 2>&1; then
-  echo "--> Launching Python Face AI service (:3006)..."
+# 4. Launch Python Face AI service (:3006)
+echo "--> Launching Python Face AI service (:3006)..."
+if [ -f "backend/face-ai-service/venv/bin/uvicorn" ]; then
+  (cd backend/face-ai-service && DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+elif command -v uvicorn >/dev/null 2>&1; then
   (cd backend/face-ai-service && DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 else
-  echo "--> Launching Node Face AI service (:3006)..."
-  DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" PORT=3006 node backend/face-ai-service/mock_server.js &
+  (cd backend/face-ai-service && DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 fi
 
 # Wait 4 seconds for all services to bind

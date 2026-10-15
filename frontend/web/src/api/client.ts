@@ -12,14 +12,14 @@ import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from './toke
  */
 export const api = axios.create({
   baseURL: API_URL,
-  timeout: 15000,
+  timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 });
 
 /** Interceptor-free instance, used only for /auth/refresh (avoids infinite loops). */
 const rawApi = axios.create({
   baseURL: API_URL,
-  timeout: 15000,
+  timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 });
 

@@ -24,14 +24,45 @@ export class SseService {
   /**
    * Subscribe to live notifications for a specific recipient (or broadcast).
    */
-  getRecipientStream(recipientId: string): Observable<MessageEvent> {
+  getRecipientStream(recipientId: string, email?: string): Observable<MessageEvent> {
+    const cleanEmail = email ? email.trim().toLowerCase() : null;
+    const cleanId = recipientId ? recipientId.trim().toLowerCase() : null;
+
     return this.eventStream$.asObservable().pipe(
-      filter(
-        (event) =>
+      filter((event) => {
+        // Broadcasts, HR, or ADMIN
+        if (
           event.recipientId === 'ALL' ||
-          event.recipientId === recipientId ||
-          event.recipientType === 'BROADCAST',
-      ),
+          event.recipientType === 'BROADCAST' ||
+          event.recipientType === 'HR' ||
+          event.recipientId === 'HR' ||
+          event.recipientType === 'ADMIN' ||
+          event.recipientId === 'ADMIN'
+        ) {
+          return true;
+        }
+
+        const notif = event.notification || {};
+        const meta = (notif.metadata || {}) as Record<string, any>;
+
+        const eventRecipient = (event.recipientId || '').toLowerCase();
+        if (cleanId && eventRecipient === cleanId) return true;
+        if (cleanEmail && eventRecipient === cleanEmail) return true;
+
+        const metaEmpCode = String(meta.employeeCode || '').toLowerCase();
+        const metaUserId = String(meta.userId || '').toLowerCase();
+        const metaEmail = String(meta.email || '').toLowerCase();
+        const metaRecipient = String(meta.recipientId || '').toLowerCase();
+
+        if (cleanId && (metaEmpCode === cleanId || metaUserId === cleanId || metaRecipient === cleanId)) {
+          return true;
+        }
+        if (cleanEmail && (metaEmail === cleanEmail || eventRecipient === cleanEmail)) {
+          return true;
+        }
+
+        return false;
+      }),
       map(
         (event) =>
           ({

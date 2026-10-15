@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
 import configuration from './config/configuration';
 import { HealthController } from './health/health.controller';
+import { AdminController } from './admin/admin.controller';
 import { AuthEnrichmentMiddleware } from './middleware/auth-enrichment.middleware';
 import { RateLimiterMiddleware } from './middleware/rate-limiter.middleware';
 
@@ -16,10 +17,10 @@ import { RateLimiterMiddleware } from './middleware/rate-limiter.middleware';
     }),
     ThrottlerModule.forRoot([{
       ttl: 60000,
-      limit: 100,
+      limit: 500,
     }]),
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, AdminController],
   providers: [AuthEnrichmentMiddleware, RateLimiterMiddleware],
 })
 export class AppModule implements NestModule {
@@ -35,6 +36,14 @@ export class AppModule implements NestModule {
 
     // 2. Auth & identity enrichment middleware
     consumer.apply((req, res, next) => this.authEnrichment.use(req, res, next)).forRoutes('*');
+
+    // 3. Normalizer to gracefully rewrite duplicate prefixes (e.g. /api/v1/auth/auth/login)
+    consumer.apply((req: any, res: any, next: any) => {
+      if (req.url && req.url.includes('/api/v1/auth/auth/')) {
+        req.url = req.url.replace('/api/v1/auth/auth/', '/api/v1/auth/');
+      }
+      next();
+    }).forRoutes('*');
 
     const authTarget = this.configService.get<string>('services.auth', 'http://localhost:3001');
     const attendanceTarget = this.configService.get<string>('services.attendance', 'http://localhost:3002');
@@ -63,6 +72,33 @@ export class AppModule implements NestModule {
             proxyReq.setHeader('x-gateway-signature', signature);
             proxyReq.setHeader('x-gateway-secret', gatewaySecret);
 
+            // Forward strictly verified identity headers from AuthEnrichmentMiddleware
+            if (req.headers['x-user-id']) {
+              proxyReq.setHeader('x-user-id', req.headers['x-user-id']);
+            } else {
+              proxyReq.removeHeader('x-user-id');
+            }
+            if (req.headers['x-employee-id']) {
+              proxyReq.setHeader('x-employee-id', req.headers['x-employee-id']);
+            } else {
+              proxyReq.removeHeader('x-employee-id');
+            }
+            if (req.headers['x-roles']) {
+              proxyReq.setHeader('x-roles', req.headers['x-roles']);
+            } else {
+              proxyReq.removeHeader('x-roles');
+            }
+            if (req.headers['x-permissions']) {
+              proxyReq.setHeader('x-permissions', req.headers['x-permissions']);
+            } else {
+              proxyReq.removeHeader('x-permissions');
+            }
+            if (req.headers['x-email']) {
+              proxyReq.setHeader('x-email', req.headers['x-email']);
+            } else {
+              proxyReq.removeHeader('x-email');
+            }
+
             fixRequestBody(proxyReq, req);
           },
           error: (err, req, res: any) => {
@@ -88,6 +124,9 @@ export class AppModule implements NestModule {
     consumer.apply(createProxy(employeeTarget)).forRoutes(
       { path: 'api/v1/employees*', method: RequestMethod.ALL },
       { path: 'api/v1/organization*', method: RequestMethod.ALL },
+      { path: 'api/v1/departments*', method: RequestMethod.ALL },
+      { path: 'api/v1/roles*', method: RequestMethod.ALL },
+      { path: 'api/v1/devices*', method: RequestMethod.ALL },
     );
     consumer.apply(createProxy(notificationTarget)).forRoutes(
       { path: 'api/v1/notifications*', method: RequestMethod.ALL },

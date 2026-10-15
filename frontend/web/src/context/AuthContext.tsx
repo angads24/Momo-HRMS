@@ -14,6 +14,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   /** One-off message to show after a redirect (e.g. "session expired"). */
   notice: string | null;
+  setNotice: (notice: string | null) => void;
   clearNotice: () => void;
   login: (email: string, password: string) => Promise<void>;
   resetPassword: (newPassword: string) => Promise<void>;
@@ -22,6 +23,9 @@ interface AuthContextValue {
 
 const NO_MODULE_MESSAGE =
   'Your account does not have access to any module. Please contact your administrator.';
+
+const EMPLOYEE_WEB_RESTRICTED_MESSAGE =
+  'Access Restricted: The Momo HRMS web portal is exclusively for HR and Administrators. Employees must log in using the Momo HRMS mobile app.';
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -70,6 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           endSession(NO_MODULE_MESSAGE);
           return;
         }
+        if (restored.appRole === 'EMPLOYEE') {
+          await clearTokens();
+          endSession(EMPLOYEE_WEB_RESTRICTED_MESSAGE);
+          return;
+        }
         setUser(restored);
         setStatus('authenticated');
       } catch (error) {
@@ -93,6 +102,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await logoutUser(); // don't leave a live session for an account we can't route
       await clearTokens();
       throw new Error(NO_MODULE_MESSAGE);
+    }
+    if (loggedIn.appRole === 'EMPLOYEE') {
+      await logoutUser().catch(() => {});
+      await clearTokens();
+      throw new Error(EMPLOYEE_WEB_RESTRICTED_MESSAGE);
     }
 
     setNotice(null);
@@ -121,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('The server did not confirm the password change. Please try again.');
     }
     setUser(fresh);
-    setNotice('Your password was updated successfully.');
+    setNotice('Password updated successfully.');
   }, []);
 
   const logout = useCallback(async () => {
@@ -133,13 +147,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearNotice = useCallback(() => setNotice(null), []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, notice, clearNotice, login, resetPassword, logout }),
-    [status, user, notice, clearNotice, login, resetPassword, logout],
+    () => ({ status, user, notice, setNotice, clearNotice, login, resetPassword, logout }),
+    [status, user, notice, setNotice, clearNotice, login, resetPassword, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {

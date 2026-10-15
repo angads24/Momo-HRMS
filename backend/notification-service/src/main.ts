@@ -12,8 +12,33 @@ async function bootstrap() {
   const port = configService.get<number>('port', 3005);
   const apiPrefix = configService.get<string>('apiPrefix', 'api/v1');
 
+  const corsOriginEnv = configService.get<string>('corsOrigins', process.env.CORS_ORIGIN || '*');
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'http://localhost:8081',
+    'http://localhost:8000',
+  ];
+
   app.enableCors({
-    origin: '*',
+    origin: (origin, callback) => {
+      if (
+        !origin ||
+        corsOriginEnv === '*' ||
+        allowedOrigins.includes(origin) ||
+        corsOriginEnv.split(',').map((o) => o.trim()).includes(origin)
+      ) {
+        return callback(null, true);
+      }
+      const isLocalNetwork = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(
+        origin,
+      );
+      if (isLocalNetwork) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
@@ -32,7 +57,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`Notification Service running on http://localhost:${port}/${apiPrefix}`);
   logger.log(`Swagger documentation: http://localhost:${port}/docs`);
 }

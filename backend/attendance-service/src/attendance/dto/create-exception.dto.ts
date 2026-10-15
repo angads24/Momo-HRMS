@@ -32,11 +32,30 @@ export class CreateExceptionDto {
   @IsString()
   attendanceSessionId?: string;
 
-  @ApiProperty({ description: 'Valid from timestamp (ISO-8601)', example: '2026-09-25T13:00:00.000Z' })
-  @IsDateString()
-  validFrom!: string;
+  @ApiPropertyOptional({ description: 'Additional working hours requested (e.g. 2)', example: 2 })
+  @IsOptional()
+  additionalHours?: number;
 
-  @ApiProperty({ description: 'Valid until timestamp (ISO-8601)', example: '2026-09-25T18:00:00.000Z' })
+  @ApiPropertyOptional({ description: 'Additional working minutes requested (e.g. 120)', example: 120 })
+  @IsOptional()
+  additionalMinutes?: number;
+
+  @ApiPropertyOptional({ description: 'Target HR Email' })
+  @IsOptional()
+  @IsString()
+  hrEmail?: string;
+
+  @ApiPropertyOptional({ description: 'Additional metadata JSON' })
+  @IsOptional()
+  metadata?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: 'Valid from timestamp (ISO-8601)', example: '2026-09-25T13:00:00.000Z' })
+  @IsOptional()
   @IsDateString()
-  validUntil!: string;
+  validFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Valid until timestamp (ISO-8601)', example: '2026-09-25T18:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  validUntil?: string;
 }

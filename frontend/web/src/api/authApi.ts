@@ -73,27 +73,32 @@ export async function logoutUser(): Promise<void> {
   }
 }
 
-export interface CreateAuthUserPayload {
-  username: string;
+export async function createAuthUser(payload: {
   email: string;
+  username: string;
+  password?: string;
+  roles?: string[];
+  role?: string;
   fullName?: string;
-  password: string;
-  roles: string[];
   mustChangePassword?: boolean;
+}): Promise<any> {
+  const roles = payload.roles || (payload.role ? [payload.role] : ['EMPLOYEE']);
+  const res = await api.post('/auth/users', {
+    ...payload,
+    roles,
+    password: payload.password || 'TempPass123!',
+  });
+  return res.data;
 }
 
-export async function createAuthUser(payload: CreateAuthUserPayload): Promise<{ id: string; email: string; username: string }> {
-  const { data } = await api.post<{ id: string; email: string; username: string }>(
-    '/auth/users',
-    payload,
-  );
-  return data;
+export async function adminResetPassword(userId: string, newPassword?: string): Promise<any> {
+  const res = await api.post(`/auth/users/${userId}/reset-password`, {
+    temporaryPassword: newPassword,
+  });
+  return res.data;
 }
 
-export async function adminResetPassword(userId: string, temporaryPassword: string): Promise<void> {
-  await api.post(`/auth/users/${userId}/reset-password`, { temporaryPassword });
-}
-
-export async function deleteAuthUser(userId: string): Promise<void> {
-  await api.delete(`/auth/users/${userId}`);
+export async function deleteAuthUser(userId: string): Promise<any> {
+  const res = await api.delete(`/auth/users/${userId}`);
+  return res.data;
 }

@@ -78,6 +78,7 @@ export class FakePrismaService {
   sessions: Record<string, unknown>[] = [];
   pauses: Record<string, unknown>[] = [];
   events: Record<string, unknown>[] = [];
+  exceptions: Record<string, unknown>[] = [];
   locks = new Set<string>();
 
   employeeAttendanceLock = {
@@ -107,10 +108,10 @@ export class FakePrismaService {
       this.sessions.push(record);
       return { ...record };
     },
-    findFirst: async ({ where, orderBy }: { where?: Where; orderBy?: any } = {}) => {
+    findFirst: async ({ where, orderBy, include }: { where?: Where; orderBy?: any; include?: { pauses?: boolean } } = {}) => {
       let results = this.sessions.filter((s) => matchesWhere(s, where));
       results = applyOrderBy(results, orderBy);
-      return results[0] ? { ...results[0] } : null;
+      return results[0] ? this.attachIncludes(results[0], include) : null;
     },
     findUnique: async ({ where, include }: { where: { id: string }; include?: { pauses?: boolean } }) => {
       const record = this.sessions.find((s) => s.id === where.id);
@@ -198,6 +199,15 @@ export class FakePrismaService {
       if (existing) return { ...existing };
       return this.attendanceEvent.create({ data: create });
     },
+  };
+
+  attendanceException = {
+    findMany: async ({ where }: { where?: Where } = {}) => {
+      return this.exceptions.filter((e) => matchesWhere(e, where));
+    },
+    findUnique: async () => null,
+    create: async ({ data }: { data: Record<string, unknown> }) => ({ id: uuidv4(), ...data }),
+    update: async ({ data }: { data: Record<string, unknown> }) => ({ ...data }),
   };
 
   async $queryRawUnsafe(..._args: unknown[]): Promise<unknown[]> {

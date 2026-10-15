@@ -1,27 +1,435 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Card from '@mui/material/Card';
+import CardActions from '@mui/material/CardActions';
+import CardContent from '@mui/material/CardContent';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Paper from '@mui/material/Paper';
+import Typography from '@mui/material/Typography';
+import PeopleIcon from '@mui/icons-material/People';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
+import AddLocationAltIcon from '@mui/icons-material/AddLocationAlt';
+import AssessmentIcon from '@mui/icons-material/Assessment';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import CorporateFareIcon from '@mui/icons-material/CorporateFare';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import TableChartIcon from '@mui/icons-material/TableChart';
+import SecurityIcon from '@mui/icons-material/Security';
 import { DashboardLayout } from '../components/DashboardLayout';
-import { AdminOverviewTab } from '../components/tabs/AdminOverviewTab';
-import { EmployeeManagementTab } from '../components/tabs/EmployeeManagementTab';
-import { GeofenceOfficesTab } from '../components/tabs/GeofenceOfficesTab';
-import { LiveAttendanceTab } from '../components/tabs/LiveAttendanceTab';
-import { ExceptionApprovalsTab } from '../components/tabs/ExceptionApprovalsTab';
-import { AnalyticsTab } from '../components/tabs/AnalyticsTab';
-import { AuditLogsTab } from '../components/tabs/AuditLogsTab';
+import { PATHS } from '../routes/paths';
+import { api } from '../api/client';
 
 export default function AdminHomePage() {
-  const [activeTab, setActiveTab] = useState(0);
+  const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState({
+    employeeCount: 0,
+    officeCount: 0,
+    departmentCount: 0,
+  });
+
+  // Load consolidated admin metrics once - avoid downloading full lists or repeated requests
+  const loadMetrics = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    try {
+      const res = await api.get('/admin/stats');
+      const data = res.data?.data || res.data || {};
+      setStats({
+        employeeCount: typeof data.employeeCount === 'number' ? data.employeeCount : 0,
+        officeCount: typeof data.officeCount === 'number' ? data.officeCount : 0,
+        departmentCount: typeof data.departmentCount === 'number' ? data.departmentCount : 0,
+      });
+    } catch {
+      // Non-fatal if backend is briefly warming up
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      if (mounted) await loadMetrics();
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [loadMetrics]);
 
   return (
-    <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      <Box sx={{ mt: 0.5 }}>
-        {activeTab === 0 && <AdminOverviewTab onNavigateTab={setActiveTab} />}
-        {activeTab === 1 && <EmployeeManagementTab />}
-        {activeTab === 2 && <GeofenceOfficesTab />}
-        {activeTab === 3 && <LiveAttendanceTab />}
-        {activeTab === 4 && <ExceptionApprovalsTab />}
-        {activeTab === 5 && <AnalyticsTab />}
-        {activeTab === 6 && <AuditLogsTab />}
+    <DashboardLayout
+      title="Admin Dashboard"
+      subtitle="Workforce Administration, Workplace Geofences, System Controls & Live Operations"
+    >
+      {/* Top Action Bar & Quick Shortcuts */}
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 2,
+          mb: 3,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Chip
+            icon={<SecurityIcon fontSize="small" />}
+            label="Administrator Privileges Active"
+            color="primary"
+            variant="outlined"
+            sx={{ fontWeight: 600, py: 1.5 }}
+          />
+          <Button
+            size="small"
+            startIcon={refreshing ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
+            onClick={() => void loadMetrics(true)}
+            disabled={refreshing}
+            sx={{ textTransform: 'none' }}
+          >
+            Refresh
+          </Button>
+        </Box>
+
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<PersonAddIcon />}
+            onClick={() => navigate(PATHS.addEmployee)}
+          >
+            Add Employee
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<CloudUploadIcon />}
+            onClick={() => navigate(PATHS.importEmployees)}
+          >
+            Bulk Import CSV
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<AddLocationAltIcon />}
+            onClick={() => navigate(PATHS.addGeofence)}
+          >
+            New Office
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<AssessmentIcon />}
+            onClick={() => navigate(PATHS.hr)}
+          >
+            Live Monitor (HR)
+          </Button>
+        </Box>
+      </Box>
+
+      {/* KPI Summary Cards */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' },
+          gap: 2.5,
+          mb: 4,
+        }}
+      >
+        {/* KPI 1: Employees */}
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2.5,
+            borderRadius: 2.5,
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'primary.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+              Total Employees
+            </Typography>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'primary.50', color: 'primary.main' }}>
+              <PeopleIcon fontSize="small" />
+            </Box>
+          </Box>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1, letterSpacing: '-0.02em' }}>
+            {loading ? <CircularProgress size={24} /> : stats.employeeCount}
+          </Typography>
+          <Button
+            size="small"
+            endIcon={<ArrowForwardIcon fontSize="small" />}
+            onClick={() => navigate(PATHS.employees)}
+            sx={{ alignSelf: 'flex-start', p: 0, textTransform: 'none', fontWeight: 600 }}
+          >
+            Manage staff profiles
+          </Button>
+        </Paper>
+
+        {/* KPI 2: Offices & Geofences */}
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2.5,
+            borderRadius: 2.5,
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'success.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+              Workplace Offices
+            </Typography>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'success.50', color: 'success.main' }}>
+              <LocationOnIcon fontSize="small" />
+            </Box>
+          </Box>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1, letterSpacing: '-0.02em' }}>
+            {loading ? <CircularProgress size={24} /> : stats.officeCount}
+          </Typography>
+          <Button
+            size="small"
+            endIcon={<ArrowForwardIcon fontSize="small" />}
+            onClick={() => navigate(PATHS.geofences)}
+            sx={{ alignSelf: 'flex-start', p: 0, textTransform: 'none', fontWeight: 600, color: 'success.main' }}
+          >
+            Geofence boundaries
+          </Button>
+        </Paper>
+
+        {/* KPI 3: Departments */}
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2.5,
+            borderRadius: 2.5,
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'secondary.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+              Active Departments
+            </Typography>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'secondary.50', color: 'secondary.main' }}>
+              <CorporateFareIcon fontSize="small" />
+            </Box>
+          </Box>
+          <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1, letterSpacing: '-0.02em' }}>
+            {loading ? <CircularProgress size={24} /> : stats.departmentCount}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Structured business units
+          </Typography>
+        </Paper>
+
+        {/* KPI 4: System Status */}
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2.5,
+            borderRadius: 2.5,
+            borderColor: 'divider',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+            '&:hover': { borderColor: 'info.main', boxShadow: '0 4px 12px rgba(0,0,0,0.04)' },
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>
+              System Status
+            </Typography>
+            <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'info.50', color: 'info.main' }}>
+              <CheckCircleIcon fontSize="small" />
+            </Box>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, my: 0.5 }}>
+            <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, color: 'success.main' }}>
+              Operational
+            </Typography>
+          </Box>
+          <Typography variant="caption" color="text.secondary">
+            All microservices online
+          </Typography>
+        </Paper>
+      </Box>
+
+      {/* Main Administrative Modules Grid */}
+      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+        Management Modules
+      </Typography>
+
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+          gap: 3,
+        }}
+      >
+        {/* Module 1: Employee Management */}
+        <Card variant="outlined" sx={{ borderRadius: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <CardContent sx={{ flex: 1, p: 3, pb: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'primary.light', color: 'primary.main', opacity: 0.9 }}>
+                <PeopleIcon sx={{ fontSize: 28 }} />
+              </Box>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  Employee Management
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Workforce directory, accounts & roles
+                </Typography>
+              </Box>
+            </Box>
+          </CardContent>
+          <CardActions sx={{ p: 3, pt: 1, gap: 1.5, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              onClick={() => navigate(PATHS.employees)}
+            >
+              Employee Directory
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<PersonAddIcon />}
+              onClick={() => navigate(PATHS.addEmployee)}
+            >
+              Add Employee
+            </Button>
+            <Button
+              variant="text"
+              startIcon={<CloudUploadIcon />}
+              onClick={() => navigate(PATHS.importEmployees)}
+            >
+              Bulk Import
+            </Button>
+          </CardActions>
+        </Card>
+
+        {/* Module 2: Geofences & Workplace Boundaries */}
+        <Card variant="outlined" sx={{ borderRadius: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <CardContent sx={{ flex: 1, p: 3, pb: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'rgba(46, 125, 50, 0.1)', color: '#2e7d32' }}>
+                <LocationOnIcon sx={{ fontSize: 28 }} />
+              </Box>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  Geofences & Office Boundaries
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Office locations & boundary perimeters
+                </Typography>
+              </Box>
+            </Box>
+          </CardContent>
+          <CardActions sx={{ p: 3, pt: 1, gap: 1.5, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => navigate(PATHS.geofences)}
+            >
+              Manage Geofences
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<AddLocationAltIcon />}
+              onClick={() => navigate(PATHS.addGeofence)}
+            >
+              New Office Location
+            </Button>
+          </CardActions>
+        </Card>
+
+        {/* Module 3: HR Dashboard & Live Attendance */}
+        <Card variant="outlined" sx={{ borderRadius: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <CardContent sx={{ flex: 1, p: 3, pb: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'rgba(156, 39, 176, 0.1)', color: '#9c27b0' }}>
+                <AssessmentIcon sx={{ fontSize: 28 }} />
+              </Box>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  HR Live Monitor & Attendance
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Real-time attendance tracking & logs
+                </Typography>
+              </Box>
+            </Box>
+          </CardContent>
+          <CardActions sx={{ p: 3, pt: 1, gap: 1.5, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              color="secondary"
+              onClick={() => navigate(PATHS.hr)}
+            >
+              Open HR Live Dashboard
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<TableChartIcon />}
+              onClick={() => navigate(PATHS.attendanceReports)}
+            >
+              Attendance Reports
+            </Button>
+          </CardActions>
+        </Card>
+
+        {/* Module 4: Notifications & Broadcasts */}
+        <Card variant="outlined" sx={{ borderRadius: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <CardContent sx={{ flex: 1, p: 3, pb: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: 'rgba(237, 108, 2, 0.1)', color: '#ed6c02' }}>
+                <NotificationsIcon sx={{ fontSize: 28 }} />
+              </Box>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  Notifications & Broadcasts
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Company alerts & event notifications
+                </Typography>
+              </Box>
+            </Box>
+          </CardContent>
+          <CardActions sx={{ p: 3, pt: 1, gap: 1.5, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={() => navigate(PATHS.notifications)}
+            >
+              Notification Center
+            </Button>
+          </CardActions>
+        </Card>
       </Box>
     </DashboardLayout>
   );

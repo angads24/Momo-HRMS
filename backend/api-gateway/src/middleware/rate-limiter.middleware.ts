@@ -15,11 +15,17 @@ export class RateLimiterMiddleware implements NestMiddleware {
     const now = Date.now();
     const path = req.path || req.originalUrl || '';
 
+    // Real-time SSE streams and health probes should never be throttled
+    if (path.includes('/stream') || path.includes('/health')) {
+      return next();
+    }
+
     let key = '';
-    let maxAttempts = 100; // default rate limit per minute
+    let maxAttempts = 300; // default rate limit per minute
     const windowMs = 60 * 1000; // 1 minute
 
-    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress || 'unknown';
+    // Use reliable client IP computed by Express with trust proxy enabled
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
 
     // 1. Anti-Brute-Force for Login: Max 5 attempts / minute per IP
     if (path.includes('/auth/login') && req.method === 'POST') {

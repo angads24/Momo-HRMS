@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsOptional, IsString, IsUUID, MinLength, ValidateNested } from 'class-validator';
+import { IsString, IsUUID, MinLength, ValidateNested } from 'class-validator';
 import { LocationDto } from './location.dto';
 
 export class LocationEventDto {
@@ -17,9 +17,4 @@ export class LocationEventDto {
   @ApiProperty({ example: 'a5b9c1e0-1234-4a1b-9abc-000000000001' })
   @IsUUID()
   clientEventId: string;
-
-  @ApiProperty({ required: false, example: 'EMP-001' })
-  @IsOptional()
-  @IsString()
-  employeeId?: string;
 }

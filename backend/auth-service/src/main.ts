@@ -46,7 +46,7 @@ async function bootstrap() {
   SwaggerModule.setup(`${apiPrefix}/docs`, app, swaggerDocument);
 
   const port = configService.get('port', { infer: true });
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
   Logger.log(`Auth Service listening on port ${port} (prefix: /${apiPrefix})`, 'Bootstrap');
   Logger.log(`Swagger docs available at /${apiPrefix}/docs`, 'Bootstrap');

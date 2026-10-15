@@ -25,10 +25,9 @@ export class LocationDto {
   @Min(0)
   accuracyMeters?: number;
 
-  @ApiProperty({ example: '2026-09-22T09:32:10Z', required: false })
-  @IsOptional()
+  @ApiProperty({ example: '2026-09-22T09:32:10Z' })
   @IsDateString()
-  timestamp?: string;
+  timestamp: string;
 
   @ApiProperty({ required: false, example: false, description: 'True if GPS coordinates originated from a mock/spoofed provider on device' })
   @IsOptional()

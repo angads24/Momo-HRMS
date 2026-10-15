@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type MouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import Badge from '@mui/material/Badge';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -15,62 +15,37 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import DoneAllIcon from '@mui/icons-material/DoneAll';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import { useAuth } from '../context/AuthContext';
-import { notificationApi, type AppNotification } from '../api/notificationApi';
+import { useNotifications } from '../context/NotificationContext';
+import {
+  fetchNotifications,
+  markAllNotificationsAsRead,
+  markNotificationAsRead,
+} from '../features/notifications/services/notificationService';
+import type { AppNotification } from '../features/notifications/types/notification';
 
 export function NotificationBell() {
   const { user } = useAuth();
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { unreadCount, setUnreadCount, latestNotification } = useNotifications();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   const [loading, setLoading] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
 
-  const recipientId = user?.email || user?.username || user?.id || '';
-
-  // 1. Fetch initial unread count
+  // Synchronize incoming real-time notifications from NotificationContext
   useEffect(() => {
-    if (!recipientId) return;
-
-    notificationApi.getUnreadCount(recipientId).then(setUnreadCount);
-
-    // 2. Open Server-Sent Events (SSE) Stream
-    const streamUrl = notificationApi.getSseStreamUrl(recipientId);
-    try {
-      const sse = new EventSource(streamUrl);
-      eventSourceRef.current = sse;
-
-      sse.onmessage = (event) => {
-        try {
-          const newNotif = JSON.parse(event.data) as AppNotification;
-          setNotifications((prev) => [newNotif, ...prev.slice(0, 19)]);
-          setUnreadCount((c) => c + 1);
-        } catch {
-          // ignore non-json keepalives
-        }
-      };
-
-      sse.onerror = () => {
-        // SSE will automatically attempt reconnection
-      };
-    } catch {
-      // EventSource fallback
+    if (latestNotification) {
+      setNotifications((prev) => [latestNotification as any, ...prev.slice(0, 19)]);
     }
-
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-    };
-  }, [recipientId]);
+  }, [latestNotification]);
 
   const handleOpen = async (event: MouseEvent<HTMLButtonElement>) => {
     setAnchorEl(event.currentTarget);
-    if (!recipientId) return;
+    if (!user) return;
     setLoading(true);
     try {
-      const data = await notificationApi.listNotifications(recipientId, 1, 15);
-      setNotifications(data?.items ?? []);
-      setUnreadCount(data?.unreadCount ?? 0);
+      const data = await fetchNotifications();
+      const items = data?.items ?? [];
+      setNotifications(items.slice(0, 15));
+      setUnreadCount(items.filter((n) => !n.isRead).length);
     } finally {
       setLoading(false);
     }
@@ -82,7 +57,7 @@ export function NotificationBell() {
 
   const handleMarkAsRead = async (notif: AppNotification) => {
     if (notif.isRead) return;
-    await notificationApi.markAsRead(notif.id);
+    await markNotificationAsRead(notif.id);
     setNotifications((prev) =>
       prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n)),
     );
@@ -90,8 +65,7 @@ export function NotificationBell() {
   };
 
   const handleMarkAllRead = async () => {
-    if (!recipientId) return;
-    await notificationApi.markAllAsRead(recipientId);
+    await markAllNotificationsAsRead();
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     setUnreadCount(0);
   };

@@ -1,9 +1,11 @@
 export interface AttendancePolicyConfig {
   checkInStartTime: string; // "HH:mm"
   checkInEndTime: string; // "HH:mm"
+  lateCutoffTime: string; // "HH:mm"
   lateThresholdMinutes: number;
   gracePeriodMinutes: number;
   autoCheckoutEnabled: boolean;
+  autoCheckoutTime: string; // "HH:mm"
   workingHoursPerDay: number;
   allowManualCheckoutWhilePaused: boolean;
   minLocationAccuracyMeters: number;
@@ -65,18 +67,20 @@ export default (): AppConfig => ({
     sharedSecretHeader: (process.env.GATEWAY_SHARED_SECRET_HEADER ?? 'x-gateway-secret').toLowerCase(),
   },
   policy: {
-    checkInStartTime: process.env.POLICY_CHECK_IN_START_TIME ?? '07:00',
-    checkInEndTime: process.env.POLICY_CHECK_IN_END_TIME ?? '10:00',
-    lateThresholdMinutes: parseInt(process.env.POLICY_LATE_THRESHOLD_MINUTES ?? '15', 10),
+    checkInStartTime: process.env.POLICY_CHECK_IN_START_TIME ?? '06:00',
+    checkInEndTime: process.env.POLICY_CHECK_IN_END_TIME ?? '23:59',
+    lateCutoffTime: process.env.POLICY_LATE_CUTOFF_TIME ?? '10:00',
+    lateThresholdMinutes: parseInt(process.env.POLICY_LATE_THRESHOLD_MINUTES ?? '0', 10),
     gracePeriodMinutes: parseInt(process.env.POLICY_GRACE_PERIOD_MINUTES ?? '60', 10),
     autoCheckoutEnabled: parseBoolean(process.env.POLICY_AUTO_CHECKOUT_ENABLED, true),
+    autoCheckoutTime: process.env.POLICY_AUTO_CHECKOUT_TIME ?? '00:00',
     workingHoursPerDay: parseInt(process.env.POLICY_WORKING_HOURS_PER_DAY ?? '8', 10),
     allowManualCheckoutWhilePaused: parseBoolean(
       process.env.POLICY_ALLOW_MANUAL_CHECKOUT_WHILE_PAUSED,
       false,
     ),
     minLocationAccuracyMeters: parseInt(
-      process.env.POLICY_MIN_LOCATION_ACCURACY_METERS ?? '500',
+      process.env.POLICY_MIN_LOCATION_ACCURACY_METERS ?? '50',
       10,
     ),
   },

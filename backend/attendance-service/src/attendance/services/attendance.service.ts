@@ -1,5 +1,5 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ExceptionType, ExceptionStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AppException } from '../../common/exceptions/app.exception';
 import { ErrorCodes } from '../../common/constants/error-codes';
@@ -78,6 +78,19 @@ export class AttendanceService {
     @Inject(FACE_AI_PROVIDER) private readonly faceAiProvider: FaceAiProvider,
     private readonly notificationClient: NotificationClientService,
   ) {}
+
+  private async resolveEmployeeIds(employeeId: string): Promise<string[]> {
+    if (!employeeId) return [];
+    try {
+      if (typeof this.employeeProvider.resolveEmployeeIdentifiers === 'function') {
+        const resolved = await this.employeeProvider.resolveEmployeeIdentifiers(employeeId);
+        if (resolved && resolved.length > 0) return resolved;
+      }
+    } catch (e) {
+      this.logger.debug(`Could not resolve alternate identifiers for ${employeeId}: ${(e as Error).message}`);
+    }
+    return [employeeId];
+  }
 
   // ---------------------------------------------------------------------
   // CHECK-IN
@@ -162,36 +175,55 @@ export class AttendanceService {
         return null;
       }
 
+      const ids = await this.resolveEmployeeIds(employeeId);
       const activeSession = await tx.attendanceSession.findFirst({
-        where: { employeeId, status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] } },
+        where: { employeeId: { in: ids }, status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] } },
+        include: { pauses: true },
       });
       if (activeSession) {
-        // If the dangling active session is from a previous day (no night shift), auto-close it at midnight of that date
-        if (activeSession.attendanceDate < attendanceDate) {
-          const sessionDayEnd = new Date(activeSession.attendanceDate);
-          sessionDayEnd.setHours(23, 59, 59, 999);
-          const closedWorkingSeconds = this.workingTimeService.calculateWorkingSeconds(
+        const sessionDateOnly = this.toDateOnly(activeSession.attendanceDate);
+        if (sessionDateOnly.getTime() < attendanceDate.getTime()) {
+          // Stale active session from a previous calendar day: auto-checkout at midnight (12 AM) so today's shift can start
+          const autoCheckoutTime = this.getMidnightCutoffForSession(activeSession.checkInAt);
+          this.logger.warn(
+            `Employee ${employeeId} has a stale unclosed session ${activeSession.id} from ${this.formatDateOnly(sessionDateOnly)}. Auto-closing it at midnight (${autoCheckoutTime.toISOString()}) so today's check-in can proceed.`,
+          );
+          const totalWorkingSeconds = this.workingTimeService.calculateWorkingSeconds(
             {
               status: AttendanceStatus.CHECKED_OUT,
               checkInAt: activeSession.checkInAt,
-              checkOutAt: sessionDayEnd,
+              checkOutAt: autoCheckoutTime,
               currentPauseStartedAt: null,
             },
-            [],
-            sessionDayEnd,
+            activeSession.pauses,
+            autoCheckoutTime,
           );
-
           await tx.attendanceSession.update({
             where: { id: activeSession.id },
             data: {
               status: AttendanceStatus.CHECKED_OUT,
-              checkOutAt: sessionDayEnd,
+              checkOutAt: autoCheckoutTime,
               checkoutType: CheckoutType.AUTO,
               checkoutReason: CheckoutReason.SYSTEM_ACTION,
-              totalWorkingSeconds: closedWorkingSeconds,
+              totalWorkingSeconds,
+              currentPauseStartedAt: null,
+              currentGraceDeadline: null,
             },
           });
-          this.logger.log(`Auto-closed dangling previous-day session ${activeSession.id} at midnight for employee ${employeeId}`);
+          const openPause = activeSession.pauses.find((p) => p.endedAt === null);
+          if (openPause) {
+            await tx.attendancePause.updateMany({
+              where: { id: openPause.id, endedAt: null },
+              data: {
+                endedAt: autoCheckoutTime,
+                durationSeconds: Math.max(
+                  0,
+                  Math.round((autoCheckoutTime.getTime() - openPause.startedAt.getTime()) / 1000),
+                ),
+                endReason: PauseEndReason.AUTO_CHECKOUT,
+              },
+            });
+          }
         } else {
           throw new AppException(
             ErrorCodes.ATTENDANCE_ALREADY_ACTIVE,
@@ -212,7 +244,7 @@ export class AttendanceService {
       let reopenAuthorizedBy: string | undefined = undefined;
 
       if (completedToday) {
-        const approvedException = await tx.attendanceException.findFirst({
+        const approvedException = await tx.attendanceException?.findFirst?.({
           where: {
             employeeId,
             attendanceDate,
@@ -224,20 +256,18 @@ export class AttendanceService {
           orderBy: { approvedAt: 'desc' },
         });
 
-        if (!approvedException) {
-          throw new AppException(
-            ErrorCodes.ATTENDANCE_ALREADY_COMPLETED,
-            'Attendance for this date is already completed. Re-check-in requires an approved HR exception.',
-          );
+        if (approvedException) {
+          reopenReason = approvedException.reason;
+          reopenAuthorizedBy = approvedException.approvedByUserId ?? undefined;
+
+          await tx.attendanceException.update({
+            where: { id: approvedException.id },
+            data: { status: 'USED' },
+          });
+        } else {
+          // Re-check-in / multiple check-ins on the same calendar day are allowed (e.g. split shifts, returning from lunch)
+          reopenReason = 'RECHECK_IN';
         }
-
-        reopenReason = approvedException.reason;
-        reopenAuthorizedBy = approvedException.approvedByUserId ?? undefined;
-
-        await tx.attendanceException.update({
-          where: { id: approvedException.id },
-          data: { status: 'USED' },
-        });
       }
 
       const created = await tx.attendanceSession.create({
@@ -314,8 +344,9 @@ export class AttendanceService {
 
     const policy = await this.policyProvider.getPolicy(dto.officeId ?? '');
 
+    const ids = await this.resolveEmployeeIds(employeeId);
     const active = await this.prisma.attendanceSession.findFirst({
-      where: { employeeId, status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] } },
+      where: { employeeId: { in: ids }, status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] } },
       include: { pauses: true },
       orderBy: { checkInAt: 'desc' },
     });
@@ -426,8 +457,9 @@ export class AttendanceService {
     );
     if (replay) return replay;
 
+    const ids = await this.resolveEmployeeIds(employeeId);
     const working = await this.prisma.attendanceSession.findFirst({
-      where: { employeeId, status: AttendanceStatus.WORKING },
+      where: { employeeId: { in: ids }, status: AttendanceStatus.WORKING },
       include: { pauses: true },
     });
     if (!working) {
@@ -437,17 +469,24 @@ export class AttendanceService {
       );
     }
 
-    const stillInside = await this.geofenceProvider.isInsideOffice(
-      dto.officeId,
-      dto.location.latitude,
-      dto.location.longitude,
-    );
-    if (stillInside) {
-      throw new AppException(
-        ErrorCodes.STILL_INSIDE_GEOFENCE,
-        'Location still reports inside the office boundary; exit not confirmed',
-        HttpStatus.UNPROCESSABLE_ENTITY,
+    const isSpecialExit =
+      dto.reason === 'LOCATION_OFF' ||
+      dto.reason === 'SIGN_OUT' ||
+      dto.reason === 'MANUAL_PAUSE';
+
+    if (!isSpecialExit) {
+      const stillInside = await this.geofenceProvider.isInsideOffice(
+        dto.officeId,
+        dto.location.latitude,
+        dto.location.longitude,
       );
+      if (stillInside) {
+        throw new AppException(
+          ErrorCodes.STILL_INSIDE_GEOFENCE,
+          'Location still reports inside the office boundary; exit not confirmed',
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        );
+      }
     }
 
     const policy = await this.policyProvider.getPolicy(dto.officeId);
@@ -509,15 +548,30 @@ export class AttendanceService {
 
     this.logger.log(`GEOFENCE_EXIT employeeId=${employeeId} sessionId=${updated.id}`);
 
+    const notificationTitle =
+      dto.reason === 'LOCATION_OFF'
+        ? 'Location Turned Off'
+        : dto.reason === 'SIGN_OUT'
+        ? 'Signed Out from Momo HRMS'
+        : 'Geofence Exit Detected';
+
+    const notificationBody =
+      dto.reason === 'LOCATION_OFF'
+        ? 'Location services were disabled. Working timer paused automatically. Turn on location inside office to resume.'
+        : dto.reason === 'SIGN_OUT'
+        ? 'You signed out of the app. Working timer paused automatically.'
+        : `You stepped outside the office polygon. Session paused. Return before ${graceDeadline.toLocaleTimeString()} to resume.`;
+
     void this.notificationClient.sendNotification({
       recipientId: employeeId,
       type: 'GEOFENCE_EXIT_WARNING',
-      title: 'Geofence Exit Detected',
-      body: `You stepped outside the office polygon. Session paused. Return before ${graceDeadline.toLocaleTimeString()} to resume.`,
-      metadata: { sessionId: updated.id, officeId: dto.officeId, graceDeadline },
+      title: notificationTitle,
+      body: notificationBody,
+      metadata: { sessionId: updated.id, officeId: dto.officeId, graceDeadline, reason: dto.reason },
     });
 
-    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime), idempotentReplay: false };
+    const dayAdj = await this.getDayAdjustment(ids, updated.attendanceDate);
+    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime, dayAdj.seconds, dayAdj.reason), idempotentReplay: false };
   }
 
   // ---------------------------------------------------------------------
@@ -535,8 +589,9 @@ export class AttendanceService {
     );
     if (replay) return replay;
 
+    const ids = await this.resolveEmployeeIds(employeeId);
     const paused = await this.prisma.attendanceSession.findFirst({
-      where: { employeeId, status: AttendanceStatus.PAUSED },
+      where: { employeeId: { in: ids }, status: AttendanceStatus.PAUSED },
       include: { pauses: true },
     });
     if (!paused) {
@@ -624,7 +679,8 @@ export class AttendanceService {
       metadata: { sessionId: updated.id },
     });
 
-    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime), idempotentReplay: false };
+    const dayAdj = await this.getDayAdjustment(ids, updated.attendanceDate);
+    return { session: this.toSessionDto(updated, updated.pauses, effectiveTime, dayAdj.seconds, dayAdj.reason), idempotentReplay: false };
   }
 
   // ---------------------------------------------------------------------
@@ -705,48 +761,232 @@ export class AttendanceService {
   // QUERIES
   // ---------------------------------------------------------------------
   async getToday(employeeId: string, now: Date = new Date()): Promise<TodayAttendanceResponseDto> {
+    const ids = await this.resolveEmployeeIds(employeeId);
     const attendanceDate = this.toDateOnly(now);
-
-    // Auto-checkout any unclosed sessions from previous calendar dates (no night shifts, cap at midnight 23:59:59)
-    const danglingPastSessions = await this.prisma.attendanceSession.findMany({
-      where: {
-        employeeId,
-        attendanceDate: { lt: attendanceDate },
-        status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] },
-      },
-    });
-
-    for (const dps of danglingPastSessions) {
-      const dayEnd = new Date(dps.attendanceDate);
-      dayEnd.setHours(23, 59, 59, 999);
-      await this.prisma.attendanceSession.update({
-        where: { id: dps.id },
-        data: {
-          status: AttendanceStatus.CHECKED_OUT,
-          checkOutAt: dayEnd,
-          checkoutType: CheckoutType.AUTO,
-          checkoutReason: CheckoutReason.SYSTEM_ACTION,
-        },
-      });
-    }
+    const attendanceDateStr = this.formatDateOnly(attendanceDate);
 
     const sessions = await this.prisma.attendanceSession.findMany({
-      where: { employeeId, attendanceDate },
+      where: { employeeId: { in: ids }, attendanceDate },
       include: { pauses: true },
       orderBy: { checkInAt: 'asc' },
     });
 
-    const sessionDtos = sessions.map((s) => this.toSessionDto(s, s.pauses, now));
+    const dayAdj = await this.getDayAdjustment(ids, attendanceDate);
+    const totalAdjustmentSeconds = dayAdj.seconds;
+    const combinedReason = dayAdj.reason;
+
+    let sessionDtos: AttendanceSessionResponseDto[] = [];
+    if (sessions.length > 0) {
+      const activeIdx = sessions.findIndex(
+        (s) => s.status === AttendanceStatus.WORKING || s.status === AttendanceStatus.PAUSED,
+      );
+      const targetIdx = activeIdx !== -1 ? activeIdx : sessions.length - 1;
+
+      sessionDtos = sessions.map((s, idx) => {
+        const adj = idx === targetIdx ? totalAdjustmentSeconds : 0;
+        const r = idx === targetIdx ? combinedReason : undefined;
+        return this.toSessionDto(s, s.pauses, now, adj, r);
+      });
+    } else if (totalAdjustmentSeconds > 0 && dayAdj.exceptions.length > 0) {
+      sessionDtos = [
+        this.createSynthesizedSpecialSession(
+          ids[0] || employeeId,
+          attendanceDateStr,
+          dayAdj.exceptions[0],
+          totalAdjustmentSeconds,
+          combinedReason,
+        ),
+      ];
+    }
+
     const totalWorkingSecondsToday = sessionDtos.reduce((sum, s) => sum + s.totalWorkingSeconds, 0);
+    const totalRegularWorkingSecondsToday = sessionDtos.reduce(
+      (sum, s) => sum + (s.regularWorkingSeconds ?? 0),
+      0,
+    );
+    const totalSpecialConditionSecondsToday = totalAdjustmentSeconds;
+
     const hasActiveSession = sessions.some(
       (s) => s.status === AttendanceStatus.WORKING || s.status === AttendanceStatus.PAUSED,
     );
 
     return {
-      attendanceDate: this.formatDateOnly(attendanceDate),
+      attendanceDate: attendanceDateStr,
       sessions: sessionDtos,
       totalWorkingSecondsToday,
+      totalRegularWorkingSecondsToday,
+      totalSpecialConditionSecondsToday,
       hasActiveSession,
+    };
+  }
+
+  async getAllToday(now: Date = new Date()): Promise<TodayAttendanceResponseDto> {
+    const attendanceDate = this.toDateOnly(now);
+    const attendanceDateStr = this.formatDateOnly(attendanceDate);
+
+    const sessions = await this.prisma.attendanceSession.findMany({
+      where: { attendanceDate },
+      include: { pauses: true },
+      orderBy: { checkInAt: 'asc' },
+    });
+
+    const approvedExceptions = await this.prisma.attendanceException.findMany({
+      where: {
+        attendanceDate,
+        type: ExceptionType.WORKING_TIME_ADJUSTMENT,
+        status: ExceptionStatus.APPROVED,
+      },
+    });
+
+    const adjustmentsByEmployee = new Map<string, { seconds: number; reasons: string[]; exception: any }>();
+    for (const ex of approvedExceptions) {
+      const { seconds, reason } = this.extractAdjustmentFromException(ex);
+      const prev = adjustmentsByEmployee.get(ex.employeeId) || { seconds: 0, reasons: [], exception: ex };
+      prev.seconds += seconds;
+      if (reason && !prev.reasons.includes(reason)) prev.reasons.push(reason);
+      adjustmentsByEmployee.set(ex.employeeId, prev);
+    }
+
+    const employeeAdjustmentsApplied = new Set<string>();
+    const sessionDtos: AttendanceSessionResponseDto[] = sessions.map((s) => {
+      let adj = 0;
+      let reason: string | undefined;
+      if (!employeeAdjustmentsApplied.has(s.employeeId)) {
+        const empAdj = adjustmentsByEmployee.get(s.employeeId);
+        if (empAdj) {
+          adj = empAdj.seconds;
+          reason = empAdj.reasons.join('; ');
+          employeeAdjustmentsApplied.add(s.employeeId);
+        }
+      }
+      return this.toSessionDto(s, s.pauses, now, adj, reason);
+    });
+
+    for (const [empId, empAdj] of adjustmentsByEmployee.entries()) {
+      if (!employeeAdjustmentsApplied.has(empId) && empAdj.seconds > 0) {
+        sessionDtos.push(
+          this.createSynthesizedSpecialSession(
+            empId,
+            attendanceDateStr,
+            empAdj.exception,
+            empAdj.seconds,
+            empAdj.reasons.join('; '),
+          ),
+        );
+      }
+    }
+
+    const totalWorkingSecondsToday = sessionDtos.reduce((sum, s) => sum + s.totalWorkingSeconds, 0);
+    const totalRegularWorkingSecondsToday = sessionDtos.reduce(
+      (sum, s) => sum + (s.regularWorkingSeconds ?? 0),
+      0,
+    );
+    const totalSpecialConditionSecondsToday = Array.from(adjustmentsByEmployee.values()).reduce(
+      (sum, a) => sum + a.seconds,
+      0,
+    );
+
+    const hasActiveSession = sessions.some(
+      (s) => s.status === AttendanceStatus.WORKING || s.status === AttendanceStatus.PAUSED,
+    );
+
+    return {
+      attendanceDate: attendanceDateStr,
+      sessions: sessionDtos,
+      totalWorkingSecondsToday,
+      totalRegularWorkingSecondsToday,
+      totalSpecialConditionSecondsToday,
+      hasActiveSession,
+    };
+  }
+
+  async getAllHistory(query: HistoryQueryDto): Promise<PaginatedHistoryResponseDto> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 1000;
+
+    const endDate = query.endDate ? this.toDateOnly(new Date(query.endDate)) : this.toDateOnly(new Date());
+    const startDate = query.startDate
+      ? this.toDateOnly(new Date(query.startDate))
+      : this.toDateOnly(new Date(endDate.getTime() - 29 * 24 * 60 * 60 * 1000));
+
+    const where: Prisma.AttendanceSessionWhereInput = {
+      attendanceDate: { gte: startDate, lte: endDate },
+    };
+
+    const items = await this.prisma.attendanceSession.findMany({
+      where,
+      include: { pauses: true },
+      orderBy: [{ attendanceDate: 'desc' }, { checkInAt: 'desc' }],
+    });
+
+    const approvedExceptions = await this.prisma.attendanceException.findMany({
+      where: {
+        attendanceDate: { gte: startDate, lte: endDate },
+        type: ExceptionType.WORKING_TIME_ADJUSTMENT,
+        status: ExceptionStatus.APPROVED,
+      },
+    });
+
+    const adjustmentsByKey = new Map<string, { seconds: number; reasons: string[]; exception: any }>();
+    for (const ex of approvedExceptions) {
+      const dStr = this.formatDateOnly(ex.attendanceDate);
+      const key = `${ex.employeeId}_${dStr}`;
+      const { seconds, reason } = this.extractAdjustmentFromException(ex);
+      const prev = adjustmentsByKey.get(key) || { seconds: 0, reasons: [], exception: ex };
+      prev.seconds += seconds;
+      if (reason && !prev.reasons.includes(reason)) prev.reasons.push(reason);
+      adjustmentsByKey.set(key, prev);
+    }
+
+    const appliedKeys = new Set<string>();
+    const sessionDtos: AttendanceSessionResponseDto[] = items.map((s) => {
+      const dStr = this.formatDateOnly(s.attendanceDate);
+      const key = `${s.employeeId}_${dStr}`;
+      let adj = 0;
+      let reason: string | undefined;
+      if (!appliedKeys.has(key)) {
+        const dAdj = adjustmentsByKey.get(key);
+        if (dAdj) {
+          adj = dAdj.seconds;
+          reason = dAdj.reasons.join('; ');
+          appliedKeys.add(key);
+        }
+      }
+      return this.toSessionDto(s, s.pauses, new Date(), adj, reason);
+    });
+
+    for (const [key, dAdj] of adjustmentsByKey.entries()) {
+      if (!appliedKeys.has(key) && dAdj.seconds > 0) {
+        const [empId, dStr] = key.split('_');
+        sessionDtos.push(
+          this.createSynthesizedSpecialSession(
+            empId,
+            dStr,
+            dAdj.exception,
+            dAdj.seconds,
+            dAdj.reasons.join('; '),
+          ),
+        );
+      }
+    }
+
+    sessionDtos.sort((a, b) => {
+      const dCompare = b.attendanceDate.localeCompare(a.attendanceDate);
+      if (dCompare !== 0) return dCompare;
+      return new Date(b.checkInAt).getTime() - new Date(a.checkInAt).getTime();
+    });
+
+    const total = sessionDtos.length;
+    const isPaginated = typeof query.page === 'number' && typeof query.limit === 'number' && query.page > 0 && query.limit > 0 && !query.all;
+    const isAll = !isPaginated || query.all === 'true' || query.all === '1' || (query.limit !== undefined && query.limit >= 1000);
+    const paginatedItems = isAll ? sessionDtos : sessionDtos.slice((page - 1) * limit, page * limit);
+
+    return {
+      items: paginatedItems,
+      page: isAll ? 1 : page,
+      limit: isAll ? total : limit,
+      total,
+      totalPages: isAll ? 1 : Math.max(1, Math.ceil(total / limit)),
     };
   }
 
@@ -754,40 +994,89 @@ export class AttendanceService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
-    // Default window: last 30 days, if not specified.
     const endDate = query.endDate ? this.toDateOnly(new Date(query.endDate)) : this.toDateOnly(new Date());
     const startDate = query.startDate
       ? this.toDateOnly(new Date(query.startDate))
       : this.toDateOnly(new Date(endDate.getTime() - 29 * 24 * 60 * 60 * 1000));
 
-    const isAll = query.all === true || query.all === 'true';
-    const where: Prisma.AttendanceSessionWhereInput = {
+    const ids = await this.resolveEmployeeIds(employeeId);
+    const sessionWhere: Prisma.AttendanceSessionWhereInput = {
+      employeeId: { in: ids },
       attendanceDate: { gte: startDate, lte: endDate },
     };
 
-    if (query.employeeId) {
-      where.employeeId = query.employeeId;
-    } else if (!isAll) {
-      where.employeeId = employeeId;
+    const items = await this.prisma.attendanceSession.findMany({
+      where: sessionWhere,
+      include: { pauses: true },
+      orderBy: [{ attendanceDate: 'desc' }, { checkInAt: 'desc' }],
+    });
+
+    const approvedExceptions = await this.prisma.attendanceException.findMany({
+      where: {
+        employeeId: { in: ids },
+        attendanceDate: { gte: startDate, lte: endDate },
+        type: ExceptionType.WORKING_TIME_ADJUSTMENT,
+        status: ExceptionStatus.APPROVED,
+      },
+    });
+
+    const adjustmentsByDate = new Map<string, { seconds: number; reasons: string[]; exception: any }>();
+    for (const ex of approvedExceptions) {
+      const dStr = this.formatDateOnly(ex.attendanceDate);
+      const { seconds, reason } = this.extractAdjustmentFromException(ex);
+      const prev = adjustmentsByDate.get(dStr) || { seconds: 0, reasons: [], exception: ex };
+      prev.seconds += seconds;
+      if (reason && !prev.reasons.includes(reason)) prev.reasons.push(reason);
+      adjustmentsByDate.set(dStr, prev);
     }
 
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.attendanceSession.findMany({
-        where,
-        include: { pauses: true },
-        orderBy: [{ attendanceDate: 'desc' }, { checkInAt: 'desc' }],
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.prisma.attendanceSession.count({ where }),
-    ]);
+    const appliedDates = new Set<string>();
+    const sessionDtos: AttendanceSessionResponseDto[] = items.map((s) => {
+      const dStr = this.formatDateOnly(s.attendanceDate);
+      let adj = 0;
+      let reason: string | undefined;
+      if (!appliedDates.has(dStr)) {
+        const dAdj = adjustmentsByDate.get(dStr);
+        if (dAdj) {
+          adj = dAdj.seconds;
+          reason = dAdj.reasons.join('; ');
+          appliedDates.add(dStr);
+        }
+      }
+      return this.toSessionDto(s, s.pauses, new Date(), adj, reason);
+    });
+
+    for (const [dStr, dAdj] of adjustmentsByDate.entries()) {
+      if (!appliedDates.has(dStr) && dAdj.seconds > 0) {
+        sessionDtos.push(
+          this.createSynthesizedSpecialSession(
+            ids[0] || employeeId,
+            dStr,
+            dAdj.exception,
+            dAdj.seconds,
+            dAdj.reasons.join('; '),
+          ),
+        );
+      }
+    }
+
+    sessionDtos.sort((a, b) => {
+      const dCompare = b.attendanceDate.localeCompare(a.attendanceDate);
+      if (dCompare !== 0) return dCompare;
+      return new Date(b.checkInAt).getTime() - new Date(a.checkInAt).getTime();
+    });
+
+    const total = sessionDtos.length;
+    const isPaginated = typeof query.page === 'number' && typeof query.limit === 'number' && query.page > 0 && query.limit > 0 && !query.all;
+    const isAll = !isPaginated || query.all === 'true' || query.all === '1' || (query.limit !== undefined && query.limit >= 1000);
+    const paginatedItems = isAll ? sessionDtos : sessionDtos.slice((page - 1) * limit, page * limit);
 
     return {
-      items: items.map((s) => this.toSessionDto(s, s.pauses)),
-      page,
-      limit,
+      items: paginatedItems,
+      page: isAll ? 1 : page,
+      limit: isAll ? total : limit,
       total,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
+      totalPages: isAll ? 1 : Math.max(1, Math.ceil(total / limit)),
     };
   }
 
@@ -797,10 +1086,8 @@ export class AttendanceService {
       include: { pauses: true },
     });
 
-    // Employees can only ever see their own sessions in V1 — a session
-    // belonging to someone else looks identical to "not found" rather
-    // than revealing it exists (see spec §17: admin access is a TODO).
-    if (!session || session.employeeId !== employeeId) {
+    const ids = await this.resolveEmployeeIds(employeeId);
+    if (!session || !ids.includes(session.employeeId)) {
       throw new AppException(
         ErrorCodes.SESSION_NOT_FOUND,
         'Attendance session not found',
@@ -808,7 +1095,30 @@ export class AttendanceService {
       );
     }
 
-    return this.toSessionDto(session, session.pauses);
+    const approvedExceptions = await this.prisma.attendanceException.findMany({
+      where: {
+        employeeId: session.employeeId,
+        attendanceDate: session.attendanceDate,
+        type: ExceptionType.WORKING_TIME_ADJUSTMENT,
+        status: ExceptionStatus.APPROVED,
+      },
+    });
+
+    let totalAdjustmentSeconds = 0;
+    const reasons: string[] = [];
+    for (const ex of approvedExceptions) {
+      const { seconds, reason } = this.extractAdjustmentFromException(ex);
+      totalAdjustmentSeconds += seconds;
+      if (reason && !reasons.includes(reason)) reasons.push(reason);
+    }
+
+    return this.toSessionDto(
+      session,
+      session.pauses,
+      new Date(),
+      totalAdjustmentSeconds,
+      reasons.join('; '),
+    );
   }
 
   // ---------------------------------------------------------------------
@@ -820,18 +1130,46 @@ export class AttendanceService {
       return { processed: 0, skipped: 0 };
     }
 
-    const expired = await this.prisma.attendanceSession.findMany({
+    // 1. Expired PAUSED sessions (geofence exit grace deadline exceeded)
+    const expiredPaused = await this.prisma.attendanceSession.findMany({
       where: { status: AttendanceStatus.PAUSED, currentGraceDeadline: { lte: now } },
       include: { pauses: true },
       take: batchSize,
     });
 
+    // 2. All active sessions (WORKING or PAUSED) to check for 12:00 AM (midnight) auto-checkout
+    const activeSessions = await this.prisma.attendanceSession.findMany({
+      where: {
+        status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] },
+      },
+      include: { pauses: true },
+      take: batchSize,
+    });
+
+    const sessionMap = new Map<string, { session: SessionWithPauses; targetCheckoutTime?: Date }>();
+    for (const s of expiredPaused) {
+      sessionMap.set(s.id, { session: s, targetCheckoutTime: s.currentGraceDeadline ?? now });
+    }
+
+    // Check for 12:00 AM (midnight) auto checkout:
+    for (const s of activeSessions) {
+      const midnightCutoff = this.getMidnightCutoffForSession(s.checkInAt);
+      if (now.getTime() >= midnightCutoff.getTime()) {
+        const existing = sessionMap.get(s.id);
+        if (!existing || (existing.targetCheckoutTime && midnightCutoff.getTime() < existing.targetCheckoutTime.getTime())) {
+          sessionMap.set(s.id, { session: s, targetCheckoutTime: midnightCutoff });
+        }
+      }
+    }
+
+    const pendingSessions = Array.from(sessionMap.values());
+
     let processed = 0;
     let skipped = 0;
 
-    for (const session of expired) {
+    for (const item of pendingSessions) {
       try {
-        const handled = await this.autoCheckoutOne(session, now);
+        const handled = await this.autoCheckoutOne(item.session, now, item.targetCheckoutTime);
         if (handled) {
           processed += 1;
         } else {
@@ -840,7 +1178,7 @@ export class AttendanceService {
       } catch (error) {
         // One bad session must never abort the whole sweep.
         this.logger.error(
-          `Auto-checkout failed for sessionId=${session.id}: ${(error as Error).message}`,
+          `Auto-checkout failed for sessionId=${item.session.id}: ${(error as Error).message}`,
         );
       }
     }
@@ -852,8 +1190,16 @@ export class AttendanceService {
     return { processed, skipped };
   }
 
-  private async autoCheckoutOne(session: SessionWithPauses, now: Date): Promise<boolean> {
-    const checkoutAt = session.currentGraceDeadline ?? now;
+  private async autoCheckoutOne(
+    session: SessionWithPauses,
+    now: Date,
+    targetCheckoutTime?: Date,
+  ): Promise<boolean> {
+    const isPaused = session.status === AttendanceStatus.PAUSED;
+    let checkoutAt = targetCheckoutTime ?? (isPaused ? (session.currentGraceDeadline ?? now) : now);
+    if (checkoutAt.getTime() > now.getTime()) {
+      checkoutAt = now;
+    }
     const openPause = session.pauses.find((p) => p.endedAt === null);
 
     const totalWorkingSeconds = this.workingTimeService.calculateWorkingSeconds(
@@ -867,14 +1213,17 @@ export class AttendanceService {
       checkoutAt,
     );
 
+    const isGraceExpired = isPaused && session.currentGraceDeadline && session.currentGraceDeadline.getTime() <= now.getTime();
+    const checkoutReason = isGraceExpired ? CheckoutReason.GEOFENCE_TIMEOUT : CheckoutReason.SYSTEM_ACTION;
+
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.attendanceSession.updateMany({
-        where: { id: session.id, status: AttendanceStatus.PAUSED },
+        where: { id: session.id, status: { in: [AttendanceStatus.WORKING, AttendanceStatus.PAUSED] } },
         data: {
           status: AttendanceStatus.CHECKED_OUT,
           checkOutAt: checkoutAt,
           checkoutType: CheckoutType.AUTO,
-          checkoutReason: CheckoutReason.GEOFENCE_TIMEOUT,
+          checkoutReason,
           totalWorkingSeconds,
           currentPauseStartedAt: null,
           currentGraceDeadline: null,
@@ -919,7 +1268,7 @@ export class AttendanceService {
         },
       });
 
-      this.logger.log(`AUTO_CHECKOUT employeeId=${session.employeeId} sessionId=${session.id}`);
+      this.logger.log(`AUTO_CHECKOUT employeeId=${session.employeeId} sessionId=${session.id} reason=${checkoutReason} checkoutAt=${checkoutAt.toISOString()}`);
       return true;
     });
   }
@@ -948,34 +1297,94 @@ export class AttendanceService {
       );
     }
 
-    // Allow realistic indoor mobile phone GPS accuracy (at least 500m)
-    const allowedAccuracy = Math.max(policy.minLocationAccuracyMeters || 500, 500);
-
     if (
       location.accuracyMeters !== undefined &&
-      location.accuracyMeters > allowedAccuracy
+      location.accuracyMeters > policy.minLocationAccuracyMeters
     ) {
       throw new AppException(
         ErrorCodes.LOCATION_ACCURACY_TOO_LOW,
-        `Location accuracy (${Math.round(location.accuracyMeters)}m) exceeds the allowed limit (${allowedAccuracy}m). Please move near a window or outdoors.`,
+        `Location accuracy (${location.accuracyMeters}m) exceeds the allowed maximum (${policy.minLocationAccuracyMeters}m)`,
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
   }
 
   private determineCheckInStatus(effectiveTime: Date, policy: AttendancePolicy): CheckInStatus {
-    const minutesOfDay = effectiveTime.getUTCHours() * 60 + effectiveTime.getUTCMinutes();
-    const windowStart = this.toMinutes(policy.checkInStartTime);
-    const windowEnd = this.toMinutes(policy.checkInEndTime);
-    const lateThreshold = windowStart + policy.lateThresholdMinutes;
+    const minutesOfDay = this.getLocalMinutesOfDay(effectiveTime);
+    const windowStart = this.toMinutes(policy.checkInStartTime || '06:00');
+    // Cutoff time after which check-in is marked as LATE (10:00 AM)
+    const lateCutoff = this.toMinutes(policy.lateCutoffTime || '10:00');
 
-    if (minutesOfDay < windowStart || minutesOfDay > windowEnd) {
+    // Check-in during early hours before office shift opens (e.g. before 06:00 AM)
+    if (minutesOfDay < windowStart) {
       return CheckInStatus.EXCEPTION;
     }
-    if (minutesOfDay > lateThreshold) {
+    // Check-in after 10:00 AM is explicitly marked as LATE
+    if (minutesOfDay > lateCutoff) {
       return CheckInStatus.LATE;
     }
+    // Check-in on or before 10:00 AM is ON_TIME
     return CheckInStatus.ON_TIME;
+  }
+
+  private getLocalMinutesOfDay(date: Date, timeZone: string = process.env.APP_TIMEZONE || 'Asia/Kolkata'): number {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false,
+      });
+      const parts = formatter.formatToParts(date);
+      const hourPart = parts.find((p) => p.type === 'hour')?.value ?? '0';
+      const minutePart = parts.find((p) => p.type === 'minute')?.value ?? '0';
+      const h = parseInt(hourPart, 10) % 24;
+      const m = parseInt(minutePart, 10);
+      return h * 60 + m;
+    } catch {
+      return date.getHours() * 60 + date.getMinutes();
+    }
+  }
+
+  /**
+   * Returns the 12:00 AM (midnight) timestamp following the day the session started,
+   * in the local office/server timezone (Asia/Kolkata).
+   */
+  private getMidnightCutoffForSession(
+    checkInAt: Date,
+    timeZone: string = process.env.APP_TIMEZONE || 'Asia/Kolkata',
+  ): Date {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const [y, m, d] = formatter.format(checkInAt).split('-').map(Number);
+      const nextDayDate = new Date(Date.UTC(y, m - 1, d + 1, 0, 0, 0));
+      const offsetParts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        timeZoneName: 'longOffset',
+      }).formatToParts(nextDayDate);
+      const tzOffsetStr = offsetParts.find((p) => p.type === 'timeZoneName')?.value;
+      let offsetMinutes = 330;
+      if (tzOffsetStr) {
+        const match = tzOffsetStr.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
+        if (match) {
+          const sign = match[1] === '-' ? -1 : 1;
+          const hours = parseInt(match[2], 10);
+          const mins = match[3] ? parseInt(match[3], 10) : 0;
+          offsetMinutes = sign * (hours * 60 + mins);
+        }
+      }
+      return new Date(Date.UTC(y, m - 1, d + 1, 0, 0, 0) - offsetMinutes * 60 * 1000);
+    } catch {
+      const nextDay = new Date(checkInAt);
+      nextDay.setDate(nextDay.getDate() + 1);
+      nextDay.setHours(0, 0, 0, 0);
+      return nextDay;
+    }
   }
 
   private toMinutes(hhmm: string): number {
@@ -1036,6 +1445,75 @@ export class AttendanceService {
     return { clientEventId, status: SyncResultStatus.REJECTED, message: 'Unexpected server error' };
   }
 
+  private async getDayAdjustment(employeeIds: string[], attendanceDate: Date) {
+    const approvedExceptions = await this.prisma.attendanceException.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        attendanceDate,
+        type: ExceptionType.WORKING_TIME_ADJUSTMENT,
+        status: ExceptionStatus.APPROVED,
+      },
+    });
+
+    let totalAdjustmentSeconds = 0;
+    const reasons: string[] = [];
+    for (const ex of approvedExceptions) {
+      const { seconds, reason } = this.extractAdjustmentFromException(ex);
+      totalAdjustmentSeconds += seconds;
+      if (reason && !reasons.includes(reason)) reasons.push(reason);
+    }
+    return {
+      seconds: totalAdjustmentSeconds,
+      reason: reasons.join('; '),
+      exceptions: approvedExceptions,
+    };
+  }
+
+  private extractAdjustmentFromException(ex: { metadata?: Prisma.JsonValue | null; reason: string }) {
+    const meta = (ex.metadata as Record<string, any>) || {};
+    const seconds =
+      Number(meta.additionalSeconds) ||
+      (Number(meta.additionalMinutes) ? Number(meta.additionalMinutes) * 60 : 0) ||
+      (Number(meta.additionalHours) ? Math.round(Number(meta.additionalHours) * 3600) : 0);
+    return {
+      seconds,
+      reason: ex.reason || 'Special Condition Working Hours',
+    };
+  }
+
+  private createSynthesizedSpecialSession(
+    employeeId: string,
+    attendanceDate: string,
+    exception: { id: string; validFrom?: Date | null; validUntil?: Date | null; createdAt: Date; updatedAt: Date; reason: string },
+    seconds: number,
+    reason: string,
+  ): AttendanceSessionResponseDto {
+    const dDate = new Date(attendanceDate);
+    return {
+      id: `special-${exception.id}`,
+      employeeId,
+      officeId: 'REMOTE',
+      attendanceDate,
+      status: AttendanceStatus.CHECKED_OUT,
+      checkInAt: exception.validFrom || dDate,
+      checkOutAt: exception.validUntil || dDate,
+      checkInStatus: CheckInStatus.ON_TIME,
+      currentPauseStartedAt: null,
+      currentGraceDeadline: null,
+      checkoutType: CheckoutType.ADMIN,
+      checkoutReason: CheckoutReason.ADMIN_ACTION,
+      regularWorkingSeconds: 0,
+      specialConditionSeconds: seconds,
+      hasSpecialCondition: true,
+      specialConditionStatus: 'HR Approved',
+      specialConditionReason: reason || exception.reason || 'Special Condition Working Hours',
+      totalWorkingSeconds: seconds,
+      totalPausedSeconds: 0,
+      createdAt: exception.createdAt,
+      updatedAt: exception.updatedAt,
+    };
+  }
+
   private toSessionDto(
     session: {
       id: string;
@@ -1056,11 +1534,22 @@ export class AttendanceService {
     },
     pauses: { startedAt: Date; endedAt: Date | null }[],
     now: Date = new Date(),
+    approvedAdjustmentSeconds: number = 0,
+    specialConditionReason?: string,
   ): AttendanceSessionResponseDto {
-    const liveTotalWorkingSeconds =
+    const regularWorkingSeconds =
       session.status === AttendanceStatus.CHECKED_OUT
         ? session.totalWorkingSeconds
         : this.workingTimeService.calculateWorkingSeconds(session, pauses, now);
+
+    const totalPausedSeconds = pauses.reduce((acc, p) => {
+      const end = p.endedAt ? p.endedAt.getTime() : now.getTime();
+      return acc + Math.max(0, Math.round((end - p.startedAt.getTime()) / 1000));
+    }, 0);
+
+    const specialConditionSeconds = Math.max(0, approvedAdjustmentSeconds);
+    const hasSpecialCondition = specialConditionSeconds > 0;
+    const totalWorkingSeconds = regularWorkingSeconds + specialConditionSeconds;
 
     return {
       id: session.id,
@@ -1075,7 +1564,13 @@ export class AttendanceService {
       currentGraceDeadline: session.currentGraceDeadline,
       checkoutType: session.checkoutType,
       checkoutReason: session.checkoutReason,
-      totalWorkingSeconds: liveTotalWorkingSeconds,
+      regularWorkingSeconds,
+      specialConditionSeconds,
+      hasSpecialCondition,
+      specialConditionStatus: hasSpecialCondition ? 'HR Approved' : undefined,
+      specialConditionReason: specialConditionReason || undefined,
+      totalWorkingSeconds,
+      totalPausedSeconds,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     };

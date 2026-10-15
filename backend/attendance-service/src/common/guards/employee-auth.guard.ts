@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { CanActivate, ExecutionContext, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -38,20 +39,25 @@ export class EmployeeAuthGuard implements CanActivate {
         this.hasWarnedDevAuth = true;
       }
 
-      const userId =
-        (request.headers[gatewayAuth.userIdHeader] as string) ||
-        (request.headers['x-user-id'] as string);
       const employeeId =
-        (request.headers[gatewayAuth.employeeIdHeader] as string) ||
-        (request.headers['x-employee-id'] as string) ||
-        userId ||
-        devAuth.defaultEmployeeId;
+        (request.headers[gatewayAuth.employeeIdHeader] as string) ?? devAuth.defaultEmployeeId;
+      const userId = (request.headers[gatewayAuth.userIdHeader] as string) ?? employeeId;
       const rolesHeader = request.headers[gatewayAuth.rolesHeader] as string | undefined;
+
+      const parseRolesHeader = (header?: string, fallback: string[] = []): string[] => {
+        if (!header) return fallback;
+        const parsed = header
+          .replace(/[\[\]"'\\]/g, '')
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean);
+        return parsed.length > 0 ? parsed : fallback;
+      };
 
       const authContext: EmployeeAuthContext = {
         employeeId,
-        userId: userId || employeeId,
-        roles: rolesHeader ? rolesHeader.split(',').map((r) => r.trim()) : ['EMPLOYEE'],
+        userId,
+        roles: parseRolesHeader(rolesHeader, ['EMPLOYEE']),
         isDevAuth: true,
       };
       (request as Request & { employeeAuth: EmployeeAuthContext }).employeeAuth = authContext;
@@ -63,21 +69,48 @@ export class EmployeeAuthGuard implements CanActivate {
       throw new UnauthorizedException('Missing or invalid gateway credentials');
     }
 
-    const userId = (request.headers[gatewayAuth.userIdHeader] as string) || (request.headers['x-user-id'] as string);
-    const employeeId =
-      (request.headers[gatewayAuth.employeeIdHeader] as string) ||
-      (request.headers['x-employee-id'] as string) ||
-      userId;
+    // Verify HMAC Gateway Request Signature to prevent internal port spoofing
+    const signature = request.headers['x-gateway-signature'] as string | undefined;
+    const timestamp = request.headers['x-gateway-timestamp'] as string | undefined;
+    if (signature && timestamp) {
+      const tsNum = parseInt(timestamp, 10);
+      const now = Date.now();
+      if (Math.abs(now - tsNum) > 300000) {
+        throw new UnauthorizedException('Gateway request signature expired (potential replay attack)');
+      }
+      const targetUrl = request.originalUrl || request.url || '';
+      const expectedSig = crypto
+        .createHmac('sha256', gatewayAuth.sharedSecret)
+        .update(`${targetUrl}:${timestamp}:${gatewayAuth.sharedSecret}`)
+        .digest('hex');
+
+      if (signature !== expectedSig) {
+        throw new UnauthorizedException('Invalid HMAC gateway signature');
+      }
+    }
+
+    const employeeId = request.headers[gatewayAuth.employeeIdHeader] as string | undefined;
+    const userId = request.headers[gatewayAuth.userIdHeader] as string | undefined;
     const rolesHeader = request.headers[gatewayAuth.rolesHeader] as string | undefined;
 
     if (!employeeId || !userId) {
       throw new UnauthorizedException('Missing authenticated identity headers');
     }
 
+    const parseRolesHeader = (header?: string, fallback: string[] = []): string[] => {
+      if (!header) return fallback;
+      const parsed = header
+        .replace(/[\[\]"'\\]/g, '')
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean);
+      return parsed.length > 0 ? parsed : fallback;
+    };
+
     const authContext: EmployeeAuthContext = {
       employeeId,
       userId,
-      roles: rolesHeader ? rolesHeader.split(',').map((r) => r.trim()) : [],
+      roles: parseRolesHeader(rolesHeader, []),
       isDevAuth: false,
     };
     (request as Request & { employeeAuth: EmployeeAuthContext }).employeeAuth = authContext;

@@ -17,6 +17,12 @@ export function PasswordInput(props: Props) {
       autoComplete="current-password"
       {...props}
       type={visible ? 'text' : 'password'}
+      sx={{
+        '& input': {
+          letterSpacing: visible ? 'normal' : '0.12em',
+        },
+        ...((props as any).sx || {}),
+      }}
       slotProps={{
         input: {
           endAdornment: (

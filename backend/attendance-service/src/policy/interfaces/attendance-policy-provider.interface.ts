@@ -1,9 +1,11 @@
 export interface AttendancePolicy {
   checkInStartTime: string; // "HH:mm", 24h, local server time
   checkInEndTime: string; // "HH:mm"
+  lateCutoffTime: string; // "HH:mm" e.g. "10:00" (after which check-in is LATE)
   lateThresholdMinutes: number;
   gracePeriodMinutes: number;
   autoCheckoutEnabled: boolean;
+  autoCheckoutTime: string; // "HH:mm" e.g. "00:00" (12:00 AM at night / midnight)
   workingHoursPerDay: number;
   allowManualCheckoutWhilePaused: boolean;
   minLocationAccuracyMeters: number;

@@ -1,0 +1,512 @@
+import { useState } from 'react';
+import Alert from '@mui/material/Alert';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import Chip from '@mui/material/Chip';
+import CircularProgress from '@mui/material/CircularProgress';
+import Divider from '@mui/material/Divider';
+import FormControl from '@mui/material/FormControl';
+import FormHelperText from '@mui/material/FormHelperText';
+import InputLabel from '@mui/material/InputLabel';
+import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Select from '@mui/material/Select';
+import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
+import type {
+  CreateEmployeePayload,
+  Department,
+  EmploymentType,
+  Gender,
+  Role,
+} from '../../../types/employee';
+import type { Office } from '../../geofence/types/geofence';
+
+interface Props {
+  mode: 'create' | 'edit';
+  initialValues?: Partial<CreateEmployeePayload>;
+  departments: Department[];
+  roles: Role[];
+  offices?: Office[];
+  onSubmit: (values: CreateEmployeePayload) => Promise<void>;
+  onCancel: () => void;
+  loading?: boolean;
+  serverError?: string | null;
+}
+
+export function EmployeeForm({
+  mode,
+  initialValues,
+  departments,
+  roles,
+  offices = [],
+  onSubmit,
+  onCancel,
+  loading = false,
+  serverError = null,
+}: Props) {
+  const [formData, setFormData] = useState<CreateEmployeePayload>({
+    employeeCode: initialValues?.employeeCode ?? '',
+    firstName: initialValues?.firstName ?? '',
+    lastName: initialValues?.lastName ?? '',
+    email: initialValues?.email ?? '',
+    personalEmail: initialValues?.personalEmail ?? '',
+    employmentType: initialValues?.employmentType ?? 'EMPLOYEE',
+    phone: initialValues?.phone ?? '',
+    jobTitle: initialValues?.jobTitle ?? '',
+    departmentId: initialValues?.departmentId ?? '',
+    roleId: initialValues?.roleId ?? '',
+    officeLocationId: initialValues?.officeLocationId ?? '',
+    officeLocationName: initialValues?.officeLocationName ?? '',
+    primaryOfficeId: initialValues?.primaryOfficeId ?? '',
+    officeIds:
+      initialValues?.officeIds && initialValues.officeIds.length > 0
+        ? initialValues.officeIds
+        : initialValues?.officeLocationId
+        ? [initialValues.officeLocationId]
+        : [],
+    dateOfJoining: initialValues?.dateOfJoining ?? new Date().toISOString().slice(0, 10),
+    dateOfBirth: initialValues?.dateOfBirth ?? '',
+    gender: (initialValues?.gender as Gender) ?? undefined,
+    address: initialValues?.address ?? '',
+    profilePhotoUrl: initialValues?.profilePhotoUrl ?? '',
+    provisionAccount: true,
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const validate = (): boolean => {
+    const nextErrors: Record<string, string> = {};
+
+    if (mode === 'create') {
+      if (!formData.employeeCode.trim()) {
+        nextErrors.employeeCode = 'Employee code is required';
+      } else if (!/^[A-Za-z0-9-]{2,30}$/.test(formData.employeeCode.trim())) {
+        nextErrors.employeeCode = 'Code must be 2-30 characters (letters, numbers, hyphens)';
+      }
+    }
+
+    if (!formData.firstName.trim()) {
+      nextErrors.firstName = 'First name is required';
+    }
+    if (!formData.lastName.trim()) {
+      nextErrors.lastName = 'Last name is required';
+    }
+
+    if (!formData.email?.trim()) {
+      nextErrors.email = 'Official email address is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+      nextErrors.email = 'Enter a valid official email address';
+    }
+
+    if (!formData.personalEmail?.trim()) {
+      nextErrors.personalEmail = 'Personal email address is required for credential delivery';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.personalEmail.trim())) {
+      nextErrors.personalEmail = 'Enter a valid personal email address';
+    }
+
+    if (!formData.phone.trim()) {
+      nextErrors.phone = 'Phone number is required';
+    }
+
+    if (!formData.jobTitle.trim()) {
+      nextErrors.jobTitle = 'Job title / designation is required';
+    }
+
+    if (!formData.departmentId) {
+      nextErrors.departmentId = 'Department is required';
+    }
+
+    if (!formData.roleId) {
+      nextErrors.roleId = 'Organizational role is required';
+    }
+
+    if (!formData.dateOfJoining) {
+      nextErrors.dateOfJoining = 'Date of joining is required';
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
+
+    const selectedOffices = offices.filter((o) =>
+      (formData.officeIds || []).includes(o.id) || (formData.officeIds || []).includes(o.code)
+    );
+    const primaryOffice = selectedOffices[0];
+    const officeIds = selectedOffices.flatMap((o) => [o.id, o.code]).filter(Boolean) as string[];
+    const officeLocationName = selectedOffices.map((o) => (o.name ? `${o.name} (${o.code})` : o.code)).join(', ');
+
+    await onSubmit({
+      ...formData,
+      employeeCode: formData.employeeCode.trim().toUpperCase(),
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      email: formData.email?.trim() || '',
+      personalEmail: formData.personalEmail?.trim() || '',
+      phone: formData.phone.trim(),
+      jobTitle: formData.jobTitle.trim(),
+      dateOfBirth: formData.dateOfBirth || undefined,
+      address: formData.address?.trim() || undefined,
+      profilePhotoUrl: formData.profilePhotoUrl?.trim() || undefined,
+      officeLocationId: primaryOffice?.id || formData.officeIds?.[0] || undefined,
+      officeLocationName: officeLocationName || formData.officeLocationName || undefined,
+      primaryOfficeId: primaryOffice?.id || formData.officeIds?.[0] || undefined,
+      officeIds: officeIds.length > 0 ? officeIds : formData.officeIds || [],
+      provisionAccount: formData.provisionAccount ?? true,
+    });
+  };
+
+  return (
+    <Paper variant="outlined" sx={{ p: { xs: 2.5, sm: 4 } }}>
+      {serverError && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {serverError}
+        </Alert>
+      )}
+
+      {mode === 'create' && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <strong>Account Provisioning:</strong> An official portal login account will be automatically provisioned for this employee. Initial temporary credentials will be delivered to their <strong>Personal Email</strong>. The employee will be required to change their password on first sign-in.
+        </Alert>
+      )}
+
+      <form onSubmit={handleSubmit} noValidate>
+        {/* Section 1: Employment Identifiers */}
+        <Typography variant="h6" sx={{ fontWeight: 700 }} gutterBottom>
+          Employment Information
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+          Job title, department, role, and official employee identifiers.
+        </Typography>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            gap: 2.5,
+            mb: 4,
+          }}
+        >
+          <TextField
+            label="Employee Code"
+            required={mode === 'create'}
+            disabled={mode === 'edit' || loading}
+            value={formData.employeeCode}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, employeeCode: e.target.value.toUpperCase() }))
+            }
+            error={Boolean(errors.employeeCode)}
+            helperText={errors.employeeCode ?? (mode === 'edit' ? 'Cannot be changed' : 'e.g. EMP-001')}
+            fullWidth
+          />
+
+          <TextField
+            label="Job Title / Designation"
+            required
+            disabled={loading}
+            value={formData.jobTitle}
+            onChange={(e) => setFormData((prev) => ({ ...prev, jobTitle: e.target.value }))}
+            error={Boolean(errors.jobTitle)}
+            helperText={errors.jobTitle ?? 'e.g. Senior Software Engineer'}
+            fullWidth
+          />
+
+          <FormControl fullWidth required disabled={loading}>
+            <InputLabel id="emp-type-label">Employment Type</InputLabel>
+            <Select
+              labelId="emp-type-label"
+              value={formData.employmentType ?? 'EMPLOYEE'}
+              label="Employment Type *"
+              onChange={(e) => setFormData((prev) => ({ ...prev, employmentType: e.target.value as EmploymentType }))}
+            >
+              <MenuItem value="EMPLOYEE">Employee (@company.com)</MenuItem>
+              <MenuItem value="INTERN">Intern (@company.in)</MenuItem>
+            </Select>
+            <FormHelperText>Controls official company email domain extension</FormHelperText>
+          </FormControl>
+
+          <FormControl fullWidth required error={Boolean(errors.departmentId)} disabled={loading}>
+            <InputLabel id="dept-select-label">Department</InputLabel>
+            <Select
+              labelId="dept-select-label"
+              value={
+                departments.some((d) => d.id === formData.departmentId)
+                  ? formData.departmentId
+                  : departments.find((d) => d.code === formData.departmentId)?.id || ''
+              }
+              label="Department *"
+              onChange={(e) => setFormData((prev) => ({ ...prev, departmentId: e.target.value }))}
+            >
+              {departments.map((dept) => (
+                <MenuItem key={dept.id} value={dept.id}>
+                  {dept.name} ({dept.code})
+                </MenuItem>
+              ))}
+            </Select>
+            {errors.departmentId && <FormHelperText>{errors.departmentId}</FormHelperText>}
+          </FormControl>
+
+          <FormControl fullWidth required error={Boolean(errors.roleId)} disabled={loading}>
+            <InputLabel id="role-select-label">Role</InputLabel>
+            <Select
+              labelId="role-select-label"
+              value={formData.roleId}
+              label="Role *"
+              onChange={(e) => setFormData((prev) => ({ ...prev, roleId: e.target.value }))}
+            >
+              {roles.map((role) => (
+                <MenuItem key={role.id} value={role.id}>
+                  {role.name} {role.description ? `— ${role.description}` : ''}
+                </MenuItem>
+              ))}
+            </Select>
+            <FormHelperText>
+              {errors.roleId ?? 'Organizational role assigned to this employee'}
+            </FormHelperText>
+          </FormControl>
+
+          <FormControl fullWidth disabled={loading}>
+            <InputLabel id="office-select-label">Assigned Office Locations</InputLabel>
+            <Select
+              labelId="office-select-label"
+              multiple
+              value={
+                (formData.officeIds || [])
+                  .map((idOrCode) => {
+                    const matched = offices.find(
+                      (o) => o.id === idOrCode || o.code?.toLowerCase() === idOrCode.toLowerCase()
+                    );
+                    return matched ? matched.id : idOrCode;
+                  })
+                  .filter((val, idx, arr) => arr.indexOf(val) === idx)
+              }
+              label="Assigned Office Locations"
+              onChange={(e) => {
+                const val = e.target.value;
+                const ids = typeof val === 'string' ? val.split(',') : (val as string[]);
+                setFormData((prev) => ({
+                  ...prev,
+                  officeIds: ids,
+                }));
+              }}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {(selected as string[]).map((id, idx) => {
+                    const off = offices.find((o) => o.id === id);
+                    return (
+                      <Chip
+                        key={id}
+                        label={`${off ? off.name : id}${idx === 0 ? ' (Primary)' : ''}`}
+                        size="small"
+                        color={idx === 0 ? 'primary' : 'default'}
+                      />
+                    );
+                  })}
+                </Box>
+              )}
+            >
+              {offices.map((office) => {
+                const currentIds = (formData.officeIds || []).map((idOrCode) => {
+                  const matched = offices.find(
+                    (o) => o.id === idOrCode || o.code?.toLowerCase() === idOrCode.toLowerCase()
+                  );
+                  return matched ? matched.id : idOrCode;
+                });
+                const isChecked = currentIds.indexOf(office.id) > -1;
+                return (
+                  <MenuItem key={office.id} value={office.id}>
+                    <Checkbox checked={isChecked} />
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Typography variant="body1" sx={{ fontWeight: 600 }}>{office.name}</Typography>
+                      <Chip label={office.code} size="small" variant="outlined" />
+                      {office.city && <Typography variant="caption" color="text.secondary">({office.city})</Typography>}
+                    </Box>
+                  </MenuItem>
+                );
+              })}
+            </Select>
+            <FormHelperText>
+              Workplace locations where the employee can work and mark attendance (first selected is Primary)
+            </FormHelperText>
+          </FormControl>
+
+          <TextField
+            label="Date of Joining"
+            type="date"
+            required
+            disabled={loading}
+            value={formData.dateOfJoining}
+            onChange={(e) => setFormData((prev) => ({ ...prev, dateOfJoining: e.target.value }))}
+            error={Boolean(errors.dateOfJoining)}
+            helperText={errors.dateOfJoining}
+            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth
+          />
+        </Box>
+
+        <Divider sx={{ my: 3 }} />
+
+        {/* Section 2: Personal Information */}
+        <Typography variant="h6" sx={{ fontWeight: 700 }} gutterBottom>
+          Personal & Login Information
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+          Contact details and email addresses for official access and credential delivery.
+        </Typography>
+
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            gap: 2.5,
+            mb: 4,
+          }}
+        >
+          <TextField
+            label="First Name"
+            required
+            disabled={loading}
+            value={formData.firstName}
+            onChange={(e) => setFormData((prev) => ({ ...prev, firstName: e.target.value }))}
+            error={Boolean(errors.firstName)}
+            helperText={errors.firstName}
+            fullWidth
+          />
+
+          <TextField
+            label="Last Name"
+            required
+            disabled={loading}
+            value={formData.lastName}
+            onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))}
+            error={Boolean(errors.lastName)}
+            helperText={errors.lastName}
+            fullWidth
+          />
+
+          <TextField
+            label="Official Login Email"
+            type="email"
+            required
+            disabled={loading}
+            value={formData.email}
+            onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+            error={Boolean(errors.email)}
+            helperText={errors.email ?? 'Official corporate email for system sign-in'}
+            fullWidth
+          />
+
+          <TextField
+            label="Personal Email (For Credential Delivery)"
+            type="email"
+            disabled={loading}
+            value={formData.personalEmail ?? ''}
+            onChange={(e) => setFormData((prev) => ({ ...prev, personalEmail: e.target.value }))}
+            error={Boolean(errors.personalEmail)}
+            helperText={errors.personalEmail ?? 'Temporary login credentials will be delivered here'}
+            fullWidth
+          />
+
+          <TextField
+            label="Phone Number"
+            required
+            disabled={loading}
+            value={formData.phone}
+            onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+            error={Boolean(errors.phone)}
+            helperText={errors.phone ?? 'e.g. +91 98765 43210'}
+            fullWidth
+          />
+
+          <TextField
+            label="Date of Birth"
+            type="date"
+            disabled={loading}
+            value={formData.dateOfBirth ?? ''}
+            onChange={(e) => setFormData((prev) => ({ ...prev, dateOfBirth: e.target.value }))}
+            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth
+          />
+
+          <FormControl fullWidth disabled={loading}>
+            <InputLabel id="gender-select-label">Gender</InputLabel>
+            <Select
+              labelId="gender-select-label"
+              value={formData.gender ?? ''}
+              label="Gender"
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  gender: (e.target.value as Gender) || undefined,
+                }))
+              }
+            >
+              <MenuItem value="">
+                <em>Prefer not to say / Unspecified</em>
+              </MenuItem>
+              <MenuItem value="MALE">Male</MenuItem>
+              <MenuItem value="FEMALE">Female</MenuItem>
+              <MenuItem value="OTHER">Other</MenuItem>
+              <MenuItem value="PREFER_NOT_TO_SAY">Prefer not to say</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+            <TextField
+              label="Residential Address"
+              multiline
+              rows={2}
+              disabled={loading}
+              value={formData.address ?? ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+              fullWidth
+            />
+          </Box>
+
+          <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+            <TextField
+              label="Profile Photo URL"
+              placeholder="https://example.com/avatar.jpg"
+              disabled={loading}
+              value={formData.profilePhotoUrl ?? ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, profilePhotoUrl: e.target.value }))}
+              helperText="Optional link to a public avatar image"
+              fullWidth
+            />
+          </Box>
+        </Box>
+
+        {/* Action Buttons */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, pt: 2 }}>
+          <Button
+            variant="outlined"
+            color="inherit"
+            onClick={onCancel}
+            disabled={loading}
+            sx={{ minWidth: 100 }}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={loading}
+            startIcon={loading ? <CircularProgress size={18} color="inherit" /> : null}
+            sx={{ minWidth: 150 }}
+          >
+            {loading
+              ? 'Saving...'
+              : mode === 'create'
+              ? 'Create Employee'
+              : 'Save Changes'}
+          </Button>
+        </Box>
+      </form>
+    </Paper>
+  );
+}

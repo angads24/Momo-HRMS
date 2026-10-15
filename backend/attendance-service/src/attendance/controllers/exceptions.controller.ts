@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ExceptionsService } from '../services/exceptions.service';
 import { CreateExceptionDto } from '../dto/create-exception.dto';
@@ -28,14 +28,32 @@ export class ExceptionsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ApproveExceptionDto,
   ) {
-    return this.exceptionsService.approveException(id, auth.userId, dto);
+    const approverUserId = auth?.userId || auth?.employeeId || 'HR_ADMIN';
+    return this.exceptionsService.approveException(id, approverUserId, dto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @ApiMessage('Attendance exception cancelled')
+  async deleteException(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exceptionsService.cancelException(id);
+  }
+
+  @Get(':id')
+  async getExceptionById(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exceptionsService.getExceptionById(id);
   }
 
   @Get()
   async listExceptions(
     @Query('employeeId') employeeId?: string,
-    @Query('status') status?: ExceptionStatus,
+    @Query('status') status?: string,
+    @Query('hrEmail') hrEmail?: string,
   ) {
-    return this.exceptionsService.getExceptions(employeeId, status);
+    const validStatus =
+      status && Object.values(ExceptionStatus).includes(status.toUpperCase() as ExceptionStatus)
+        ? (status.toUpperCase() as ExceptionStatus)
+        : undefined;
+    return this.exceptionsService.getExceptions(employeeId, validStatus, hrEmail);
   }
 }

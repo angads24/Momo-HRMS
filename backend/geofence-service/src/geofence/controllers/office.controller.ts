@@ -31,6 +31,14 @@ export class OfficeController {
     return this.geofenceService.listOffices();
   }
 
+  @Get('count')
+  @Public()
+  @ApiOperation({ summary: 'Get total count of registered offices' })
+  async getOfficeCount() {
+    const count = await this.geofenceService.countOffices();
+    return { count };
+  }
+
   @Get(':id')
   @Public()
   @ApiOperation({ summary: 'Get single office details with active polygon' })

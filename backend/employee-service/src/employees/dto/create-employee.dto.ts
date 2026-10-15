@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { EmploymentStatus } from '@prisma/client';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
@@ -71,9 +72,74 @@ export class CreateEmployeeDto {
   @IsString()
   primaryOfficeId?: string;
 
+  @ApiPropertyOptional({ description: 'Office location ID (alias for primaryOfficeId)' })
+  @IsOptional()
+  @IsString()
+  officeLocationId?: string;
+
+  @ApiPropertyOptional({ description: 'Office location name' })
+  @IsOptional()
+  @IsString()
+  officeLocationName?: string;
+
   @ApiPropertyOptional({ description: 'List of office IDs or Codes the employee is assigned to work at', type: [String] })
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   officeIds?: string[];
+
+  @ApiPropertyOptional({ description: 'Personal email for credentials delivery' })
+  @IsOptional()
+  @IsString()
+  personalEmail?: string;
+
+  @ApiPropertyOptional({ description: 'Job title / Designation name' })
+  @IsOptional()
+  @IsString()
+  jobTitle?: string;
+
+  @ApiPropertyOptional({ description: 'Assigned Role UUID or name' })
+  @IsOptional()
+  @IsString()
+  roleId?: string;
+
+  @ApiPropertyOptional({ description: 'Automatically provision auth user account' })
+  @IsOptional()
+  @IsBoolean()
+  provisionAccount?: boolean;
+
+  @ApiPropertyOptional({ description: 'Automatically dispatch email credentials' })
+  @IsOptional()
+  @IsBoolean()
+  sendEmail?: boolean;
+
+  @ApiPropertyOptional({ description: 'Date of birth' })
+  @IsOptional()
+  @IsString()
+  dateOfBirth?: string;
+
+  @ApiPropertyOptional({ description: 'Gender' })
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @ApiPropertyOptional({ description: 'Residential address' })
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @ApiPropertyOptional({ description: 'Profile photo URL' })
+  @IsOptional()
+  @IsString()
+  profilePhotoUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Employment type: EMPLOYEE or INTERN' })
+  @IsOptional()
+  @IsString()
+  employmentType?: string;
+
+  @ApiPropertyOptional({ description: 'Optional linked HR Web Portal login email for dual auth provisioning' })
+  @IsOptional()
+  @IsString()
+  hrWebEmail?: string;
 }

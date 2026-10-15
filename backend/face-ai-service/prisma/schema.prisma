@@ -1,0 +1,39 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model FaceProfile {
+  id               String                @id @default(uuid()) @db.VarChar(36)
+  employeeId       String                @unique @map("employee_id") @db.VarChar(64)
+  embedding        Json                  @db.Json
+  modelVersion     String                @default("ArcFace-512") @map("model_version") @db.VarChar(32)
+  isActive         Boolean               @default(true) @map("is_active")
+  enrolledAt       DateTime              @default(now()) @map("enrolled_at")
+  lastVerifiedAt   DateTime?             @map("last_verified_at")
+  logs             FaceVerificationLog[]
+
+  @@map("face_profiles")
+}
+
+model FaceVerificationLog {
+  id              String       @id @default(uuid()) @db.VarChar(36)
+  faceProfileId   String?      @map("face_profile_id") @db.VarChar(36)
+  employeeId      String       @map("employee_id") @db.VarChar(64)
+  similarityScore Float        @map("similarity_score") @db.Float
+  livenessScore   Float        @map("liveness_score") @db.Float
+  challengeType   String?      @map("challenge_type") @db.VarChar(32)
+  isMatch         Boolean      @map("is_match")
+  isLive          Boolean      @map("is_live")
+  rejectionReason String?      @map("rejection_reason") @db.VarChar(128)
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  profile         FaceProfile? @relation(fields: [faceProfileId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId], map: "idx_log_employee_id")
+  @@map("face_verification_logs")
+}

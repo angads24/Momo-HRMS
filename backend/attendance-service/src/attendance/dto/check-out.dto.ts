@@ -25,9 +25,4 @@ export class CheckOutDto {
   @ApiProperty({ example: 'a5b9c1e0-1234-4a1b-9abc-000000000002' })
   @IsUUID()
   clientEventId: string;
-
-  @ApiProperty({ required: false, example: 'EMP-001' })
-  @IsOptional()
-  @IsString()
-  employeeId?: string;
 }

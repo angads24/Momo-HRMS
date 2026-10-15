@@ -32,6 +32,7 @@ async function bootstrap() {
       return callback(null, true);
     },
     credentials: true,
+    maxAge: 86400,
   });
 
   app.useGlobalPipes(

@@ -79,6 +79,65 @@ export class AttendanceService {
     private readonly notificationClient: NotificationClientService,
   ) {}
 
+  private readonly empCodeCache = new Map<string, string>();
+  private readonly officeCodeCache = new Map<string, string>();
+  private hasLoadedOffices = false;
+
+  private isUuid(val?: string | null): boolean {
+    return Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+  }
+
+  private cleanEmployeeId(employeeId: string): string {
+    if (!this.isUuid(employeeId)) return employeeId;
+    return this.empCodeCache.get(employeeId) || employeeId;
+  }
+
+  private cleanOfficeId(officeId: string): string {
+    if (!this.isUuid(officeId)) return officeId;
+    return this.officeCodeCache.get(officeId) || officeId;
+  }
+
+  private async sanitizeSessions(sessions: any[]): Promise<void> {
+    if (!sessions || sessions.length === 0) return;
+
+    const uuidEmpIds = Array.from(new Set(sessions.map((s) => s.employeeId).filter((id) => this.isUuid(id))));
+    if (uuidEmpIds.length > 0) {
+      await Promise.all(
+        uuidEmpIds.map(async (uuid) => {
+          if (!this.empCodeCache.has(uuid)) {
+            try {
+              const res = await this.resolveEmployeeIds(uuid);
+              const code = res.find((id) => !this.isUuid(id));
+              if (code) {
+                this.empCodeCache.set(uuid, code);
+              }
+            } catch {}
+          }
+        }),
+      );
+    }
+
+    const uuidOfficeIds = Array.from(new Set(sessions.map((s) => s.officeId).filter((id) => this.isUuid(id))));
+    if (uuidOfficeIds.length > 0 && !this.hasLoadedOffices) {
+      try {
+        const geofenceUrl = process.env.GEOFENCE_SERVICE_URL || 'http://localhost:3003/api/v1';
+        const res = await fetch(`${geofenceUrl}/offices`, {
+          headers: { 'x-gateway-secret': process.env.GATEWAY_SHARED_SECRET || 'dev-gateway-secret' },
+        });
+        if (res.ok) {
+          const body = (await res.json()) as any;
+          const list = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+          for (const off of list) {
+            if (off.id && off.code) {
+              this.officeCodeCache.set(off.id, off.code);
+            }
+          }
+          this.hasLoadedOffices = true;
+        }
+      } catch {}
+    }
+  }
+
   private async resolveEmployeeIds(employeeId: string): Promise<string[]> {
     if (!employeeId) return [];
     try {
@@ -775,6 +834,8 @@ export class AttendanceService {
     const totalAdjustmentSeconds = dayAdj.seconds;
     const combinedReason = dayAdj.reason;
 
+    await this.sanitizeSessions(sessions);
+
     let sessionDtos: AttendanceSessionResponseDto[] = [];
     if (sessions.length > 0) {
       const activeIdx = sessions.findIndex(
@@ -790,7 +851,7 @@ export class AttendanceService {
     } else if (totalAdjustmentSeconds > 0 && dayAdj.exceptions.length > 0) {
       sessionDtos = [
         this.createSynthesizedSpecialSession(
-          ids[0] || employeeId,
+          this.cleanEmployeeId(ids[0] || employeeId),
           attendanceDateStr,
           dayAdj.exceptions[0],
           totalAdjustmentSeconds,
@@ -847,26 +908,33 @@ export class AttendanceService {
       adjustmentsByEmployee.set(ex.employeeId, prev);
     }
 
+    await this.sanitizeSessions(sessions);
+
     const employeeAdjustmentsApplied = new Set<string>();
     const sessionDtos: AttendanceSessionResponseDto[] = sessions.map((s) => {
       let adj = 0;
       let reason: string | undefined;
-      if (!employeeAdjustmentsApplied.has(s.employeeId)) {
-        const empAdj = adjustmentsByEmployee.get(s.employeeId);
+      const cleanEmpId = this.cleanEmployeeId(s.employeeId);
+      if (!employeeAdjustmentsApplied.has(s.employeeId) && !employeeAdjustmentsApplied.has(cleanEmpId)) {
+        const empAdj = adjustmentsByEmployee.get(s.employeeId) || adjustmentsByEmployee.get(cleanEmpId);
         if (empAdj) {
           adj = empAdj.seconds;
           reason = empAdj.reasons.join('; ');
           employeeAdjustmentsApplied.add(s.employeeId);
+          employeeAdjustmentsApplied.add(cleanEmpId);
         }
       }
       return this.toSessionDto(s, s.pauses, now, adj, reason);
     });
 
     for (const [empId, empAdj] of adjustmentsByEmployee.entries()) {
-      if (!employeeAdjustmentsApplied.has(empId) && empAdj.seconds > 0) {
+      const cleanEmpId = this.cleanEmployeeId(empId);
+      if (!employeeAdjustmentsApplied.has(empId) && !employeeAdjustmentsApplied.has(cleanEmpId) && empAdj.seconds > 0) {
+        employeeAdjustmentsApplied.add(empId);
+        employeeAdjustmentsApplied.add(cleanEmpId);
         sessionDtos.push(
           this.createSynthesizedSpecialSession(
-            empId,
+            cleanEmpId,
             attendanceDateStr,
             empAdj.exception,
             empAdj.seconds,
@@ -938,6 +1006,8 @@ export class AttendanceService {
       adjustmentsByKey.set(key, prev);
     }
 
+    await this.sanitizeSessions(items);
+
     const appliedKeys = new Set<string>();
     const sessionDtos: AttendanceSessionResponseDto[] = items.map((s) => {
       const dStr = this.formatDateOnly(s.attendanceDate);
@@ -960,7 +1030,7 @@ export class AttendanceService {
         const [empId, dStr] = key.split('_');
         sessionDtos.push(
           this.createSynthesizedSpecialSession(
-            empId,
+            this.cleanEmployeeId(empId),
             dStr,
             dAdj.exception,
             dAdj.seconds,
@@ -1030,6 +1100,8 @@ export class AttendanceService {
       adjustmentsByDate.set(dStr, prev);
     }
 
+    await this.sanitizeSessions(items);
+
     const appliedDates = new Set<string>();
     const sessionDtos: AttendanceSessionResponseDto[] = items.map((s) => {
       const dStr = this.formatDateOnly(s.attendanceDate);
@@ -1050,7 +1122,7 @@ export class AttendanceService {
       if (!appliedDates.has(dStr) && dAdj.seconds > 0) {
         sessionDtos.push(
           this.createSynthesizedSpecialSession(
-            ids[0] || employeeId,
+            this.cleanEmployeeId(ids[0] || employeeId),
             dStr,
             dAdj.exception,
             dAdj.seconds,
@@ -1553,8 +1625,8 @@ export class AttendanceService {
 
     return {
       id: session.id,
-      employeeId: session.employeeId,
-      officeId: session.officeId,
+      employeeId: this.cleanEmployeeId(session.employeeId),
+      officeId: this.cleanOfficeId(session.officeId),
       attendanceDate: this.formatDateOnly(session.attendanceDate),
       status: session.status,
       checkInAt: session.checkInAt,

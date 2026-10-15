@@ -1,7 +1,7 @@
 import type { AuthUser } from '../types/auth';
 import type { Employee } from '../types/employee';
 import type { Office } from '../features/geofence/types/geofence';
-import { fetchEmployeeByUserId, fetchEmployees } from '../services/employeeService';
+import { fetchEmployeeMe, fetchEmployees } from '../services/employeeService';
 
 export interface OfficeIdentifier {
   id: string;
@@ -142,10 +142,10 @@ export async function resolveHrOfficeScope(
     if (cachedHrEmp && cachedHrEmp.userId === user.id && cachedHrEmp.exp > now) {
       hrEmp = cachedHrEmp.emp;
     } else {
-      // 1. Attempt lookup by userId
-      hrEmp = await fetchEmployeeByUserId(user.id);
+      // 1. Cleanly resolve the current HR user profile via /employees/me without exposing raw auth UUID in request URL
+      hrEmp = await fetchEmployeeMe();
 
-      // 2. If not found by userId, lookup by email (supporting .hr suffix variations)
+      // 2. If not found via /employees/me, lookup by email (supporting .hr suffix variations)
       if (!hrEmp) {
         const hrEmail = user.email.toLowerCase();
         const cleanEmail = hrEmail.replace(/\.hr\d*(?=@|$)/i, '');
@@ -155,8 +155,7 @@ export async function resolveHrOfficeScope(
           list.find(
             (e) =>
               e.email?.toLowerCase() === hrEmail ||
-              e.email?.toLowerCase() === cleanEmail ||
-              e.userId === user.id
+              e.email?.toLowerCase() === cleanEmail
           ) ||
           list[0] ||
           null;

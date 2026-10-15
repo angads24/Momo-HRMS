@@ -73,6 +73,7 @@ async function bootstrap() {
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type,Authorization,X-Requested-With,Accept,Origin,x-employee-id,x-client-event-id,x-gateway-secret',
     credentials: true,
+    maxAge: 86400,
   });
 
   await app.listen(port, '0.0.0.0');

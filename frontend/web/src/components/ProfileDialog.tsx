@@ -21,7 +21,7 @@ import PhoneIcon from '@mui/icons-material/Phone';
 import SmartphoneIcon from '@mui/icons-material/Smartphone';
 import ComputerIcon from '@mui/icons-material/Computer';
 import { useAuth } from '../context/AuthContext';
-import { fetchEmployeeByUserId, fetchEmployees } from '../services/employeeService';
+import { fetchEmployeeMe, fetchEmployees } from '../services/employeeService';
 import type { Employee } from '../types/employee';
 import { ROLE_LABELS } from '../utils/roles';
 
@@ -42,10 +42,10 @@ export function ProfileDialog({ open, onClose }: Props) {
     async function loadData() {
       setLoading(true);
       try {
-        // Try resolving employee by userId first
-        let emp = await fetchEmployeeByUserId(user!.id);
+        // Try resolving employee profile cleanly via /employees/me first
+        let emp = await fetchEmployeeMe();
 
-        // If not directly linked by userId, query by clean email or base username
+        // If not directly linked, query by clean email or base username
         if (!emp) {
           const cleanEmail = user!.email.replace(/\.hr(?=@|$)/i, '');
           const res = await fetchEmployees({ search: cleanEmail });

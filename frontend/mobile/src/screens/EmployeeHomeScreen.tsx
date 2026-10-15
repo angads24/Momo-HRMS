@@ -39,6 +39,7 @@ import {
   detectLiveAction,
 } from '../api/faceApi';
 import { geofenceApi } from '../api/geofenceApi';
+import { downsampleFaceImage } from '../utils/imageUtils';
 
 const { width } = Dimensions.get('window');
 
@@ -220,23 +221,25 @@ function FaceEnrollModal({ visible, employeeId, onSuccess, onCancel }: FaceEnrol
     if (!cameraRef.current) return;
     setStep('capturing');
     try {
-      // Use quality 0.4 for fast, crisp upload without exceeding payload limits
+      // Capture and downsample to 480px width to avoid excess memory usage
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.4,
-        base64: true,
+        quality: 0.6,
+        base64: false,
         skipProcessing: false,
       });
 
-      if (!photo?.base64) {
+      const photoSource = photo?.uri || (photo as any)?.base64;
+      if (!photoSource) {
         setErrorMsg('Failed to capture a clear photo. Please try again.');
         setStep('error');
         return;
       }
 
       setStep('enrolling');
+      const downscaledB64 = await downsampleFaceImage(photoSource, 480, 0.65);
       const res = await enrollFace({
         employee_id: employeeId,
-        image_base64: photo.base64,
+        image_base64: downscaledB64,
       });
 
       if (res.success) {
@@ -417,18 +420,20 @@ function FaceVerifyModal({ visible, employeeId, onSuccess, onCancel, onRequestRe
         inFlight = true;
         try {
           const preview = await cameraRef.current.takePictureAsync({
-            quality: 0.20,
-            base64: true,
+            quality: 0.4,
+            base64: false,
             skipProcessing: true,
           });
 
-          if (preview?.base64 && isMounted) {
+          const previewSource = preview?.uri || (preview as any)?.base64;
+          if (previewSource && isMounted) {
+            const previewB64 = await downsampleFaceImage(previewSource, 360, 0.5);
             if (currentFrame === 1) {
-              const res = await detectNeutralPose(preview.base64);
+              const res = await detectNeutralPose(previewB64);
               if (res.detected && isMounted) {
                 triggerShutterFlash();
                 setAutoScanStatus('✓ Neutral pose detected!');
-                setCapturedFrames([preview.base64]);
+                setCapturedFrames([previewB64]);
                 setCurrentFrame(2);
               } else if (isMounted) {
                 setAutoScanStatus(res.message || 'Align face looking forward...');
@@ -437,14 +442,14 @@ function FaceVerifyModal({ visible, employeeId, onSuccess, onCancel, onRequestRe
               const res = await detectLiveAction({
                 action: challenge.action,
                 neutral_frame: capturedFrames[0],
-                current_frame: preview.base64,
+                current_frame: previewB64,
               });
 
               if (res.detected && isMounted) {
                 setIsSnapping(true);
                 triggerShutterFlash();
                 setAutoScanStatus(`✓ ${res.message || 'Action verified!'}`);
-                const verifiedFrames = [capturedFrames[0], preview.base64];
+                const verifiedFrames = [capturedFrames[0], previewB64];
                 setCapturedFrames(verifiedFrames);
                 void submitVerification(verifiedFrames);
                 return;
@@ -504,11 +509,13 @@ function FaceVerifyModal({ visible, employeeId, onSuccess, onCancel, onRequestRe
     if (!cameraRef.current) return null;
     triggerShutterFlash();
     const photo = await cameraRef.current.takePictureAsync({
-      quality: 0.35,
-      base64: true,
+      quality: 0.6,
+      base64: false,
       skipProcessing: false,
     });
-    return photo?.base64 ?? null;
+    const photoSource = photo?.uri || (photo as any)?.base64;
+    if (!photoSource) return null;
+    return await downsampleFaceImage(photoSource, 480, 0.65);
   };
 
   const handleManualSnapFrame1 = async () => {

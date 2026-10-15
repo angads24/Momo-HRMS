@@ -776,7 +776,7 @@ export class EmployeeService implements OnModuleInit {
    * Get employee by authenticated User ID.
    */
   async getEmployeeByUserId(userId: string) {
-    const employee = await this.prisma.employee.findUnique({
+    let employee = await this.prisma.employee.findUnique({
       where: { userId },
       include: {
         department: true,
@@ -784,6 +784,22 @@ export class EmployeeService implements OnModuleInit {
         assignments: { where: { isActive: true } },
       },
     });
+
+    if (!employee) {
+      employee = await this.prisma.employee.findFirst({
+        where: {
+          OR: [
+            { employeeCode: userId },
+            { id: userId },
+          ],
+        },
+        include: {
+          department: true,
+          designation: true,
+          assignments: { where: { isActive: true } },
+        },
+      });
+    }
 
     if (!employee) {
       throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee profile not found for this user', HttpStatus.NOT_FOUND);
@@ -1064,9 +1080,59 @@ export class EmployeeService implements OnModuleInit {
 
     const cleanId = emp.employeeCode || emp.id;
 
+    // Sanitize child department
+    const cleanDepartment = emp.department
+      ? {
+          id: emp.department.code || emp.department.name || 'DEPT',
+          code: emp.department.code || 'DEPT',
+          name: emp.department.name,
+          description: emp.department.description ?? null,
+        }
+      : null;
+
+    // Sanitize child designation
+    const cleanDesignation = emp.designation
+      ? {
+          id: emp.designation.code || emp.designation.title || 'DESIG',
+          code: emp.designation.code || 'DESIG',
+          title: emp.designation.title,
+          description: emp.designation.description ?? null,
+        }
+      : null;
+
+    // Sanitize assignments array
+    const sanitizedAssignments = (emp.assignments || []).map((a: any, idx: number) => {
+      const resolved = this.getOfficeDetails(a.officeId);
+      const cleanOfficeId = resolved?.code || (isUuid(a.officeId) ? (resolved?.name || 'OFFICE') : a.officeId);
+      return {
+        id: `assign-${cleanId.toLowerCase()}-${idx + 1}`,
+        employeeId: cleanId,
+        officeId: cleanOfficeId,
+        isPrimary: Boolean(a.isPrimary),
+        isActive: Boolean(a.isActive),
+        office: resolved
+          ? {
+              id: resolved.code || resolved.id,
+              code: resolved.code,
+              name: resolved.name,
+            }
+          : undefined,
+      };
+    });
+
+    const hasUserAccount = Boolean(emp.userId);
+
     return {
       ...emp,
       id: cleanId,
+      userId: hasUserAccount ? cleanId : null,
+      hasAccount: hasUserAccount,
+      hasUserAccount,
+      assignments: sanitizedAssignments,
+      department: cleanDepartment,
+      departmentId: cleanDepartment?.code || cleanDepartment?.id || null,
+      designation: cleanDesignation,
+      designationId: cleanDesignation?.code || cleanDesignation?.id || null,
       status: emp.employmentStatus,
       jobTitle: displayJobTitle,
       isHr: isHrMember,
@@ -1081,7 +1147,9 @@ export class EmployeeService implements OnModuleInit {
       officeIds,
       officeLocationNames,
       isOnboarded: emp.isOnboarded ?? false,
-      dateOfBirth: emp.dateOfBirth ? emp.dateOfBirth.toISOString().slice(0, 10) : null,
+      dateOfBirth: emp.dateOfBirth
+        ? (emp.dateOfBirth.toISOString ? emp.dateOfBirth.toISOString().slice(0, 10) : String(emp.dateOfBirth).slice(0, 10))
+        : null,
       personalEmail: emp.personalEmail ?? null,
       gender: emp.gender ?? null,
       address: emp.address ?? null,

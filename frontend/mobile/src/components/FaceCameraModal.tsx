@@ -23,6 +23,7 @@ import type { ChallengeResponse } from '../api/faceApi';
 import { palette } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
 import { AppButton } from './AppButton';
+import { downsampleFaceImage } from '../utils/imageUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const OVAL_WIDTH = Math.min(SCREEN_WIDTH * 0.70, 270);
@@ -160,24 +161,26 @@ export function FaceCameraModal({
 
       try {
         const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.45,
-          base64: true,
+          quality: 0.4,
+          base64: false,
           skipProcessing: true,
         });
 
-        if (!photo || !photo.base64) {
+        const photoSource = photo?.uri || (photo as any)?.base64;
+        if (!photoSource) {
           isAnalyzingRef.current = false;
           return;
         }
+        const downsampledB64 = await downsampleFaceImage(photoSource, 360, 0.5);
 
         // ── Phase 1: Detect Neutral Pose ──
         if (activeStep === 'NEUTRAL') {
-          const res = await detectNeutral(photo.base64);
+          const res = await detectNeutral(downsampledB64);
           if (res.detected) {
             setNeutralDetected(true);
-            setNeutralFrame(photo.base64);
+            setNeutralFrame(downsampledB64);
             setNeutralPreviewUri(photo.uri);
-            neutralFrameRef.current = photo.base64;
+            neutralFrameRef.current = downsampledB64;
 
             // Advance to Phase 2: Action Challenge
             setCurrentStep('ACTION');
@@ -265,9 +268,9 @@ export function FaceCameraModal({
 
       if (currentStep === 'NEUTRAL') {
         setNeutralDetected(true);
-        setNeutralFrame(photo.base64);
+        setNeutralFrame(downsampledB64);
         setNeutralPreviewUri(photo.uri);
-        neutralFrameRef.current = photo.base64;
+        neutralFrameRef.current = downsampledB64;
         setCurrentStep('ACTION');
         const actionLabel = getActionDisplay(challenge.action).label;
         setStepPrompt(`Step 2 of 2: ${actionLabel}! Auto-capturing when detected...`);

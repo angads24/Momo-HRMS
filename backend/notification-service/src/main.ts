@@ -41,6 +41,7 @@ async function bootstrap() {
     },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
+    maxAge: 86400,
   });
 
   app.setGlobalPrefix(apiPrefix, {

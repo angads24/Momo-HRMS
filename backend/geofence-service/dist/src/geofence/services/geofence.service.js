@@ -71,6 +71,9 @@ let GeofenceService = GeofenceService_1 = class GeofenceService {
             altitudeValid,
         };
     }
+    async countOffices() {
+        return this.prisma.office.count();
+    }
     async listOffices() {
         const offices = await this.prisma.office.findMany({
             include: {
@@ -86,7 +89,7 @@ let GeofenceService = GeofenceService_1 = class GeofenceService {
             orderBy: { name: 'asc' },
         });
         return offices.map((o) => ({
-            id: o.id,
+            id: o.code || o.id,
             code: o.code,
             name: o.name,
             address: o.address,
@@ -97,7 +100,7 @@ let GeofenceService = GeofenceService_1 = class GeofenceService {
             maxAltitudeMeters: o.maxAltitudeMeters,
             activePolygon: o.polygons[0]
                 ? {
-                    id: o.polygons[0].id,
+                    id: `${o.code}-POLY-01`,
                     name: o.polygons[0].name,
                     version: o.polygons[0].version,
                     isActive: o.polygons[0].isActive,
@@ -130,7 +133,7 @@ let GeofenceService = GeofenceService_1 = class GeofenceService {
             throw new app_exception_1.AppException(error_codes_1.ErrorCodes.OFFICE_NOT_FOUND, 'Office not found', common_1.HttpStatus.NOT_FOUND);
         }
         return {
-            id: office.id,
+            id: office.code || office.id,
             code: office.code,
             name: office.name,
             address: office.address,
@@ -141,7 +144,7 @@ let GeofenceService = GeofenceService_1 = class GeofenceService {
             maxAltitudeMeters: office.maxAltitudeMeters,
             activePolygon: office.polygons[0]
                 ? {
-                    id: office.polygons[0].id,
+                    id: `${office.code}-POLY-01`,
                     name: office.polygons[0].name,
                     version: office.polygons[0].version,
                     isActive: office.polygons[0].isActive,

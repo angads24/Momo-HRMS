@@ -14,10 +14,6 @@ const swagger_1 = require("@nestjs/swagger");
 const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
 class HistoryQueryDto {
-    constructor() {
-        this.page = 1;
-        this.limit = 20;
-    }
 }
 exports.HistoryQueryDto = HistoryQueryDto;
 __decorate([
@@ -33,7 +29,7 @@ __decorate([
     __metadata("design:type", String)
 ], HistoryQueryDto.prototype, "endDate", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ required: false, default: 1, minimum: 1 }),
+    (0, swagger_1.ApiProperty)({ required: false, minimum: 1 }),
     (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.IsInt)(),
@@ -41,7 +37,7 @@ __decorate([
     __metadata("design:type", Number)
 ], HistoryQueryDto.prototype, "page", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ required: false, default: 20, minimum: 1, maximum: 1000 }),
+    (0, swagger_1.ApiProperty)({ required: false, minimum: 1, maximum: 1000 }),
     (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.IsInt)(),

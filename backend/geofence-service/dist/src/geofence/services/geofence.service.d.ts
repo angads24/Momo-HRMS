@@ -8,6 +8,7 @@ export declare class GeofenceService {
     private readonly logger;
     constructor(prisma: PrismaService);
     verifyLocation(dto: VerifyLocationDto): Promise<VerifyLocationResponseDto>;
+    countOffices(): Promise<number>;
     listOffices(): Promise<{
         id: string;
         code: string;

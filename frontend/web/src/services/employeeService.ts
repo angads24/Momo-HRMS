@@ -32,9 +32,11 @@ interface ApiResponse<T> {
  * GET /api/v1/employees?page=1&limit=20&search=...&departmentId=...&roleId=...&status=...
  */
 export async function fetchEmployees(query: EmployeeListQuery = {}): Promise<PaginatedResponse<Employee>> {
-  const params: Record<string, string | number> = {};
-  if (query.page) params.page = query.page;
-  if (query.limit) params.limit = query.limit;
+  const params: Record<string, string | number | boolean> = {};
+  if (typeof query.page === 'number' && typeof query.limit === 'number' && !query.all) {
+    params.page = query.page;
+    params.limit = query.limit;
+  }
   if (query.search?.trim()) params.search = query.search.trim();
   if (query.departmentId) params.departmentId = query.departmentId;
   if (query.roleId) params.roleId = query.roleId;
@@ -57,8 +59,8 @@ export async function fetchEmployees(query: EmployeeListQuery = {}): Promise<Pag
     items = raw;
     meta.total = raw.length;
     meta.totalPages = Math.ceil(raw.length / meta.limit) || 1;
-  } else if (raw && typeof raw === 'object' && Array.isArray(raw.items)) {
-    items = raw.items;
+  } else if (raw && typeof raw === 'object' && (Array.isArray(raw.employees) || Array.isArray(raw.items))) {
+    items = raw.employees || raw.items;
     meta = {
       page: Number(raw.page) || meta.page,
       limit: Number(raw.limit) || meta.limit,
@@ -279,8 +281,14 @@ export async function createEmployee(payload: CreateEmployeePayload): Promise<Em
   if (payload.userId) {
     cleanPayload.userId = payload.userId;
   }
+  if (payload.hrWebEmail?.trim()) {
+    cleanPayload.hrWebEmail = payload.hrWebEmail.trim().toLowerCase();
+  }
   if (typeof payload.provisionAccount === 'boolean') {
     cleanPayload.provisionAccount = payload.provisionAccount;
+  }
+  if (typeof payload.sendEmail === 'boolean') {
+    cleanPayload.sendEmail = payload.sendEmail;
   }
   if (payload.officeLocationId?.trim()) {
     cleanPayload.officeLocationId = payload.officeLocationId.trim();
@@ -367,9 +375,7 @@ export async function changeEmployeeStatus(
  * GET /api/v1/departments?limit=100&status=ACTIVE
  */
 export async function fetchActiveDepartments(): Promise<Department[]> {
-  const response = await api.get<any>(`${EMPLOYEE_API_URL}/departments`, {
-    params: { limit: 100, status: 'ACTIVE' },
-  });
+  const response = await api.get<any>(`${EMPLOYEE_API_URL}/departments`);
   const raw = response.data?.data ?? response.data;
   return Array.isArray(raw) ? raw : (raw?.items || []);
 }

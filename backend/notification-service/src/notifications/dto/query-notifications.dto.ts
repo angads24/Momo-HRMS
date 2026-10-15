@@ -8,12 +8,12 @@ export class QueryNotificationsDto {
   @IsString()
   recipientId?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by recipient Email' })
+  @ApiPropertyOptional({ description: 'Filter by user email' })
   @IsOptional()
   @IsString()
   email?: string;
 
-  @ApiPropertyOptional({ description: 'Filter by recipient role (e.g. HR, ADMIN, EMPLOYEE)' })
+  @ApiPropertyOptional({ description: 'Filter by user role' })
   @IsOptional()
   @IsString()
   role?: string;
@@ -28,18 +28,18 @@ export class QueryNotificationsDto {
   @IsBoolean()
   isRead?: boolean;
 
-  @ApiPropertyOptional({ description: 'Page number', default: 1 })
+  @ApiPropertyOptional({ description: 'Page number (optional for complete transfer)' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  page?: number = 1;
+  page?: number;
 
-  @ApiPropertyOptional({ description: 'Number of items per page', default: 20 })
+  @ApiPropertyOptional({ description: 'Number of items per page (optional)' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
-  limit?: number = 20;
+  @Max(200)
+  limit?: number;
 }

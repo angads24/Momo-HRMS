@@ -14,6 +14,8 @@ export interface SendCredentialEmailOptions {
   temporaryPassword?: string;
   isPasswordReset?: boolean;
   roleName?: string;
+  hrPortalEmail?: string;
+  hrPortalPassword?: string;
 }
 
 export interface CredentialDeliveryResult {
@@ -212,13 +214,46 @@ export class EmailService implements OnModuleInit {
 
     const loginUrl = `${this.frontendUrl}/login`;
 
+    const hasDualHr = Boolean(options.hrPortalEmail && options.hrPortalPassword);
+
     const subject = isPasswordReset
       ? 'Your Momo HRMS Account Password Has Been Reset'
+      : hasDualHr
+      ? 'Welcome to Momo HRMS - Your HR Web & Mobile Attendance Credentials'
       : isWebAdminOrHr
       ? 'Welcome to Momo HRMS - Your Admin & HR Portal Credentials'
       : 'Welcome to Momo HRMS - Your Employee Mobile App Credentials';
 
-    const textContent = `
+    const textContent = hasDualHr
+      ? `
+Hello ${employeeName},
+
+Your Momo HRMS Human Resources accounts have been provisioned.
+
+1. HR Management Web Portal (Desktop / Browser)
+------------------------------------------
+Portal URL:             ${loginUrl}
+Role:                   HR_ADMIN
+Login Email:            ${options.hrPortalEmail}
+Temporary Password:     ${options.hrPortalPassword}
+------------------------------------------
+
+2. Mobile Attendance App (Daily Check-in & Punch Logs)
+------------------------------------------
+Access Method:          Momo HRMS Mobile Application
+Role:                   EMPLOYEE
+Login Email:            ${officialEmail}
+Username:               ${username}
+${temporaryPassword ? `Temporary Password:     ${temporaryPassword}` : ''}
+------------------------------------------
+
+Important:
+You will be prompted to set your own secure permanent password upon your first login.
+
+Regards,
+Momo HRMS Team
+`
+      : `
 Hello ${employeeName},
 
 ${
@@ -272,7 +307,7 @@ Momo HRMS Team
               <h1 style="color: #ffffff; margin: 0 0 6px 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Momo HRMS</h1>
               <p style="color: #bfdbfe; margin: 0 0 12px 0; font-size: 14px; font-weight: 500;">Smart Employee Attendance & Workforce Management</p>
               <div style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; padding: 4px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
-                ${isWebAdminOrHr ? '💻 Web Management Portal' : '📱 Mobile App Access'}
+                ${hasDualHr ? '✨ HR Management & Attendance Accounts' : isWebAdminOrHr ? '💻 Web Management Portal' : '📱 Mobile App Access'}
               </div>
             </td>
           </tr>
@@ -286,11 +321,88 @@ Momo HRMS Team
               <p style="color: #475569; font-size: 14px; line-height: 1.6; margin: 0 0 20px 0;">
                 ${isPasswordReset 
                   ? 'Your account password has been reset by an administrator. Please find your new login credentials below:' 
+                  : hasDualHr
+                  ? 'Your HR Specialist profile has been created with access to both the HR Web Management Portal and Mobile Attendance App:'
                   : isWebAdminOrHr 
                   ? 'Your official administrative account has been provisioned. You can sign in to the Web Management Portal using the credentials below:' 
                   : 'Your official employee account has been created for the Momo HRMS Mobile Application. Please use the credentials below to log in:'}
               </p>
 
+              ${hasDualHr ? `
+              <!-- CARD 1: HR WEB PORTAL -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #faf5ff; border: 2px solid #9333ea; border-radius: 10px; margin: 16px 0; overflow: hidden;">
+                <tr>
+                  <td style="background-color: #f3e8ff; padding: 12px 20px; border-bottom: 1px solid #d8b4fe;">
+                    <strong style="color: #7e22ce; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">💻 1. HR Web Management Portal (Desktop)</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 16px 20px;">
+                    <table width="100%" cellpadding="6" cellspacing="0" border="0">
+                      <tr>
+                        <td width="35%" style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Role:</td>
+                        <td width="65%" style="color: #7e22ce; font-size: 14px; font-weight: 700; padding: 6px 0;">HR_ADMIN</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Web Login Email:</td>
+                        <td style="padding: 6px 0;">
+                          <span style="font-family: monospace; font-size: 14px; font-weight: 700; color: #7e22ce; background-color: #f3e8ff; padding: 4px 10px; border-radius: 4px; display: inline-block;">${options.hrPortalEmail}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="color: #b45309; font-size: 13px; font-weight: 700; padding: 10px 0 6px 0; border-top: 1px dashed #e9d5ff;">Temp Password:</td>
+                        <td style="padding: 10px 0 6px 0; border-top: 1px dashed #e9d5ff;">
+                          <span style="font-family: monospace; font-size: 16px; font-weight: 800; color: #b45309; background-color: #fef3c7; border: 1.5px solid #f59e0b; padding: 5px 12px; border-radius: 6px; display: inline-block;">${options.hrPortalPassword}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Web Portal URL:</td>
+                        <td style="padding: 6px 0;">
+                          <a href="${loginUrl}" target="_blank" style="color: #7e22ce; font-weight: 700; text-decoration: underline;">${loginUrl}</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CARD 2: MOBILE ATTENDANCE APP -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0fdf4; border: 2px solid #16a34a; border-radius: 10px; margin: 16px 0; overflow: hidden;">
+                <tr>
+                  <td style="background-color: #dcfce7; padding: 12px 20px; border-bottom: 1px solid #bbf7d0;">
+                    <strong style="color: #15803d; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">📱 2. Employee Mobile Attendance App</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 16px 20px;">
+                    <table width="100%" cellpadding="6" cellspacing="0" border="0">
+                      <tr>
+                        <td width="35%" style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Role:</td>
+                        <td width="65%" style="color: #15803d; font-size: 14px; font-weight: 700; padding: 6px 0;">EMPLOYEE (Human Resources)</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">App Login Email:</td>
+                        <td style="padding: 6px 0;">
+                          <span style="font-family: monospace; font-size: 14px; font-weight: 700; color: #15803d; background-color: #dcfce7; padding: 4px 10px; border-radius: 4px; display: inline-block;">${officialEmail}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b; font-size: 13px; font-weight: 600; padding: 6px 0;">Username / Code:</td>
+                        <td style="color: #0f172a; font-size: 14px; font-family: monospace; font-weight: 700; padding: 6px 0;">${username}</td>
+                      </tr>
+                      ${temporaryPassword ? `
+                      <tr>
+                        <td style="color: #b45309; font-size: 13px; font-weight: 700; padding: 10px 0 6px 0; border-top: 1px dashed #bbf7d0;">Temp Password:</td>
+                        <td style="padding: 10px 0 6px 0; border-top: 1px dashed #bbf7d0;">
+                          <span style="font-family: monospace; font-size: 16px; font-weight: 800; color: #b45309; background-color: #fef3c7; border: 1.5px solid #f59e0b; padding: 5px 12px; border-radius: 6px; display: inline-block;">${temporaryPassword}</span>
+                        </td>
+                      </tr>
+                      ` : ''}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              ` : `
               <!-- PROMINENT CREDENTIALS CARD -->
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 2px solid #2563eb; border-radius: 10px; margin: 20px 0; overflow: hidden;">
                 <tr>
@@ -327,6 +439,7 @@ Momo HRMS Team
                   </td>
                 </tr>
               </table>
+              `}
 
               <!-- Security Alert Box -->
               <table width="100%" cellpadding="12" cellspacing="0" border="0" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 0 6px 6px 0; margin-bottom: 24px;">

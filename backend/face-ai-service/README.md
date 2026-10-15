@@ -359,16 +359,11 @@ backend/face-ai-service/
 cd "backend/face-ai-service"
 source venv/bin/activate
 
-
-.\venv\Scripts\Activate.ps1
 # 2. Verify model weights exist
 ls -lh app/weights/
 
 # 3. Start development server
 uvicorn app.main:app --host 0.0.0.0 --port 3006 --reload
-
-
-
 
 # 4. Check service health
 curl http://localhost:3006/health

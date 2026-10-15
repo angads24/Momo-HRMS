@@ -137,4 +137,9 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsString()
   employmentType?: string;
+
+  @ApiPropertyOptional({ description: 'Optional linked HR Web Portal login email for dual auth provisioning' })
+  @IsOptional()
+  @IsString()
+  hrWebEmail?: string;
 }

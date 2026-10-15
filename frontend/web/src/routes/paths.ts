@@ -40,7 +40,7 @@ export function homePathForUser(user: AuthUser | null): string {
     case 'HR':
       return PATHS.hr;
     case 'EMPLOYEE':
-      return PATHS.attendance;
+      return PATHS.unauthorized;
     default:
       return PATHS.unauthorized;
   }

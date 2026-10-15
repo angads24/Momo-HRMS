@@ -10,7 +10,9 @@ import {
   Sse,
   ValidationPipe,
   UsePipes,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { NotificationsService } from './notifications.service';
@@ -34,10 +36,34 @@ export class NotificationsController {
     return this.notificationsService.create(dto);
   }
 
+  @Post()
+  @ApiOperation({ summary: 'Create and dispatch an in-app notification' })
+  @ApiResponse({ status: 201, description: 'Notification created and broadcasted via SSE' })
+  async createNotification(@Body() dto: CreateNotificationDto) {
+    return this.notificationsService.create(dto);
+  }
+
   @Get()
   @ApiOperation({ summary: 'List notifications for a user/employee with pagination' })
-  async findAll(@Query() query: QueryNotificationsDto) {
-    return this.notificationsService.findAll(query);
+  async findAll(@Query() query: QueryNotificationsDto, @Req() req: Request) {
+    const headerUserId = req?.headers['x-user-id'] as string;
+    const headerEmpId = req?.headers['x-employee-id'] as string;
+    const headerRole = req?.headers['x-roles'] as string;
+    const headerEmail = req?.headers['x-email'] as string;
+
+    const effectiveRecipientId = query.recipientId || headerEmpId || headerUserId;
+    const effectiveEmail = query.email || headerEmail;
+    const effectiveRole = query.role || headerRole;
+
+    return this.notificationsService.findAll(
+      {
+        ...query,
+        recipientId: effectiveRecipientId,
+        email: effectiveEmail,
+        role: effectiveRole,
+      },
+      headerUserId || headerEmpId || query.recipientId,
+    );
   }
 
   @Get('unread-count')
@@ -49,19 +75,38 @@ export class NotificationsController {
     @Query('recipientId') recipientId?: string,
     @Query('email') email?: string,
     @Query('role') role?: string,
+    @Req() req?: Request,
   ) {
-    return this.notificationsService.getUnreadCount(recipientId, email, role);
+    const headerUserId = req?.headers['x-user-id'] as string;
+    const headerEmpId = req?.headers['x-employee-id'] as string;
+    const headerRole = req?.headers['x-roles'] as string;
+    const headerEmail = req?.headers['x-email'] as string;
+
+    const effectiveRecipientId = recipientId || headerEmpId || headerUserId;
+    const effectiveEmail = email || headerEmail;
+    const effectiveRole = role || headerRole;
+    const callerId = headerUserId || headerEmpId || recipientId;
+
+    return this.notificationsService.getUnreadCount(effectiveRecipientId, effectiveEmail, effectiveRole, callerId);
   }
 
   @Sse('stream')
   @ApiOperation({ summary: 'Real-time Server-Sent Events (SSE) notification stream for web and mobile' })
-  @ApiQuery({ name: 'recipientId', required: true, type: String })
+  @ApiQuery({ name: 'recipientId', required: false, type: String })
   @ApiQuery({ name: 'email', required: false, type: String })
   stream(
-    @Query('recipientId') recipientId: string,
+    @Query('recipientId') recipientId?: string,
     @Query('email') email?: string,
+    @Req() req?: Request,
   ): Observable<MessageEvent> {
-    return this.sseService.getRecipientStream(recipientId, email);
+    const headerUserId = req?.headers['x-user-id'] as string;
+    const headerEmpId = req?.headers['x-employee-id'] as string;
+    const headerEmail = req?.headers['x-email'] as string;
+
+    const effectiveId = recipientId || headerEmpId || headerUserId || 'ALL';
+    const effectiveEmail = email || headerEmail;
+
+    return this.sseService.getRecipientStream(effectiveId, effectiveEmail);
   }
 
   @Patch(':id/read')
@@ -80,16 +125,34 @@ export class NotificationsController {
     @Query('email') email?: string,
     @Query('role') role?: string,
     @Body() body?: any,
+    @Req() req?: Request,
   ) {
-    const effectiveRecipientId = recipientId || body?.recipientId;
-    const effectiveEmail = email || body?.email;
-    const effectiveRole = role || body?.role;
+    const headerUserId = req?.headers['x-user-id'] as string;
+    const headerEmpId = req?.headers['x-employee-id'] as string;
+    const headerRole = req?.headers['x-roles'] as string;
+    const headerEmail = req?.headers['x-email'] as string;
+
+    const effectiveRecipientId = recipientId || body?.recipientId || headerEmpId || headerUserId;
+    const effectiveEmail = email || body?.email || headerEmail;
+    const effectiveRole = role || body?.role || headerRole;
     return this.notificationsService.markAllAsRead(effectiveRecipientId, effectiveEmail, effectiveRole);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a notification' })
-  async remove(@Param('id') id: string) {
-    return this.notificationsService.remove(id);
+  @ApiOperation({ summary: 'Delete or dismiss a notification' })
+  @ApiQuery({ name: 'hard', required: false, type: Boolean })
+  @ApiQuery({ name: 'userId', required: false, type: String })
+  async remove(
+    @Param('id') id: string,
+    @Query('hard') hard?: string,
+    @Query('userId') queryUserId?: string,
+    @Req() req?: Request,
+  ) {
+    const headerUserId = req?.headers['x-user-id'] as string;
+    const headerEmpId = req?.headers['x-employee-id'] as string;
+    const callerId = queryUserId || headerUserId || headerEmpId;
+    const isHard = hard === 'true';
+
+    return this.notificationsService.remove(id, callerId, isHard);
   }
 }

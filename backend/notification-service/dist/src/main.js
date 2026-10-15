@@ -11,14 +11,27 @@ async function bootstrap() {
     const configService = app.get(config_1.ConfigService);
     const port = configService.get('port', 3005);
     const apiPrefix = configService.get('apiPrefix', 'api/v1');
+    const corsOriginEnv = configService.get('corsOrigins', process.env.CORS_ORIGIN || '*');
+    const allowedOrigins = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:3000',
+        'http://localhost:8081',
+        'http://localhost:8000',
+    ];
     app.enableCors({
         origin: (origin, callback) => {
-            if (!origin)
+            if (!origin ||
+                corsOriginEnv === '*' ||
+                allowedOrigins.includes(origin) ||
+                corsOriginEnv.split(',').map((o) => o.trim()).includes(origin)) {
                 return callback(null, true);
+            }
             const isLocalNetwork = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(origin);
-            if (isLocalNetwork)
+            if (isLocalNetwork) {
                 return callback(null, true);
-            return callback(null, true);
+            }
+            return callback(new Error(`CORS blocked for origin: ${origin}`));
         },
         methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
         credentials: true,

@@ -1,15 +1,10 @@
-/** Every screen in the employee mobile app and the params it takes */
+/** Every screen in the app and the params it takes (none of them need params). */
 export type RootStackParamList = {
   Login: undefined;
   ResetPassword: undefined;
-  ProfileCompletion: undefined;
-  FaceRegistration: undefined;
   EmployeeHome: undefined;
-  AttendanceHistory: undefined;
-  Profile: undefined;
-  Notifications: undefined;
-  MsgToHr: undefined;
-  MyAttendance: undefined;
+  AdminHome: undefined;
+  HrHome: undefined;
 };
 
 // Makes useNavigation() / navigate() type-safe everywhere without extra generics.

@@ -165,4 +165,10 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateEmployeeDto.prototype, "employmentType", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Optional linked HR Web Portal login email for dual auth provisioning' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateEmployeeDto.prototype, "hrWebEmail", void 0);
 //# sourceMappingURL=create-employee.dto.js.map

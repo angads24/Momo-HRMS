@@ -79,6 +79,13 @@ export class EmployeeController {
     return this.employeeService.listEmployees(query);
   }
 
+  @Get('metrics')
+  @Public()
+  @ApiOperation({ summary: 'Get workforce and department count metrics' })
+  async getMetrics() {
+    return this.employeeService.getDashboardMetrics();
+  }
+
   @Get('hr-staff')
   @Public()
   @ApiOperation({ summary: 'List HR staff members for employee contact and requests' })

@@ -82,6 +82,8 @@ export interface Employee {
   deactivatedAt?: string | null;
   deactivationReason?: string | null;
   deactivatedBy?: string | null;
+  isHr?: boolean;
+  hrWebEmail?: string;
 }
 
 export interface Device {
@@ -120,6 +122,7 @@ export interface PaginatedResponse<T> {
 }
 
 export interface EmployeeListQuery {
+  all?: boolean;
   page?: number;
   limit?: number;
   search?: string;
@@ -152,6 +155,7 @@ export interface CreateEmployeePayload {
   userId?: string;
   provisionAccount?: boolean;
   sendEmail?: boolean;
+  hrWebEmail?: string;
 }
 
 export interface UpdateEmployeePayload {

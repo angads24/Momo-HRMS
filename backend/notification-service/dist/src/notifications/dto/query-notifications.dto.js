@@ -14,10 +14,6 @@ const swagger_1 = require("@nestjs/swagger");
 const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
 class QueryNotificationsDto {
-    constructor() {
-        this.page = 1;
-        this.limit = 20;
-    }
 }
 exports.QueryNotificationsDto = QueryNotificationsDto;
 __decorate([
@@ -27,13 +23,13 @@ __decorate([
     __metadata("design:type", String)
 ], QueryNotificationsDto.prototype, "recipientId", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ description: 'Filter by recipient Email' }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Filter by user email' }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], QueryNotificationsDto.prototype, "email", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ description: 'Filter by recipient role (e.g. HR, ADMIN, EMPLOYEE)' }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Filter by user role' }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
@@ -52,7 +48,7 @@ __decorate([
     __metadata("design:type", Boolean)
 ], QueryNotificationsDto.prototype, "isRead", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ description: 'Page number', default: 1 }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Page number (optional for complete transfer)' }),
     (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.IsInt)(),
@@ -60,12 +56,12 @@ __decorate([
     __metadata("design:type", Number)
 ], QueryNotificationsDto.prototype, "page", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ description: 'Number of items per page', default: 20 }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Number of items per page (optional)' }),
     (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
-    (0, class_validator_1.Max)(100),
+    (0, class_validator_1.Max)(200),
     __metadata("design:type", Number)
 ], QueryNotificationsDto.prototype, "limit", void 0);
 //# sourceMappingURL=query-notifications.dto.js.map

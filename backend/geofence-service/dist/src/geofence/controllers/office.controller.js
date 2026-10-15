@@ -28,6 +28,10 @@ let OfficeController = class OfficeController {
     async listOffices() {
         return this.geofenceService.listOffices();
     }
+    async getOfficeCount() {
+        const count = await this.geofenceService.countOffices();
+        return { count };
+    }
     async getOfficeById(id) {
         return this.geofenceService.getOfficeById(id);
     }
@@ -56,6 +60,14 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], OfficeController.prototype, "listOffices", null);
+__decorate([
+    (0, common_1.Get)('count'),
+    (0, public_decorator_1.Public)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Get total count of registered offices' }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], OfficeController.prototype, "getOfficeCount", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, public_decorator_1.Public)(),

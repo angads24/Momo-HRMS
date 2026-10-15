@@ -13,20 +13,20 @@ export class HistoryQueryDto {
   @IsDateString()
   endDate?: string;
 
-  @ApiProperty({ required: false, default: 1, minimum: 1 })
+  @ApiProperty({ required: false, minimum: 1 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  page?: number = 1;
+  page?: number;
 
-  @ApiProperty({ required: false, default: 20, minimum: 1, maximum: 1000 })
+  @ApiProperty({ required: false, minimum: 1, maximum: 1000 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(1000)
-  limit?: number = 20;
+  limit?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()

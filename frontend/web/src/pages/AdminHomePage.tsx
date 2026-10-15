@@ -24,8 +24,7 @@ import TableChartIcon from '@mui/icons-material/TableChart';
 import SecurityIcon from '@mui/icons-material/Security';
 import { DashboardLayout } from '../components/DashboardLayout';
 import { PATHS } from '../routes/paths';
-import { fetchActiveDepartments, fetchEmployees } from '../services/employeeService';
-import { fetchOffices } from '../features/geofence/services/geofenceService';
+import { api } from '../api/client';
 
 export default function AdminHomePage() {
   const navigate = useNavigate();
@@ -38,22 +37,21 @@ export default function AdminHomePage() {
     departmentCount: 0,
   });
 
+  // Load consolidated admin metrics once - avoid downloading full lists or repeated requests
   const loadMetrics = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
     try {
-      const [empRes, officesRes, deptsRes] = await Promise.all([
-        fetchEmployees({ limit: 1 }).catch(() => ({ meta: { total: 0 } })),
-        fetchOffices().catch(() => []),
-        fetchActiveDepartments().catch(() => []),
-      ]);
-
+      const res = await api.get('/admin/stats');
+      const data = res.data?.data || res.data || {};
       setStats({
-        employeeCount: empRes.meta?.total || 0,
-        officeCount: Array.isArray(officesRes) ? officesRes.length : 0,
-        departmentCount: Array.isArray(deptsRes) ? deptsRes.length : 0,
+        employeeCount: typeof data.employeeCount === 'number' ? data.employeeCount : 0,
+        officeCount: typeof data.officeCount === 'number' ? data.officeCount : 0,
+        departmentCount: typeof data.departmentCount === 'number' ? data.departmentCount : 0,
       });
+    } catch {
+      // Non-fatal if backend is briefly warming up
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -61,7 +59,13 @@ export default function AdminHomePage() {
   }, []);
 
   useEffect(() => {
-    loadMetrics();
+    let mounted = true;
+    void (async () => {
+      if (mounted) await loadMetrics();
+    })();
+    return () => {
+      mounted = false;
+    };
   }, [loadMetrics]);
 
   return (

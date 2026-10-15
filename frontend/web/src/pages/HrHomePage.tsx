@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useDeferredValue } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
@@ -78,8 +78,14 @@ export default function HrHomePage() {
   // Live seconds ticker for active WORKING sessions
   const [liveSecondTick, setLiveSecondTick] = useState(0);
 
-  // Master Data Loading Routine
+  // Concurrency & throttle guards
+  const isFetchingRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+
+  // Master Data Loading Routine (Employees, Departments, Offices, 7-day History, Today Sessions)
   const loadDashboardData = useCallback(async (isBackground = false, isSilent = false) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     if (!isBackground) {
       setLoading(true);
     } else if (!isSilent) {
@@ -94,8 +100,8 @@ export default function HrHomePage() {
     const endDateStr = end.toISOString().split('T')[0];
 
     try {
-      // 1. Fetch Real Employees (limit: 100)
-      const empPromise = fetchEmployees({ limit: 100 }).catch((e) => {
+      // 1. Fetch Real Employees (complete transfer)
+      const empPromise = fetchEmployees().catch((e) => {
         console.warn('Could not load employees:', e);
         return { data: [], meta: { page: 1, limit: 100, total: 0, totalPages: 1 } };
       });
@@ -119,8 +125,6 @@ export default function HrHomePage() {
       const historyPromise = fetchCompanyAttendanceHistory({
         startDate: startDateStr,
         endDate: endDateStr,
-        page: 1,
-        limit: 500,
       })
         .then((res) => res.items ?? [])
         .catch((e) => {
@@ -165,35 +169,56 @@ export default function HrHomePage() {
       setDepartments(deptsData);
       setHistorySessions(histSessions);
       setTodaySessions(todaySess);
+      lastFetchTimeRef.current = Date.now();
     } catch {
       setError('Unable to synchronize HR dashboard with backend services. Please retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
+      isFetchingRef.current = false;
     }
   }, [user]);
 
-  // Initial load
+  // Lightweight Live Attendance Poller: Only fetches today's sessions (active clock-ins/outs)
+  const refreshLiveAttendance = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    try {
+      const todayRes = await fetchCompanyTodayAttendance();
+      const sessions = todayRes.sessions ?? [];
+      setTodaySessions(sessions);
+      lastFetchTimeRef.current = Date.now();
+    } catch (e) {
+      console.warn('Could not refresh live attendance sessions:', e);
+    } finally {
+      isFetchingRef.current = false;
+    }
+  }, []);
+
+  // Initial full load on mount
   useEffect(() => {
     void loadDashboardData(false);
   }, [loadDashboardData]);
 
-  // Real-time synchronization: Silent poll every 4 seconds while visible
+  // Real-time synchronization: Silent poll ONLY today's live attendance every 20 seconds while visible
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        void loadDashboardData(true, true);
+        void refreshLiveAttendance();
       }
-    }, 4000);
+    }, 20000);
 
     return () => clearInterval(interval);
-  }, [loadDashboardData]);
+  }, [refreshLiveAttendance]);
 
-  // Instant re-fetch on window focus or tab visibility change
+  // Window focus or tab visibility change: only refresh live attendance if > 15s since last fetch
   useEffect(() => {
     const onSync = () => {
       if (document.visibilityState === 'visible') {
-        void loadDashboardData(true, true);
+        const now = Date.now();
+        if (now - lastFetchTimeRef.current > 15000) {
+          void refreshLiveAttendance();
+        }
       }
     };
     window.addEventListener('focus', onSync);
@@ -202,16 +227,16 @@ export default function HrHomePage() {
       window.removeEventListener('focus', onSync);
       document.removeEventListener('visibilitychange', onSync);
     };
-  }, [loadDashboardData]);
+  }, [refreshLiveAttendance]);
 
-  // Real-time notification updates (SSE)
+  // Real-time notification updates (SSE): refresh live attendance
   const { latestNotification } = useNotifications();
 
   useEffect(() => {
     if (latestNotification) {
-      void loadDashboardData(true, true);
+      void refreshLiveAttendance();
     }
-  }, [latestNotification, loadDashboardData]);
+  }, [latestNotification, refreshLiveAttendance]);
 
   // 1-second live working timer ticker
   useEffect(() => {

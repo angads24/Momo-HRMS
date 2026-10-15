@@ -106,7 +106,16 @@ When a frontend client includes `Authorization: Bearer <accessToken>`:
 - Buffering and response compression are disabled on `/api/v1/notifications/stream`.
 - Chunks are flushed immediately to the client socket with zero latency.
 
-### F. Global Gateway Health Check (`GET /health`)
+### F. High-Resolution Multi-Frame Biometric Ingress (50MB Limit)
+- Default Express body parsers cap JSON requests at 100KB, which causes `HTTP 413 Payload Too Large` when mobile clients submit multi-frame biometric camera bursts (3 high-res base64 frames).
+- The gateway initializes with NestJS `bodyParser: false` and explicitly configures:
+  ```typescript
+  app.use(json({ limit: '50mb' }));
+  app.use(urlencoded({ extended: true, limit: '50mb' }));
+  ```
+- Ensures seamless transit for face enrollment photos, 3-frame liveness bursts, and spatial coordinate payloads without truncation.
+
+### G. Global Gateway Health Check (`GET /health`)
 - Independent health check endpoint reporting Gateway liveness, memory utilization, and uptime.
 
 ---

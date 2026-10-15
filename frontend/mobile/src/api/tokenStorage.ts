@@ -15,35 +15,15 @@ export function getAccessToken(): string | null {
 }
 
 export async function getRefreshToken(): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
 }
 
-export async function saveTokens(newAccessToken: unknown, newRefreshToken: unknown): Promise<void> {
-  accessToken = typeof newAccessToken === 'string' ? newAccessToken : (newAccessToken ? String(newAccessToken) : null);
-
-  try {
-    if (typeof newRefreshToken === 'string' && newRefreshToken.trim().length > 0) {
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, newRefreshToken.trim());
-    } else if (newRefreshToken && typeof newRefreshToken === 'object') {
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, JSON.stringify(newRefreshToken));
-    } else if (accessToken) {
-      // Fallback: preserve session token if refresh token was omitted in response
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, String(accessToken));
-    }
-  } catch (err) {
-    console.warn('[SecureStore] Failed to persist token:', err);
-  }
+export async function saveTokens(newAccessToken: string, newRefreshToken: string): Promise<void> {
+  accessToken = newAccessToken;
+  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, newRefreshToken);
 }
 
 export async function clearTokens(): Promise<void> {
   accessToken = null;
-  try {
-    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
-  } catch {
-    // Ignore error if key was not found
-  }
+  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
 }

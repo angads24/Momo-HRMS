@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, useParams } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
@@ -23,6 +23,7 @@ import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableContainer from '@mui/material/TableContainer';
 import TableHead from '@mui/material/TableHead';
+import TablePagination from '@mui/material/TablePagination';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
@@ -105,40 +106,24 @@ export default function EmployeeDetailsPage() {
     attendanceDate?: string;
   } | null>(null);
   const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyRowsPerPage, setHistoryRowsPerPage] = useState(10);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const empCodeRef = useRef<string | undefined>(undefined);
 
   const loadAttendance = useCallback(async (codeOverride?: string) => {
     if (!id) return;
     setLoadingAttendance(true);
     try {
-      const targetCode = codeOverride || data?.employee?.employeeCode;
-      const primaryId = targetCode || id;
+      const targetCode = codeOverride || empCodeRef.current || id;
 
       const [todayRes, historyRes] = await Promise.all([
-        api.get(`${ATTENDANCE_API_URL}/today?employeeId=${encodeURIComponent(primaryId)}`).catch(() => null),
-        api.get(`${ATTENDANCE_API_URL}/history?employeeId=${encodeURIComponent(primaryId)}&limit=10`).catch(() => null),
+        api.get(`${ATTENDANCE_API_URL}/today?employeeId=${encodeURIComponent(targetCode)}`).catch(() => null),
+        api.get(`${ATTENDANCE_API_URL}/history?employeeId=${encodeURIComponent(targetCode)}&all=true`).catch(() => null),
       ]);
-      let todayData = todayRes?.data?.data || todayRes?.data;
-      let historyData = historyRes?.data?.data || historyRes?.data;
-      let histItems = historyData?.items || (Array.isArray(historyData) ? historyData : []);
-
-      // If primaryId returned 0 sessions, fallback to employeeCode or id
-      const fallbackId = primaryId === id ? targetCode : id;
-      if ((!todayData?.sessions || todayData.sessions.length === 0) && fallbackId) {
-        const fbToday = await api.get(`${ATTENDANCE_API_URL}/today?employeeId=${encodeURIComponent(fallbackId)}`).catch(() => null);
-        if (fbToday?.data) {
-          const parsed = fbToday.data?.data || fbToday.data;
-          if (parsed?.sessions?.length > 0) todayData = parsed;
-        }
-      }
-      if (histItems.length === 0 && fallbackId) {
-        const fbHist = await api.get(`${ATTENDANCE_API_URL}/history?employeeId=${encodeURIComponent(fallbackId)}&limit=10`).catch(() => null);
-        if (fbHist?.data) {
-          const parsed = fbHist.data?.data || fbHist.data;
-          const items = parsed?.items || (Array.isArray(parsed) ? parsed : []);
-          if (items.length > 0) histItems = items;
-        }
-      }
+      const todayData = todayRes?.data?.data || todayRes?.data;
+      const historyData = historyRes?.data?.data || historyRes?.data;
+      const histItems = historyData?.items || (Array.isArray(historyData) ? historyData : []);
 
       if (todayData) {
         setTodayAttendance(todayData);
@@ -151,7 +136,7 @@ export default function EmployeeDetailsPage() {
     } finally {
       setLoadingAttendance(false);
     }
-  }, [id, data?.employee?.employeeCode]);
+  }, [id]);
 
   const loadProfile = useCallback(async () => {
     if (!id) return;
@@ -160,11 +145,9 @@ export default function EmployeeDetailsPage() {
     try {
       const profile = await fetchEmployeeProfile(id);
       setData(profile);
-      if (profile?.employee?.employeeCode) {
-        void loadAttendance(profile.employee.employeeCode);
-      } else {
-        void loadAttendance();
-      }
+      empCodeRef.current = profile?.employee?.employeeCode;
+      const code = profile?.employee?.employeeCode || id;
+      void loadAttendance(code);
     } catch (err: unknown) {
       const msg =
         axios.isAxiosError(err) && err.response?.data?.error?.message
@@ -371,7 +354,7 @@ export default function EmployeeDetailsPage() {
             <Typography variant="body1" color="text.secondary">
               {employee.jobTitle} • {employee.department?.name}
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography component="div" variant="body2" color="text.secondary">
               Organization Role: <strong>{employee.role?.name}</strong>
               {(employee.assignedOffices || []).length > 0 ? (
                 <>
@@ -552,7 +535,9 @@ export default function EmployeeDetailsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {attendanceHistory.map((sess) => (
+                  {attendanceHistory
+                    .slice(historyPage * historyRowsPerPage, historyPage * historyRowsPerPage + historyRowsPerPage)
+                    .map((sess) => (
                     <TableRow key={sess.id}>
                       <TableCell>{sess.attendanceDate ? String(sess.attendanceDate).slice(0, 10) : '—'}</TableCell>
                       <TableCell>{sess.checkInAt ? new Date(sess.checkInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</TableCell>
@@ -584,6 +569,19 @@ export default function EmployeeDetailsPage() {
                   ))}
                 </TableBody>
               </Table>
+            <TablePagination
+                rowsPerPageOptions={[5, 10, 25]}
+                component="div"
+                count={attendanceHistory.length}
+                rowsPerPage={historyRowsPerPage}
+                page={historyPage}
+                onPageChange={(_e, newPage) => setHistoryPage(newPage)}
+                onRowsPerPageChange={(e) => {
+                  setHistoryRowsPerPage(parseInt(e.target.value, 10));
+                  setHistoryPage(0);
+                }}
+                sx={{ borderTop: '1px solid', borderColor: 'divider' }}
+              />
             </TableContainer>
           )}
         </CardContent>

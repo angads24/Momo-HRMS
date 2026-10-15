@@ -27,7 +27,7 @@ let OrganizationService = class OrganizationService {
             orderBy: { name: 'asc' },
         });
         return departments.map((d) => ({
-            id: d.id,
+            id: d.code || d.id,
             code: d.code,
             name: d.name,
             description: d.description,
@@ -35,7 +35,11 @@ let OrganizationService = class OrganizationService {
             employeeCount: d._count?.employees ?? 0,
             createdAt: d.createdAt?.toISOString?.() ?? d.createdAt,
             updatedAt: d.updatedAt?.toISOString?.() ?? d.updatedAt,
-            designations: d.designations,
+            designations: (d.designations || []).map((des) => ({
+                ...des,
+                id: des.code || des.id,
+                departmentId: d.code || d.id,
+            })),
         }));
     }
     async createDepartment(dto) {

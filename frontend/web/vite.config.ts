@@ -8,7 +8,4 @@ export default defineConfig({
     host: true,
     port: 5173,
   },
-  build: {
-    sourcemap: false, // Disables source maps in production to protect source code
-  },
 })

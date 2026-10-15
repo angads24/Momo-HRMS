@@ -184,7 +184,7 @@ export function EmployeeTable({
                     />
                     {isHr && (
                       <Chip
-                        label="HR 2-Accounts"
+                        label="HR Web Linked"
                         size="small"
                         color="secondary"
                         variant="outlined"
@@ -212,24 +212,29 @@ export function EmployeeTable({
                   </Box>
 
                   {/* Office Locations */}
-                  {emp.assignedOffices && emp.assignedOffices.length > 0 ? (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {emp.assignedOffices.map((o) => (
-                        <Chip
-                          key={o.id}
-                          label={o.isPrimary ? `📍 ${o.name}` : o.name}
-                          size="small"
-                          variant={o.isPrimary ? 'filled' : 'outlined'}
-                          color={o.isPrimary ? 'primary' : 'default'}
-                          sx={{ fontSize: '0.68rem', height: 20, fontWeight: o.isPrimary ? 600 : 400 }}
-                        />
-                      ))}
-                    </Box>
-                  ) : emp.officeLocationName ? (
-                    <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 600 }}>
-                      📍 {emp.officeLocationName}
-                    </Typography>
-                  ) : null}
+                  {(() => {
+                    const validOffices = emp.assignedOffices?.filter(
+                      (o) => o.name && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(o.name)
+                    ) || [];
+                    return validOffices.length > 0 ? (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {validOffices.map((o) => (
+                          <Chip
+                            key={o.id}
+                            label={o.isPrimary ? `📍 ${o.name}` : o.name}
+                            size="small"
+                            variant={o.isPrimary ? 'filled' : 'outlined'}
+                            color={o.isPrimary ? 'primary' : 'default'}
+                            sx={{ fontSize: '0.68rem', height: 20, fontWeight: o.isPrimary ? 600 : 400 }}
+                          />
+                        ))}
+                      </Box>
+                    ) : emp.officeLocationName && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(emp.officeLocationName) ? (
+                      <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 600 }}>
+                        📍 {emp.officeLocationName}
+                      </Typography>
+                    ) : null;
+                  })()}
 
                   {/* Contact Info */}
                   <Box sx={{ pt: 1, borderTop: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -309,11 +314,29 @@ export function EmployeeTable({
                 employees.map((emp) => {
                   const initials = `${emp.firstName?.charAt(0) || ''}${emp.lastName?.charAt(0) || ''}`.toUpperCase() || 'EMP';
                   const isHr = Boolean(
+                    emp.isHr ||
                     emp.role?.name?.toUpperCase().includes('HR') ||
                     emp.jobTitle?.toUpperCase().includes('HR') ||
+                    emp.department?.name?.toUpperCase().includes('HUMAN') ||
                     (emp as any).designation?.title?.toUpperCase().includes('HR') ||
                     emp.email?.toLowerCase().includes('.hr@')
                   );
+
+                  let cleanJobTitle = emp.jobTitle || '';
+                  if (cleanJobTitle.includes('(Attendance)')) {
+                    cleanJobTitle = cleanJobTitle.replace(/\s*\(Attendance\)/i, '').trim();
+                  }
+                  if (isHr && (!cleanJobTitle || cleanJobTitle === 'Associate')) {
+                    cleanJobTitle = 'HR Specialist';
+                  }
+
+                  const hrWebEmail =
+                    emp.hrWebEmail ||
+                    (isHr
+                      ? emp.email.includes('.hr@')
+                        ? emp.email
+                        : emp.email.replace('@', '.hr@')
+                      : undefined);
 
                   return (
                     <TableRow
@@ -322,11 +345,11 @@ export function EmployeeTable({
                       tabIndex={0}
                       role="button"
                       aria-label={`View employee details for ${emp.firstName} ${emp.lastName}`}
-                      onClick={() => onView(emp.id)}
+                      onClick={() => onView(emp.employeeCode || emp.id)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          onView(emp.id);
+                          onView(emp.employeeCode || emp.id);
                         }
                       }}
                       sx={{
@@ -366,12 +389,12 @@ export function EmployeeTable({
                       </TableCell>
 
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: isHr ? 600 : 400 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {emp.email}
                         </Typography>
-                        {isHr && emp.email.includes('.hr') && (
-                          <Typography variant="caption" sx={{ display: 'block', color: 'primary.main', fontSize: '0.72rem', fontWeight: 600 }}>
-                            Mobile: {emp.email.replace(/\.hr([0-9]*?)@/, '$1@')}
+                        {isHr && hrWebEmail && (
+                          <Typography variant="caption" sx={{ display: 'block', color: 'secondary.main', fontSize: '0.72rem', fontWeight: 700 }}>
+                            HR Web Portal: {hrWebEmail}
                           </Typography>
                         )}
                         {emp.personalEmail && (
@@ -386,39 +409,44 @@ export function EmployeeTable({
 
                       <TableCell>
                         <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                          {emp.jobTitle}
+                          {cleanJobTitle}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                          {emp.department?.name ?? '—'}
+                          {isHr ? 'Human Resources' : (emp.department?.name ?? '—')}
                         </Typography>
-                        {emp.assignedOffices && emp.assignedOffices.length > 0 ? (
-                          <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {emp.assignedOffices.map((o) => (
-                              <Chip
-                                key={o.id}
-                                label={o.isPrimary ? `📍 ${o.name}` : o.name}
-                                size="small"
-                                variant={o.isPrimary ? 'filled' : 'outlined'}
-                                color={o.isPrimary ? 'primary' : 'default'}
-                                sx={{ fontSize: '0.68rem', height: 20, fontWeight: o.isPrimary ? 600 : 400 }}
-                              />
-                            ))}
-                          </Box>
-                        ) : emp.officeLocationName ? (
-                          <Typography variant="caption" sx={{ color: 'primary.main', fontSize: '0.72rem', fontWeight: 600, display: 'block', mt: 0.25 }}>
-                            📍 {emp.officeLocationName}
-                          </Typography>
-                        ) : null}
+                        {(() => {
+                          const validOffices = emp.assignedOffices?.filter(
+                            (o) => o.name && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(o.name)
+                          ) || [];
+                          return validOffices.length > 0 ? (
+                            <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                              {validOffices.map((o) => (
+                                <Chip
+                                  key={o.id}
+                                  label={o.isPrimary ? `📍 ${o.name}` : o.name}
+                                  size="small"
+                                  variant={o.isPrimary ? 'filled' : 'outlined'}
+                                  color={o.isPrimary ? 'primary' : 'default'}
+                                  sx={{ fontSize: '0.68rem', height: 20, fontWeight: o.isPrimary ? 600 : 400 }}
+                                />
+                              ))}
+                            </Box>
+                          ) : emp.officeLocationName && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(emp.officeLocationName) ? (
+                            <Typography variant="caption" sx={{ color: 'primary.main', fontSize: '0.72rem', fontWeight: 600, display: 'block', mt: 0.25 }}>
+                              📍 {emp.officeLocationName}
+                            </Typography>
+                          ) : null;
+                        })()}
                       </TableCell>
 
                       <TableCell>
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-start' }}>
                           <Typography variant="body2">
-                            {emp.role?.name ?? '—'}
+                            {isHr ? 'HR_ADMIN' : (emp.role?.name ?? 'EMPLOYEE')}
                           </Typography>
                           {isHr && (
                             <Chip
-                              label="Accounts: 2"
+                              label="HR Web Linked"
                               size="small"
                               color="secondary"
                               variant="outlined"

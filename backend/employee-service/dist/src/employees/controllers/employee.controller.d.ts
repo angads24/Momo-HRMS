@@ -21,6 +21,10 @@ export declare class EmployeeController {
         total: number;
         totalPages: number;
     }>;
+    getMetrics(): Promise<{
+        employeeCount: number;
+        departmentCount: number;
+    }>;
     getHrStaff(): Promise<{
         id: string;
         name: string;

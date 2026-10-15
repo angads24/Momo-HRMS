@@ -422,40 +422,113 @@ export function NotificationPreviewDialog({
           </Box>
         ) : (
           <>
-            <Typography variant="body1" sx={{ whiteSpace: 'pre-line', mb: 2.5 }}>
+            <Typography
+              variant="body1"
+              sx={{
+                whiteSpace: 'pre-line',
+                mb: 3,
+                fontSize: '0.98rem',
+                lineHeight: 1.6,
+                color: '#1e293b',
+              }}
+            >
               {notification.body}
             </Typography>
 
-            <Divider sx={{ my: 2 }} />
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                borderRadius: 2,
+                bgcolor: '#f8fafc',
+                borderColor: '#e2e8f0',
+              }}
+            >
+              <Stack spacing={1.5}>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      minWidth: 50,
+                      fontWeight: 700,
+                      color: '#64748b',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      fontSize: '0.72rem',
+                    }}
+                  >
+                    From:
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f172a' }}>
+                    {notification.from || (notification.metadata as any)?.senderName || 'System Administrator'}
+                  </Typography>
+                </Stack>
 
-            <Box sx={{ mb: 1.5 }}>
-              <Typography variant="caption" color="text.secondary">
-                Recipient Target: <strong>{notification.recipientType}</strong> ({notification.recipientId})
-              </Typography>
-            </Box>
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      minWidth: 50,
+                      fontWeight: 700,
+                      color: '#64748b',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      fontSize: '0.72rem',
+                    }}
+                  >
+                    To:
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f172a' }}>
+                    {notification.to ||
+                      notification.recipientName ||
+                      (notification.recipientType === 'BROADCAST'
+                        ? 'All Staff'
+                        : notification.recipientType === 'HR'
+                        ? 'Human Resources'
+                        : notification.recipientType === 'ADMIN'
+                        ? 'Administrators'
+                        : (notification.metadata as any)?.name || notification.recipientId)}
+                  </Typography>
+                  {Boolean((notification.metadata as any)?.department) && (
+                    <Chip
+                      label={String((notification.metadata as any).department)}
+                      size="small"
+                      sx={{ height: 20, fontSize: '0.7rem', fontWeight: 600, bgcolor: '#e2e8f0', color: '#334155' }}
+                    />
+                  )}
+                  {Boolean((notification.metadata as any)?.role) && (
+                    <Chip
+                      label={String((notification.metadata as any).role)}
+                      size="small"
+                      variant="outlined"
+                      sx={{ height: 20, fontSize: '0.7rem', fontWeight: 600, color: '#475569' }}
+                    />
+                  )}
+                </Stack>
 
-            {notification.metadata && Object.keys(notification.metadata).length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-                  Context Metadata
-                </Typography>
-                <Paper
-                  variant="outlined"
-                  sx={{
-                    p: 1.5,
-                    bgcolor: 'action.hover',
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    maxHeight: 180,
-                    overflow: 'auto',
-                  }}
-                >
-                  <pre style={{ margin: 0 }}>
-                    {JSON.stringify(notification.metadata, null, 2)}
-                  </pre>
-                </Paper>
-              </Box>
-            )}
+                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      minWidth: 50,
+                      fontWeight: 700,
+                      color: '#64748b',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      fontSize: '0.72rem',
+                    }}
+                  >
+                    Date:
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#475569', fontSize: '0.84rem' }}>
+                    {new Date(notification.createdAt).toLocaleString([], {
+                      dateStyle: 'full',
+                      timeStyle: 'short',
+                    })}
+                  </Typography>
+                </Stack>
+              </Stack>
+            </Paper>
           </>
         )}
       </DialogContent>

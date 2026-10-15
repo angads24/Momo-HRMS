@@ -1,4 +1,5 @@
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import IconButton from '@mui/material/IconButton';
 import Pagination from '@mui/material/Pagination';
@@ -12,6 +13,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PersonIcon from '@mui/icons-material/Person';
 import type { AppNotification } from '../types/notification';
 import { NotificationTypeBadge } from './NotificationTypeBadge';
 
@@ -136,9 +138,90 @@ export function NotificationTable({
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-                    {item.recipientType === 'BROADCAST' ? 'ALL EMPLOYEES' : item.recipientId}
-                  </Typography>
+                  {(() => {
+                    const type = item.recipientType || 'EMPLOYEE';
+                    const targetId = item.recipientId;
+                    const meta = item.metadata as Record<string, any> | undefined;
+
+                    if (type === 'BROADCAST' || targetId === 'ALL') {
+                      return (
+                        <Chip
+                          label="All Staff"
+                          size="small"
+                          sx={{
+                            height: 22,
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            bgcolor: '#eff6ff',
+                            color: '#1d4ed8',
+                            border: '1px solid #bfdbfe',
+                          }}
+                        />
+                      );
+                    }
+
+                    if (type === 'HR' || targetId === 'HR') {
+                      return (
+                        <Chip
+                          label="Human Resources"
+                          size="small"
+                          sx={{
+                            height: 22,
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            bgcolor: '#fdf4ff',
+                            color: '#a21caf',
+                            border: '1px solid #f5d0fe',
+                          }}
+                        />
+                      );
+                    }
+
+                    if (type === 'ADMIN' || targetId === 'ADMIN') {
+                      return (
+                        <Chip
+                          label="Administrators"
+                          size="small"
+                          sx={{
+                            height: 22,
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            bgcolor: '#fef2f2',
+                            color: '#b91c1c',
+                            border: '1px solid #fecaca',
+                          }}
+                        />
+                      );
+                    }
+
+                    const displayName =
+                      item.recipientName ||
+                      (meta?.name ? String(meta.name) : undefined) ||
+                      item.recipientDisplay ||
+                      (meta?.employeeCode ? String(meta.employeeCode) : undefined) ||
+                      (targetId && targetId.startsWith('EMP-') ? targetId : 'Direct Recipient');
+
+                    return (
+                      <Chip
+                        icon={<PersonIcon sx={{ fontSize: '0.85rem !important', color: '#475569 !important' }} />}
+                        label={displayName}
+                        size="small"
+                        variant="outlined"
+                        sx={{
+                          height: 24,
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          bgcolor: '#f8fafc',
+                          color: '#1e293b',
+                          borderColor: '#cbd5e1',
+                          '& .MuiChip-icon': {
+                            ml: '6px',
+                            mr: '-2px',
+                          },
+                        }}
+                      />
+                    );
+                  })()}
                 </TableCell>
                 <TableCell>
                   <Typography variant="caption" color="text.secondary">

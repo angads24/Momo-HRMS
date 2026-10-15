@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
@@ -40,8 +40,6 @@ import {
 import type {
   Department,
   Employee,
-  EmployeeListQuery,
-  EmploymentStatus,
   PageMeta,
   Role,
 } from '../../../types/employee';
@@ -53,8 +51,9 @@ export default function EmployeeListPage() {
   const { user } = useAuth();
   const isAdmin = user?.appRole === 'ADMIN';
 
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [meta, setMeta] = useState<PageMeta>({ page: 1, limit: 20, total: 0, totalPages: 1 });
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,11 +75,11 @@ export default function EmployeeListPage() {
   const [roleId, setRoleId] = useState('');
   const [status, setStatus] = useState('');
 
-  // Debounce search input by 300ms to allow smooth typing without input focus disruption
+  // Debounce search input by 200ms
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
-    }, 300);
+    }, 200);
     return () => clearTimeout(handler);
   }, [search]);
 
@@ -122,106 +121,94 @@ export default function EmployeeListPage() {
     };
   }, [user]);
 
-  // Fetch employees
-  const loadEmployees = useCallback(
-    async (pageToLoad = meta.page, limitToLoad = meta.limit) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const query: EmployeeListQuery = {
-          page: pageToLoad,
-          limit: limitToLoad,
-          search: debouncedSearch || undefined,
-          departmentId: departmentId || undefined,
-          roleId: roleId || undefined,
-          status: (status as EmploymentStatus) || undefined,
-          officeId: officeId || (isHrScoped && hrOffices.length === 1 ? hrOffices[0].id : undefined),
-        };
-        const res = await fetchEmployees(query);
-        let list = Array.isArray(res.data) ? res.data : [];
-        let nextMeta = res.meta;
-
-        if (officeId) {
-          const targetOff = allOffices.find((o) => o.id === officeId || o.code === officeId);
-          if (targetOff) {
-            list = list.filter((emp) => isEmployeeInOffice(emp, targetOff));
-            nextMeta = { ...res.meta, total: list.length };
-          }
-        } else if (isHrScoped && hrOffices.length > 0) {
-          list = list.filter((emp) => isEmployeeInAnyOffice(emp, hrOffices));
-          nextMeta = { ...res.meta, total: list.length };
-        }
-
-        setEmployees(list);
-        setMeta(nextMeta);
-      } catch (err: unknown) {
-        const msg =
-          axios.isAxiosError(err) && err.response?.data?.error?.message
-            ? err.response.data.error.message
-            : 'Unable to load employees. Please try again.';
-        setError(msg);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [meta.page, meta.limit, debouncedSearch, departmentId, roleId, status, officeId, allOffices, isHrScoped, hrOffices],
-  );
+  // Fetch all employees at once without pagination query limit
+  const loadEmployees = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchEmployees();
+      const list = Array.isArray(res.data) ? res.data : [];
+      setAllEmployees(list);
+    } catch (err: unknown) {
+      const msg =
+        axios.isAxiosError(err) && err.response?.data?.error?.message
+          ? err.response.data.error.message
+          : 'Unable to load employees. Please try again.';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    const fetchFiltered = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const query: EmployeeListQuery = {
-          page: 1,
-          limit: meta.limit,
-          search: debouncedSearch || undefined,
-          departmentId: departmentId || undefined,
-          roleId: roleId || undefined,
-          status: (status as EmploymentStatus) || undefined,
-          officeId: officeId || (isHrScoped && hrOffices.length === 1 ? hrOffices[0].id : undefined),
-        };
-        const res = await fetchEmployees(query);
-        if (active) {
-          let list = Array.isArray(res.data) ? res.data : [];
-          let nextMeta = res.meta;
+    void loadEmployees();
+  }, [loadEmployees]);
 
-          if (officeId) {
-            const targetOff = allOffices.find((o) => o.id === officeId || o.code === officeId);
-            if (targetOff) {
-              list = list.filter((emp) => isEmployeeInOffice(emp, targetOff));
-              nextMeta = { ...res.meta, total: list.length };
-            }
-          } else if (isHrScoped && hrOffices.length > 0) {
-            list = list.filter((emp) => isEmployeeInAnyOffice(emp, hrOffices));
-            nextMeta = { ...res.meta, total: list.length };
-          }
+  // In-memory client-side filtering
+  const filteredEmployees = useMemo(() => {
+    let list = allEmployees;
 
-          setEmployees(list);
-          setMeta(nextMeta);
-        }
-      } catch (err: unknown) {
-        if (active) {
-          const msg =
-            axios.isAxiosError(err) && err.response?.data?.error?.message
-              ? err.response.data.error.message
-              : 'Unable to load employees. Please try again.';
-          setError(msg);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+    if (officeId) {
+      const targetOff = allOffices.find((o) => o.id === officeId || o.code === officeId);
+      if (targetOff) {
+        list = list.filter((emp) => isEmployeeInOffice(emp, targetOff));
       }
-    };
+    } else if (isHrScoped && hrOffices.length > 0) {
+      list = list.filter((emp) => isEmployeeInAnyOffice(emp, hrOffices));
+    }
 
-    void fetchFiltered();
+    if (departmentId) {
+      list = list.filter(
+        (emp) => emp.department?.id === departmentId,
+      );
+    }
 
-    return () => {
-      active = false;
-    };
-  }, [debouncedSearch, departmentId, roleId, status, officeId, allOffices, meta.limit, isHrScoped, hrOffices]);
+    if (roleId) {
+      list = list.filter(
+        (emp) => emp.role?.id === roleId,
+      );
+    }
+
+    if (status) {
+      list = list.filter((emp) => emp.status === status);
+    }
+
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.trim().toLowerCase();
+      list = list.filter((emp) => {
+        const fullName = `${emp.firstName} ${emp.lastName}`.toLowerCase();
+        const code = (emp.employeeCode || '').toLowerCase();
+        const email = (emp.email || '').toLowerCase();
+        return fullName.includes(q) || code.includes(q) || email.includes(q);
+      });
+    }
+
+    return list;
+  }, [allEmployees, officeId, allOffices, isHrScoped, hrOffices, departmentId, roleId, status, debouncedSearch]);
+
+  // Reset to first page whenever filter inputs change
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, departmentId, roleId, status, officeId]);
+
+  const total = filteredEmployees.length;
+  const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
+
+  // Client-side slice for current page
+  const displayedEmployees = useMemo(() => {
+    const start = (page - 1) * rowsPerPage;
+    return filteredEmployees.slice(start, start + rowsPerPage);
+  }, [filteredEmployees, page, rowsPerPage]);
+
+  const meta: PageMeta = useMemo(
+    () => ({
+      page,
+      limit: rowsPerPage,
+      total,
+      totalPages,
+    }),
+    [page, rowsPerPage, total, totalPages],
+  );
 
   const handleResetFilters = () => {
     setSearch('');
@@ -247,7 +234,7 @@ export default function EmployeeListPage() {
       );
       setStatusTarget(null);
       setStatusReason('');
-      await loadEmployees(meta.page, meta.limit);
+      await loadEmployees();
     } catch (err: unknown) {
       const msg =
         axios.isAxiosError(err) && err.response?.data?.error?.message
@@ -383,24 +370,24 @@ export default function EmployeeListPage() {
       />
 
       <EmployeeTable
-        employees={employees}
+        employees={displayedEmployees}
         meta={meta}
         loading={loading}
         error={error}
         canManage={isAdmin}
-        onPageChange={(page) => loadEmployees(page, meta.limit)}
+        onPageChange={(p) => setPage(p)}
         onRowsPerPageChange={(limit) => {
-          setMeta((prev) => ({ ...prev, limit, page: 1 }));
-          loadEmployees(1, limit);
+          setRowsPerPage(limit);
+          setPage(1);
         }}
-        onView={(id) => navigate(PATHS.employeeDetails(id))}
-        onEdit={(id) => navigate(PATHS.editEmployee(id))}
+        onView={(idOrCode) => navigate(PATHS.employeeDetails(idOrCode))}
+        onEdit={(idOrCode) => navigate(PATHS.editEmployee(idOrCode))}
         onToggleStatus={(emp) => {
           setStatusTarget(emp);
           setStatusReason('');
         }}
         onResendCredentials={handleResendCredentials}
-        onRetry={() => loadEmployees(meta.page, meta.limit)}
+        onRetry={() => loadEmployees()}
       />
 
       {/* Confirmation Dialog for Status Change */}

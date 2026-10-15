@@ -60,6 +60,9 @@ let EmployeeController = class EmployeeController {
     async listEmployees(query) {
         return this.employeeService.listEmployees(query);
     }
+    async getMetrics() {
+        return this.employeeService.getDashboardMetrics();
+    }
     async getHrStaff() {
         return this.employeeService.getHrStaff();
     }
@@ -193,6 +196,14 @@ __decorate([
     __metadata("design:paramtypes", [employee_query_dto_1.EmployeeQueryDto]),
     __metadata("design:returntype", Promise)
 ], EmployeeController.prototype, "listEmployees", null);
+__decorate([
+    (0, common_1.Get)('metrics'),
+    (0, public_decorator_1.Public)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Get workforce and department count metrics' }),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], EmployeeController.prototype, "getMetrics", null);
 __decorate([
     (0, common_1.Get)('hr-staff'),
     (0, public_decorator_1.Public)(),

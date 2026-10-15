@@ -9,23 +9,23 @@ export const NOTIFICATION_TYPES = [
   'EXCEPTION_REQUESTED',
   'EXCEPTION_APPROVED',
   'EXCEPTION_REJECTED',
+  'SYSTEM_ALERT',
   'SPECIAL_WORKING_HOURS_REQUEST',
   'SPECIAL_CONDITION_APPROVED',
   'SPECIAL_CONDITION_REJECTED',
-  'SYSTEM_ALERT',
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 export class CreateNotificationDto {
-  @ApiProperty({ description: 'Target recipient (employee ID, user ID, or ALL)' })
+  @ApiProperty({ description: 'Target recipient (employee ID, user ID, HR, ADMIN, or ALL)' })
   @IsString()
   @IsNotEmpty()
   recipientId: string;
 
-  @ApiPropertyOptional({ description: 'Recipient classification (EMPLOYEE, USER, BROADCAST, HR)', default: 'EMPLOYEE' })
+  @ApiPropertyOptional({ description: 'Recipient classification (EMPLOYEE, USER, BROADCAST, HR, ADMIN)', default: 'EMPLOYEE' })
   @IsOptional()
-  @IsIn(['EMPLOYEE', 'USER', 'BROADCAST', 'HR'])
+  @IsIn(['EMPLOYEE', 'USER', 'BROADCAST', 'HR', 'ADMIN'])
   recipientType?: string;
 
   @ApiProperty({ description: 'Notification type', enum: NOTIFICATION_TYPES })

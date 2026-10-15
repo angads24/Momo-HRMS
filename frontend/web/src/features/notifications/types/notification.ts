@@ -10,12 +10,16 @@ export const NOTIFICATION_TYPES = [
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
-export type NotificationRecipientType = 'EMPLOYEE' | 'USER' | 'BROADCAST';
+export type NotificationRecipientType = 'EMPLOYEE' | 'USER' | 'BROADCAST' | 'HR' | 'ADMIN';
 
 export interface AppNotification {
   id: string;
   recipientId: string;
   recipientType: NotificationRecipientType;
+  recipientDisplay?: string;
+  recipientName?: string;
+  from?: string;
+  to?: string;
   type: NotificationType;
   title: string;
   body: string;

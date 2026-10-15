@@ -23,14 +23,19 @@ export declare class NotificationsService {
         updatedAt: Date;
     }>;
     private buildRecipientWhere;
-    findAll(query: QueryNotificationsDto): Promise<{
+    getDismissedIds(userId?: string): Promise<string[]>;
+    findAll(query: QueryNotificationsDto, callerUserId?: string): Promise<{
         items: {
+            recipientId: any;
+            recipientDisplay: string;
+            recipientName: string;
+            from: any;
+            to: string;
+            metadata: Record<string, any>;
             type: string;
             title: string;
-            recipientId: string;
             recipientType: string;
             body: string;
-            metadata: import("@prisma/client/runtime/library").JsonValue | null;
             isRead: boolean;
             id: string;
             readAt: Date | null;
@@ -43,7 +48,7 @@ export declare class NotificationsService {
         limit: number;
         totalPages: number;
     }>;
-    getUnreadCount(recipientId?: string, email?: string, role?: string): Promise<{
+    getUnreadCount(recipientId?: string, email?: string, role?: string, callerUserId?: string): Promise<{
         count: number;
     }>;
     markAsRead(id: string): Promise<{
@@ -62,7 +67,8 @@ export declare class NotificationsService {
     markAllAsRead(recipientId?: string, email?: string, role?: string): Promise<{
         updated: number;
     }>;
-    remove(id: string): Promise<{
+    remove(id: string, userId?: string, hardDelete?: boolean): Promise<{
         success: boolean;
+        mode: string;
     }>;
 }

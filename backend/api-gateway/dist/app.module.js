@@ -17,6 +17,7 @@ const throttler_1 = require("@nestjs/throttler");
 const http_proxy_middleware_1 = require("http-proxy-middleware");
 const configuration_1 = require("./config/configuration");
 const health_controller_1 = require("./health/health.controller");
+const admin_controller_1 = require("./admin/admin.controller");
 const auth_enrichment_middleware_1 = require("./middleware/auth-enrichment.middleware");
 const rate_limiter_middleware_1 = require("./middleware/rate-limiter.middleware");
 let AppModule = class AppModule {
@@ -79,6 +80,12 @@ let AppModule = class AppModule {
                     else {
                         proxyReq.removeHeader('x-permissions');
                     }
+                    if (req.headers['x-email']) {
+                        proxyReq.setHeader('x-email', req.headers['x-email']);
+                    }
+                    else {
+                        proxyReq.removeHeader('x-email');
+                    }
                     (0, http_proxy_middleware_1.fixRequestBody)(proxyReq, req);
                 },
                 error: (err, req, res) => {
@@ -111,10 +118,10 @@ exports.AppModule = AppModule = __decorate([
             }),
             throttler_1.ThrottlerModule.forRoot([{
                     ttl: 60000,
-                    limit: 100,
+                    limit: 500,
                 }]),
         ],
-        controllers: [health_controller_1.HealthController],
+        controllers: [health_controller_1.HealthController, admin_controller_1.AdminController],
         providers: [auth_enrichment_middleware_1.AuthEnrichmentMiddleware, rate_limiter_middleware_1.RateLimiterMiddleware],
     }),
     __metadata("design:paramtypes", [config_1.ConfigService,

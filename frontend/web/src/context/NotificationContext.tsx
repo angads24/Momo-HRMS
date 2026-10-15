@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -33,23 +33,26 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const prevCountRef = useRef<number>(0);
 
+  const recipientIdentifier = useMemo(() => {
+    if (!user) return '';
+    if (user.appRole === 'ADMIN') return 'ADMIN';
+    if (user.appRole === 'HR') return 'HR';
+    return user.username || user.email || 'USER';
+  }, [user]);
+
   const refreshUnreadCount = useCallback(async () => {
-    if (!user) {
+    if (!user || !recipientIdentifier) {
       setUnreadCount(0);
       return;
     }
     try {
-      const count = await fetchUnreadCount(
-        user.id,
-        user.email,
-        user.appRole || undefined,
-      );
+      const count = await fetchUnreadCount(recipientIdentifier, user.email, user.appRole || user.roles?.[0]);
       setUnreadCount(count);
       prevCountRef.current = count;
     } catch {
       // Non-fatal if backend is briefly offline
     }
-  }, [user]);
+  }, [user, recipientIdentifier]);
 
   // Initial fetch and focus sync
   useEffect(() => {
@@ -60,15 +63,20 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     void refreshUnreadCount();
 
+    let lastFocusFetch = Date.now();
     const onFocus = () => {
-      void refreshUnreadCount();
+      const now = Date.now();
+      if (now - lastFocusFetch > 60000) {
+        lastFocusFetch = now;
+        void refreshUnreadCount();
+      }
     };
     window.addEventListener('focus', onFocus);
 
-    // Periodic background sync fallback every 30 seconds (SSE stream handles instant real-time events)
+    // Periodic background sync fallback every 60 seconds (SSE stream handles instant real-time events)
     const pollTimer = setInterval(() => {
       void refreshUnreadCount();
-    }, 30000);
+    }, 60000);
 
     return () => {
       window.removeEventListener('focus', onFocus);
@@ -78,7 +86,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   // Real-time Server-Sent Events (SSE) Stream
   useEffect(() => {
-    if (!user) {
+    if (!user || !recipientIdentifier) {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
@@ -89,7 +97,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     let isMounted = true;
     try {
       const eventSource = createNotificationEventSource(
-        user.id,
+        recipientIdentifier,
         (newNotif) => {
           if (!isMounted) return;
           // Increment count immediately in real time

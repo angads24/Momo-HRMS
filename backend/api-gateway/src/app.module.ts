@@ -5,6 +5,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
 import configuration from './config/configuration';
 import { HealthController } from './health/health.controller';
+import { AdminController } from './admin/admin.controller';
 import { AuthEnrichmentMiddleware } from './middleware/auth-enrichment.middleware';
 import { RateLimiterMiddleware } from './middleware/rate-limiter.middleware';
 
@@ -16,10 +17,10 @@ import { RateLimiterMiddleware } from './middleware/rate-limiter.middleware';
     }),
     ThrottlerModule.forRoot([{
       ttl: 60000,
-      limit: 100,
+      limit: 500,
     }]),
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, AdminController],
   providers: [AuthEnrichmentMiddleware, RateLimiterMiddleware],
 })
 export class AppModule implements NestModule {
@@ -91,6 +92,11 @@ export class AppModule implements NestModule {
               proxyReq.setHeader('x-permissions', req.headers['x-permissions']);
             } else {
               proxyReq.removeHeader('x-permissions');
+            }
+            if (req.headers['x-email']) {
+              proxyReq.setHeader('x-email', req.headers['x-email']);
+            } else {
+              proxyReq.removeHeader('x-email');
             }
 
             fixRequestBody(proxyReq, req);

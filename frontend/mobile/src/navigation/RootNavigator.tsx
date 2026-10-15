@@ -3,21 +3,17 @@ import { LoadingIndicator } from '../components/LoadingIndicator';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { RoleBasedRoute } from '../components/RoleBasedRoute';
 import { useAuth } from '../context/AuthContext';
+import AdminHomeScreen from '../screens/AdminHomeScreen';
 import EmployeeHomeScreen from '../screens/EmployeeHomeScreen';
-import AttendanceHistoryScreen from '../screens/AttendanceHistoryScreen';
-import ProfileCompletionScreen from '../screens/ProfileCompletionScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import NotificationsScreen from '../screens/NotificationsScreen';
-import MsgToHrScreen from '../screens/MsgToHrScreen';
-import MyAttendanceScreen from '../screens/MyAttendanceScreen';
+import HrHomeScreen from '../screens/HrHomeScreen';
 import LoginScreen from '../screens/LoginScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
-import FaceRegistrationScreen from '../screens/FaceRegistrationScreen';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function ProtectedEmployeeScreen() {
+// Each module screen is wrapped twice: logged in + correct role.
+function EmployeeScreen() {
   return (
     <ProtectedRoute>
       <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
@@ -27,75 +23,39 @@ function ProtectedEmployeeScreen() {
   );
 }
 
-function ProtectedHistoryScreen() {
+function AdminScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
-        <AttendanceHistoryScreen />
+      <RoleBasedRoute allowedRoles={['ADMIN']}>
+        <AdminHomeScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
   );
 }
 
-function ProtectedProfileScreen() {
+function HrScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
-        <ProfileScreen />
-      </RoleBasedRoute>
-    </ProtectedRoute>
-  );
-}
-
-function ProtectedNotificationsScreen() {
-  return (
-    <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
-        <NotificationsScreen />
-      </RoleBasedRoute>
-    </ProtectedRoute>
-  );
-}
-
-function ProtectedMsgToHrScreen() {
-  return (
-    <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
-        <MsgToHrScreen />
-      </RoleBasedRoute>
-    </ProtectedRoute>
-  );
-}
-
-function ProtectedMyAttendanceScreen() {
-  return (
-    <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
-        <MyAttendanceScreen />
+      <RoleBasedRoute allowedRoles={['HR']}>
+        <HrHomeScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
   );
 }
 
 /**
- * Root Navigator for the Momo HRMS Employee Mobile Application.
- *
- * Platform Rule:
- *  - Mobile is strictly reserved for EMPLOYEE accounts.
- *  - ADMIN & HR are blocked at login & session restoration in AuthContext.
- *
- * Flow:
- *  1. Unauthenticated -> LoginScreen
- *  2. mustChangePassword === true -> ResetPasswordScreen (forced, non-bypassable)
- *  3. Incomplete profile -> ProfileCompletionScreen (DOB, phone, gender, address)
- *  4. Incomplete face biometrics -> FaceRegistrationScreen (once only)
- *  5. Complete profile & biometrics -> EmployeeHomeScreen & AttendanceHistoryScreen
+ * The screens that exist depend on the auth state (the recommended React Navigation pattern):
+ *   loading            -> splash
+ *   logged out         -> Login
+ *   mustChangePassword -> ResetPassword   (comes from the BACKEND, every time)
+ *   ADMIN / HR / EMPLOYEE -> only their own module screen is registered
+ * When the state changes, the navigator switches screens automatically.
  */
 export function RootNavigator() {
-  const { status, user, isProfileComplete, isFaceEnrolled } = useAuth();
+  const { status, user } = useAuth();
 
   if (status === 'loading') {
-    return <LoadingIndicator fullScreen message="Loading Momo HRMS..." />;
+    return <LoadingIndicator fullScreen message="Restoring your session..." />;
   }
 
   return (
@@ -104,19 +64,12 @@ export function RootNavigator() {
         <Stack.Screen name="Login" component={LoginScreen} />
       ) : user.mustChangePassword ? (
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-      ) : !isProfileComplete ? (
-        <Stack.Screen name="ProfileCompletion" component={ProfileCompletionScreen} />
-      ) : !isFaceEnrolled ? (
-        <Stack.Screen name="FaceRegistration" component={FaceRegistrationScreen} />
+      ) : user.appRole === 'ADMIN' ? (
+        <Stack.Screen name="AdminHome" component={AdminScreen} />
+      ) : user.appRole === 'HR' ? (
+        <Stack.Screen name="HrHome" component={HrScreen} />
       ) : (
-        <>
-          <Stack.Screen name="EmployeeHome" component={ProtectedEmployeeScreen} />
-          <Stack.Screen name="AttendanceHistory" component={ProtectedHistoryScreen} />
-          <Stack.Screen name="Profile" component={ProtectedProfileScreen} />
-          <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
-          <Stack.Screen name="MsgToHr" component={ProtectedMsgToHrScreen} />
-          <Stack.Screen name="MyAttendance" component={ProtectedMyAttendanceScreen} />
-        </>
+        <Stack.Screen name="EmployeeHome" component={EmployeeScreen} />
       )}
     </Stack.Navigator>
   );

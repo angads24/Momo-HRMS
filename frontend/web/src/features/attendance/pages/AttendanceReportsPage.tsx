@@ -41,8 +41,6 @@ export default function AttendanceReportsPage() {
     fetchAttendanceHistory({
       startDate,
       endDate,
-      page: 1,
-      limit: 100,
     })
       .then((res) => {
         if (active) {

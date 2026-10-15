@@ -20,75 +20,47 @@ export default function NotificationHistoryPage() {
   const navigate = useNavigate();
   const { refreshUnreadCount } = useNotifications();
 
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [allNotifications, setAllNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [page, setPage] = useState(1);
-  const [limit] = useState(20);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  const pageSize = 15;
 
   const [previewItem, setPreviewItem] = useState<AppNotification | null>(null);
 
-  const loadAllHistory = useCallback(
-    async (pageToLoad = page) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetchNotifications({
-          page: pageToLoad,
-          limit,
-        });
-        setNotifications(res.items ?? []);
-        setPage(res.page);
-        setTotal(res.total);
-        setTotalPages(res.totalPages);
-      } catch (err: unknown) {
-        const msg =
-          axios.isAxiosError(err) && err.response?.data?.message
-            ? String(err.response.data.message)
-            : 'Could not load broadcast history.';
-        setError(msg);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [page, limit],
-  );
+  const loadAllHistory = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchNotifications();
+      setAllNotifications(res.items ?? []);
+    } catch (err: unknown) {
+      const msg =
+        axios.isAxiosError(err) && err.response?.data?.message
+          ? String(err.response.data.message)
+          : 'Could not load broadcast history.';
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let active = true;
-    fetchNotifications({ page: 1, limit })
-      .then((res) => {
-        if (active) {
-          setNotifications(res.items ?? []);
-          setPage(res.page);
-          setTotal(res.total);
-          setTotalPages(res.totalPages);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          const msg =
-            axios.isAxiosError(err) && err.response?.data?.message
-              ? String(err.response.data.message)
-              : 'Could not load broadcast history.';
-          setError(msg);
-          setLoading(false);
-        }
-      });
+    void loadAllHistory();
+  }, [loadAllHistory]);
 
-    return () => {
-      active = false;
-    };
-  }, [limit]);
+  const total = allNotifications.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const displayedNotifications = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return allNotifications.slice(start, start + pageSize);
+  }, [allNotifications, page, pageSize]);
 
   const handleMarkAsRead = async (notif: AppNotification) => {
     try {
       await markNotificationAsRead(notif.id);
-      setNotifications((prev) =>
+      setAllNotifications((prev) =>
         prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n)),
       );
       void refreshUnreadCount();
@@ -100,8 +72,7 @@ export default function NotificationHistoryPage() {
   const handleDelete = async (notif: AppNotification) => {
     try {
       await deleteNotification(notif.id);
-      setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
-      setTotal((t) => Math.max(0, t - 1));
+      setAllNotifications((prev) => prev.filter((n) => n.id !== notif.id));
       void refreshUnreadCount();
     } catch {
       setError('Failed to delete notification.');
@@ -138,15 +109,12 @@ export default function NotificationHistoryPage() {
       )}
 
       <NotificationTable
-        notifications={notifications}
+        notifications={displayedNotifications}
         loading={loading}
         page={page}
         totalPages={totalPages}
         total={total}
-        onPageChange={(newPage) => {
-          setPage(newPage);
-          void loadAllHistory(newPage);
-        }}
+        onPageChange={(newPage) => setPage(newPage)}
         onMarkRead={handleMarkAsRead}
         onDelete={handleDelete}
         onViewDetails={handleViewDetails}

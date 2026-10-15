@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import Alert from '@mui/material/Alert';
 import Badge from '@mui/material/Badge';
@@ -14,7 +14,6 @@ import { DashboardLayout } from '../../../components/DashboardLayout';
 import { useAuth } from '../../../context/AuthContext';
 import { useNotifications } from '../../../context/NotificationContext';
 import {
-  createNotificationEventSource,
   deleteNotification,
   fetchNotifications,
   markAllNotificationsAsRead,
@@ -27,143 +26,95 @@ import { NotificationPreviewDialog } from '../components/NotificationPreviewDial
 
 export default function NotificationListPage() {
   const { user } = useAuth();
-  const { unreadCount, setUnreadCount, refreshUnreadCount } = useNotifications();
+  const { setUnreadCount, refreshUnreadCount, latestNotification } = useNotifications();
   const isManagement = user?.appRole === 'ADMIN' || user?.appRole === 'HR';
-  const recipientId = user?.id ?? 'ALL';
 
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [allNotifications, setAllNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  // Tabs: 0: All, 1: Unread Only
+  // Tabs: 0: All, 1: Unread, 2: Read
   const [tabValue, setTabValue] = useState(0);
 
-  // Pagination
+  // Pagination (Client-Side)
   const [page, setPage] = useState(1);
-  const [limit] = useState(20);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  const pageSize = 15;
 
   // Dialogs
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [previewItem, setPreviewItem] = useState<AppNotification | null>(null);
 
-  const userEmail = user?.email;
-  const userRole = user?.appRole || (isManagement ? 'HR' : 'EMPLOYEE');
-
-  // Tabs: 0: All, 1: Unread, 2: Read
-  const getIsReadFilter = useCallback((tab: number): boolean | undefined => {
-    if (tab === 1) return false;
-    if (tab === 2) return true;
-    return undefined;
-  }, []);
-
-  const loadNotifications = useCallback(
-    async (pageToLoad = page, isReadFilter = getIsReadFilter(tabValue)) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetchNotifications({
-          page: pageToLoad,
-          limit,
-          recipientId,
-          email: userEmail,
-          role: userRole,
-          isRead: isReadFilter,
-        });
-        setNotifications(res.items ?? []);
-        setPage(res.page);
-        setTotal(res.total);
-        setTotalPages(res.totalPages);
-        setUnreadCount(res.unreadCount);
-      } catch (err: unknown) {
-        const msg =
-          axios.isAxiosError(err) && err.response?.data?.message
-            ? String(err.response.data.message)
-            : 'Could not load notifications.';
-        setError(msg);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [page, limit, recipientId, userEmail, userRole, tabValue, getIsReadFilter],
-  );
-
-  useEffect(() => {
-    let active = true;
-    fetchNotifications({
-      page: 1,
-      limit,
-      recipientId,
-      email: userEmail,
-      role: userRole,
-      isRead: getIsReadFilter(tabValue),
-    })
-      .then((res) => {
-        if (active) {
-          setNotifications(res.items ?? []);
-          setPage(res.page);
-          setTotal(res.total);
-          setTotalPages(res.totalPages);
-          setUnreadCount(res.unreadCount);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) {
-          const msg =
-            axios.isAxiosError(err) && err.response?.data?.message
-              ? String(err.response.data.message)
-              : 'Could not load notifications.';
-          setError(msg);
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [limit, recipientId, userEmail, userRole, tabValue, getIsReadFilter]);
-
-  // Connect SSE for real-time notifications
-  useEffect(() => {
-    if (!recipientId) return;
-
-    let eventSource: EventSource | null = null;
+  const loadNotifications = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      eventSource = createNotificationEventSource(
-        recipientId,
-        (newNotif) => {
-          setNotifications((prev) => [newNotif, ...prev]);
-          setUnreadCount((c) => c + 1);
-          setFeedback(`New notification: ${newNotif.title}`);
-        },
-        () => {
-          // Silent fallback if SSE connection fails or disconnects
-        },
-      );
-    } catch {
-      // EventSource may fail in offline environment
+      // Transfer complete notification dataset from server with 0 limit/page params
+      const res = await fetchNotifications();
+      const items = res.items ?? [];
+      setAllNotifications(items);
+      const unread = items.filter((n) => !n.isRead).length;
+      setUnreadCount(unread);
+    } catch (err: unknown) {
+      const msg =
+        axios.isAxiosError(err) && err.response?.data?.message
+          ? String(err.response.data.message)
+          : 'Could not load notifications.';
+      setError(msg);
+    } finally {
+      setLoading(false);
     }
+  }, [setUnreadCount]);
 
-    return () => {
-      eventSource?.close();
-    };
-  }, [recipientId]);
+  useEffect(() => {
+    void loadNotifications();
+  }, [loadNotifications]);
+
+  // Synchronize incoming real-time notifications from global context
+  useEffect(() => {
+    if (latestNotification) {
+      setAllNotifications((prev) => [latestNotification, ...prev]);
+      setFeedback(`New notification: ${latestNotification.title}`);
+    }
+  }, [latestNotification]);
+
+  // Client-side filtering based on tabs
+  const filteredNotifications = useMemo(() => {
+    if (tabValue === 1) {
+      return allNotifications.filter((n) => !n.isRead);
+    }
+    if (tabValue === 2) {
+      return allNotifications.filter((n) => n.isRead);
+    }
+    return allNotifications;
+  }, [allNotifications, tabValue]);
+
+  const total = filteredNotifications.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  const paginatedNotifications = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredNotifications.slice(startIndex, startIndex + pageSize);
+  }, [filteredNotifications, currentPage, pageSize]);
+
+  const clientUnreadCount = useMemo(() => {
+    return allNotifications.filter((n) => !n.isRead).length;
+  }, [allNotifications]);
+
+  const handleTabChange = (_: React.SyntheticEvent, val: number) => {
+    setTabValue(val);
+    setPage(1);
+  };
 
   const handleMarkAsRead = async (notif: AppNotification) => {
     try {
       await markNotificationAsRead(notif.id);
-      setNotifications((prev) =>
+      setAllNotifications((prev) =>
         prev.map((n) => (n.id === notif.id ? { ...n, isRead: true, readAt: new Date().toISOString() } : n)),
       );
       setUnreadCount((c) => Math.max(0, c - 1));
       void refreshUnreadCount();
-      // If currently on Unread tab, refresh view so it moves out
-      if (tabValue === 1) {
-        await loadNotifications(page, false);
-      }
     } catch {
       setError('Failed to update notification status.');
     }
@@ -171,12 +122,11 @@ export default function NotificationListPage() {
 
   const handleMarkAllRead = async () => {
     try {
-      await markAllNotificationsAsRead(recipientId, userEmail, userRole);
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      await markAllNotificationsAsRead();
+      setAllNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
       void refreshUnreadCount();
       setFeedback('All notifications marked as read.');
-      await loadNotifications(1, getIsReadFilter(tabValue));
     } catch {
       setError('Failed to mark all as read.');
     }
@@ -184,16 +134,15 @@ export default function NotificationListPage() {
 
   const handleDelete = async (notif: AppNotification) => {
     try {
-      await deleteNotification(notif.id);
-      setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
-      setTotal((t) => Math.max(0, t - 1));
+      await deleteNotification(notif.id, user?.id);
+      setAllNotifications((prev) => prev.filter((n) => n.id !== notif.id));
       if (!notif.isRead) {
         setUnreadCount((c) => Math.max(0, c - 1));
         void refreshUnreadCount();
       }
-      setFeedback('Notification deleted.');
+      setFeedback('Notification dismissed from your inbox.');
     } catch {
-      setError('Failed to delete notification.');
+      setError('Failed to dismiss notification.');
     }
   };
 
@@ -212,7 +161,7 @@ export default function NotificationListPage() {
       <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
         <Tabs
           value={tabValue}
-          onChange={(_, val) => setTabValue(val)}
+          onChange={handleTabChange}
           textColor="primary"
           indicatorColor="primary"
           sx={{
@@ -241,7 +190,7 @@ export default function NotificationListPage() {
           <Tab
             label={
               <Badge
-                badgeContent={unreadCount}
+                badgeContent={clientUnreadCount}
                 color="error"
                 max={99}
                 sx={{
@@ -261,7 +210,7 @@ export default function NotificationListPage() {
         </Tabs>
 
         <Stack direction="row" spacing={1.5}>
-          {unreadCount > 0 && (
+          {clientUnreadCount > 0 && (
             <Button
               variant="outlined"
               color="inherit"
@@ -292,15 +241,12 @@ export default function NotificationListPage() {
       )}
 
       <NotificationTable
-        notifications={notifications}
+        notifications={paginatedNotifications}
         loading={loading}
-        page={page}
+        page={currentPage}
         totalPages={totalPages}
         total={total}
-        onPageChange={(newPage) => {
-          setPage(newPage);
-          void loadNotifications(newPage);
-        }}
+        onPageChange={(newPage) => setPage(newPage)}
         onMarkRead={handleMarkAsRead}
         onDelete={handleDelete}
         onViewDetails={handleViewDetails}
@@ -312,7 +258,7 @@ export default function NotificationListPage() {
         onClose={() => setSendDialogOpen(false)}
         onNotificationSent={() => {
           setFeedback('Notification dispatched successfully!');
-          void loadNotifications(1);
+          void loadNotifications();
         }}
       />
 
@@ -323,7 +269,7 @@ export default function NotificationListPage() {
         onClose={() => setPreviewItem(null)}
         onMarkRead={handleMarkAsRead}
         onActionComplete={() => {
-          void loadNotifications(page, getIsReadFilter(tabValue));
+          void loadNotifications();
         }}
       />
 

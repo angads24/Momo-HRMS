@@ -65,6 +65,14 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
         if (!found) {
             found = this.officesCache.find((o) => o.name && (o.name.toLowerCase().includes(trimmed) || trimmed.includes(o.name.toLowerCase())));
         }
+        if (!found) {
+            if (trimmed === 'd1a2b3c4-0000-0000-0000-000000000001') {
+                found = this.officesCache.find((o) => o.code === 'OFFICE-001') || { id: 'OFFICE-001', code: 'OFFICE-001', name: 'Pune Headquarters' };
+            }
+            else if (trimmed === '76b775c9-ab7c-4d8e-8da9-9f191ea2d630') {
+                found = this.officesCache.find((o) => o.code === 'PUN-001') || { id: 'PUN-001', code: 'PUN-001', name: 'Wakad_office' };
+            }
+        }
         return found || null;
     }
     async createEmployee(dto) {
@@ -216,6 +224,21 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             result.userId = authUserId;
         }
         result.temporaryPassword = tempPass;
+        let hrPortalCredentials;
+        if (dto.hrWebEmail && dto.hrWebEmail.trim()) {
+            const cleanHrEmail = dto.hrWebEmail.trim().toLowerCase();
+            const hrTempPass = this.generateStrongTemporaryPassword();
+            const hrUsername = cleanHrEmail.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '_');
+            const hrAuthUserId = await this.syncCredentialsToAuthService(cleanHrEmail, hrTempPass, `${result.firstName} ${result.lastName}`, hrUsername, 'HR_ADMIN');
+            hrPortalCredentials = {
+                email: cleanHrEmail,
+                temporaryPassword: hrTempPass,
+                role: 'HR_ADMIN',
+                userId: hrAuthUserId || undefined,
+            };
+            result.hrPortalCredentials = hrPortalCredentials;
+            this.logger.log(`[CREDENTIAL_GENERATE] Provisioned linked HR Web Portal auth user for ${cleanHrEmail} (ID: ${hrAuthUserId})`);
+        }
         const shouldSendEmail = dto.provisionAccount !== false && dto.sendEmail !== false;
         if (shouldSendEmail && tempPass) {
             result.credentialsSentAt = new Date().toISOString();
@@ -227,6 +250,8 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
                 temporaryPassword: tempPass,
                 roleName: dto.roleId || "EMPLOYEE",
                 isPasswordReset: false,
+                hrPortalEmail: hrPortalCredentials?.email,
+                hrPortalPassword: hrPortalCredentials?.temporaryPassword,
             });
             const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({
                 delivered: true,
@@ -267,7 +292,9 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
         return result;
     }
     async updateEmployee(id, dto) {
-        const employee = await this.prisma.employee.findUnique({ where: { id } });
+        const employee = await this.prisma.employee.findFirst({
+            where: { OR: [{ id }, { employeeCode: id }] },
+        });
         if (!employee) {
             throw new app_exception_1.AppException(error_codes_1.ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', common_1.HttpStatus.NOT_FOUND);
         }
@@ -302,56 +329,32 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             await this.ensureOfficesCache();
             const primaryOffice = dto.primaryOfficeId?.trim() || dto.officeLocationId?.trim();
             const officesToSet = new Set();
+            const addOffice = (val) => {
+                if (!val || !val.trim())
+                    return;
+                const resolved = this.getOfficeDetails(val.trim());
+                const officeCode = resolved?.code || resolved?.id || val.trim();
+                officesToSet.add(officeCode);
+            };
             if (primaryOffice) {
-                officesToSet.add(primaryOffice);
-                const resolved = this.getOfficeDetails(primaryOffice);
-                if (resolved) {
-                    if (resolved.id)
-                        officesToSet.add(resolved.id);
-                    if (resolved.code)
-                        officesToSet.add(resolved.code);
-                }
+                addOffice(primaryOffice);
             }
             if (dto.officeIds && Array.isArray(dto.officeIds)) {
                 for (const offId of dto.officeIds) {
-                    if (offId && offId.trim()) {
-                        officesToSet.add(offId.trim());
-                        const resolved = this.getOfficeDetails(offId.trim());
-                        if (resolved) {
-                            if (resolved.id)
-                                officesToSet.add(resolved.id);
-                            if (resolved.code)
-                                officesToSet.add(resolved.code);
-                        }
-                    }
+                    addOffice(offId);
                 }
             }
             await this.prisma.employeeOfficeAssignment.updateMany({
-                where: { employeeId: id },
+                where: { employeeId: employee.id },
                 data: { isPrimary: false, isActive: false },
             });
             if (officesToSet.size > 0) {
                 const primaryResolved = primaryOffice ? this.getOfficeDetails(primaryOffice) : null;
-                const primaryKeys = new Set();
-                if (primaryOffice)
-                    primaryKeys.add(primaryOffice.toLowerCase());
-                if (primaryResolved?.id)
-                    primaryKeys.add(primaryResolved.id.toLowerCase());
-                if (primaryResolved?.code)
-                    primaryKeys.add(primaryResolved.code.toLowerCase());
-                if (primaryKeys.size === 0 && officesToSet.size > 0) {
-                    const first = Array.from(officesToSet)[0];
-                    primaryKeys.add(first.toLowerCase());
-                    const firstResolved = this.getOfficeDetails(first);
-                    if (firstResolved?.id)
-                        primaryKeys.add(firstResolved.id.toLowerCase());
-                    if (firstResolved?.code)
-                        primaryKeys.add(firstResolved.code.toLowerCase());
-                }
+                const primaryCode = primaryResolved?.code || primaryResolved?.id || Array.from(officesToSet)[0];
                 for (const oid of officesToSet) {
-                    const isPrimary = primaryKeys.has(oid.toLowerCase());
+                    const isPrimary = (oid.toLowerCase() === primaryCode.toLowerCase());
                     const existing = await this.prisma.employeeOfficeAssignment.findFirst({
-                        where: { employeeId: id, officeId: oid },
+                        where: { employeeId: employee.id, officeId: oid },
                     });
                     if (existing) {
                         await this.prisma.employeeOfficeAssignment.update({
@@ -362,7 +365,7 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
                     else {
                         await this.prisma.employeeOfficeAssignment.create({
                             data: {
-                                employeeId: id,
+                                employeeId: employee.id,
                                 officeId: oid,
                                 isPrimary,
                                 isActive: true,
@@ -374,7 +377,7 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             }
         }
         const updated = await this.prisma.employee.update({
-            where: { id },
+            where: { id: employee.id },
             data: {
                 firstName: dto.firstName !== undefined ? dto.firstName : undefined,
                 lastName: dto.lastName !== undefined ? dto.lastName : undefined,
@@ -487,12 +490,14 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
         return `${header}.${payload}.${signature}`;
     }
     async deleteEmployee(id) {
-        const employee = await this.prisma.employee.findUnique({ where: { id } });
+        const employee = await this.prisma.employee.findFirst({
+            where: { OR: [{ id }, { employeeCode: id }] },
+        });
         if (!employee) {
             throw new app_exception_1.AppException(error_codes_1.ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', common_1.HttpStatus.NOT_FOUND);
         }
         await this.prisma.employee.delete({
-            where: { id },
+            where: { id: employee.id },
         });
         this.logger.log(`Deleted employee ${employee.employeeCode} (${employee.id})`);
         return { success: true, message: `Employee ${employee.employeeCode} deleted successfully` };
@@ -501,11 +506,19 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
         if (Date.now() - this.lastOfficeFetch > 60000) {
             void this.refreshOfficesCache();
         }
+        const isPaginated = typeof query.page === 'number' && typeof query.limit === 'number' && query.page > 0 && query.limit > 0 && !query.all;
+        const isAll = !isPaginated || query.all === 'true' || query.all === true || query.all === '1';
         const page = query.page ?? 1;
-        const limit = query.limit ?? 20;
-        const where = {};
+        const limit = isPaginated ? query.limit : 10000;
+        const where = {
+            NOT: {
+                email: { contains: '.hr@' },
+            },
+        };
         if (query.departmentId) {
-            where.departmentId = query.departmentId;
+            where.department = {
+                OR: [{ id: query.departmentId }, { code: query.departmentId }],
+            };
         }
         if (query.status) {
             where.employmentStatus = query.status;
@@ -516,11 +529,15 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             };
         }
         if (query.search) {
-            where.OR = [
-                { employeeCode: { contains: query.search } },
-                { firstName: { contains: query.search } },
-                { lastName: { contains: query.search } },
-                { email: { contains: query.search } },
+            where.AND = [
+                {
+                    OR: [
+                        { employeeCode: { contains: query.search } },
+                        { firstName: { contains: query.search } },
+                        { lastName: { contains: query.search } },
+                        { email: { contains: query.search } },
+                    ],
+                },
             ];
         }
         const [items, total] = await this.prisma.$transaction([
@@ -532,18 +549,30 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
                     assignments: { where: { isActive: true } },
                 },
                 orderBy: { employeeCode: 'asc' },
-                skip: (page - 1) * limit,
-                take: limit,
+                ...(isPaginated ? { skip: (page - 1) * limit, take: limit } : {}),
             }),
             this.prisma.employee.count({ where }),
         ]);
         return {
             items: items.map((e) => this.formatEmployee(e)),
-            page,
-            limit,
+            page: isAll ? 1 : page,
+            limit: isAll ? total : limit,
             total,
-            totalPages: Math.ceil(total / limit),
+            totalPages: isAll ? 1 : Math.ceil(total / limit),
         };
+    }
+    async getDashboardMetrics() {
+        const [employeeCount, departmentCount] = await Promise.all([
+            this.prisma.employee.count({
+                where: {
+                    NOT: {
+                        email: { contains: '.hr@' },
+                    },
+                },
+            }),
+            this.prisma.department.count(),
+        ]);
+        return { employeeCount, departmentCount };
     }
     async getEmployeeById(idOrCode) {
         const employee = await this.prisma.employee.findFirst({
@@ -585,8 +614,14 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
         };
     }
     async updateEmployeeStatus(id, status) {
+        const employee = await this.prisma.employee.findFirst({
+            where: { OR: [{ id }, { employeeCode: id }] },
+        });
+        if (!employee) {
+            throw new app_exception_1.AppException(error_codes_1.ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', common_1.HttpStatus.NOT_FOUND);
+        }
         const updated = await this.prisma.employee.update({
-            where: { id },
+            where: { id: employee.id },
             data: { employmentStatus: status },
             include: {
                 department: true,
@@ -739,17 +774,21 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             emp.assignments?.[0];
         const rawOfficeId = primaryAssignment?.officeId || null;
         const resolvedOffice = rawOfficeId ? this.getOfficeDetails(rawOfficeId) : null;
-        const officeLocationId = resolvedOffice?.id || rawOfficeId;
-        const primaryOfficeId = resolvedOffice?.id || resolvedOffice?.code || rawOfficeId;
+        const isUuid = (val) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+        const officeLocationId = resolvedOffice?.code || resolvedOffice?.id || (isUuid(rawOfficeId) ? null : rawOfficeId);
+        const primaryOfficeId = resolvedOffice?.code || resolvedOffice?.id || (isUuid(rawOfficeId) ? null : rawOfficeId);
         const assignedOfficesMap = new Map();
         for (const assign of activeAssignments) {
             const resolved = this.getOfficeDetails(assign.officeId);
-            const officeKey = resolved?.id || assign.officeId;
+            const officeKey = resolved?.code || resolved?.id || assign.officeId;
+            if (isUuid(officeKey) && !resolved) {
+                continue;
+            }
             if (!assignedOfficesMap.has(officeKey)) {
                 assignedOfficesMap.set(officeKey, {
-                    id: resolved?.id || assign.officeId,
-                    code: resolved?.code || assign.officeId,
-                    name: resolved?.name || assign.officeId,
+                    id: resolved?.code || resolved?.id || 'OFFICE',
+                    code: resolved?.code || resolved?.id || 'OFFICE',
+                    name: resolved?.name || 'Office',
                     isPrimary: Boolean(assign.isPrimary),
                     isActive: Boolean(assign.isActive),
                 });
@@ -760,24 +799,42 @@ let EmployeeService = EmployeeService_1 = class EmployeeService {
             }
         }
         const assignedOffices = Array.from(assignedOfficesMap.values());
-        const officeIds = Array.from(new Set(activeAssignments.map((a) => a.officeId)));
+        const officeIds = Array.from(new Set(assignedOffices.map((o) => o.code || o.id)));
         const officeLocationNames = assignedOffices.map((o) => `${o.name}${o.code ? ` (${o.code})` : ''}`);
         const officeLocationName = officeLocationNames.length > 0
             ? officeLocationNames.join(', ')
-            : (resolvedOffice?.name || rawOfficeId || null);
-        const assignedOffice = (resolvedOffice || rawOfficeId)
+            : (resolvedOffice?.name || (isUuid(rawOfficeId) ? null : rawOfficeId));
+        const assignedOffice = resolvedOffice
             ? {
-                id: resolvedOffice?.id || rawOfficeId,
-                code: resolvedOffice?.code || rawOfficeId,
-                name: resolvedOffice?.name || rawOfficeId,
+                id: resolvedOffice.code || resolvedOffice.id,
+                code: resolvedOffice.code,
+                name: resolvedOffice.name,
             }
             : null;
+        const isHrMember = Boolean(emp.department?.name?.toUpperCase().includes('HUMAN') ||
+            emp.designation?.title?.toUpperCase().includes('HR') ||
+            emp.jobTitle?.toUpperCase().includes('HR') ||
+            emp.email?.toLowerCase().includes('.hr@'));
+        let displayJobTitle = emp.designation?.title || emp.jobTitle || '';
+        if (displayJobTitle.includes('(Attendance)')) {
+            displayJobTitle = displayJobTitle.replace(/\s*\(Attendance\)/i, '').trim();
+        }
+        if (isHrMember && (!displayJobTitle || displayJobTitle === 'Associate')) {
+            displayJobTitle = 'HR Specialist';
+        }
+        const hrWebEmail = isHrMember
+            ? (emp.email?.toLowerCase().includes('.hr@') ? emp.email : emp.email?.replace('@', '.hr@'))
+            : undefined;
+        const cleanId = emp.employeeCode || emp.id;
         return {
             ...emp,
+            id: cleanId,
             status: emp.employmentStatus,
-            jobTitle: emp.designation?.title || emp.jobTitle || '',
-            role: { id: 'role-employee', name: 'EMPLOYEE' },
-            roleId: 'role-employee',
+            jobTitle: displayJobTitle,
+            isHr: isHrMember,
+            hrWebEmail,
+            role: { id: 'role-employee', name: isHrMember ? 'HR_ADMIN' : 'EMPLOYEE' },
+            roleId: isHrMember ? 'role-hr' : 'role-employee',
             officeLocationId,
             primaryOfficeId,
             officeLocationName,

@@ -1,3223 +1,2273 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
-  AppState,
-  Image,
-  Linking,
-  Modal,
-  Platform,
+  Animated,
+  Dimensions,
   RefreshControl,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
-import {
-  ActivityIndicator,
-  Avatar,
-  Card,
-  Divider,
-  Text,
-} from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { Camera, CameraView } from 'expo-camera';
 import * as Location from 'expo-location';
-import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
+import GpsLocationInspector from '../components/GpsLocationInspector';
+import { Text } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
-import {
-  checkInAttendance,
-  checkOutAttendance,
-  getTodayAttendance,
-  recordGeofenceExit,
-  recordGeofenceReturn,
-} from '../api/attendanceApi';
-import type { AttendanceSession, TodayAttendance } from '../api/attendanceApi';
-import { getAttendanceToken, EmployeeProfile } from '../api/employeeApi';
-import {
-  computeOfficeLocationAndRadius,
-  getOfficeById,
-  getOffices,
-  verifyLocation,
-} from '../api/geofenceApi';
-import type { Office, VerifyLocationResult } from '../api/geofenceApi';
-import { getUnreadNotificationCount } from '../api/notificationApi';
-import { AppButton } from '../components/AppButton';
-import { ErrorMessage } from '../components/ErrorMessage';
-import { ProfileDrawer } from '../components/ProfileDrawer';
-import { FaceCameraModal } from '../components/FaceCameraModal';
-import {
-  InAppAlertData,
-  InAppNotificationBanner,
-} from '../components/InAppNotificationBanner';
 import { palette } from '../theme/theme';
-import { getErrorMessage } from '../utils/errors';
+import { api } from '../api/client';
+import {
+  checkIn,
+  checkOut,
+  geofenceExit,
+  geofenceReturn,
+  getTodayAttendance,
+  getAttendanceHistory,
+} from '../api/attendanceApi';
+import type { AttendanceSession, TodayAttendance, HistoryItem } from '../api/attendanceApi';
+import { getMyProfile, type Employee, type EmployeeAssignment } from '../api/employeeApi';
+import {
+  getFaceStatus,
+  getChallenge,
+  verifyFace,
+  enrollFace,
+  detectNeutralPose,
+  detectLiveAction,
+} from '../api/faceApi';
+import { geofenceApi } from '../api/geofenceApi';
+
+const { width } = Dimensions.get('window');
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function getDeviceLocation(): Promise<{
+  latitude: number;
+  longitude: number;
+  altitudeMeters?: number;
+  accuracyMeters?: number;
+  timestamp: string;
+}> {
+  const isServicesEnabled = await Location.hasServicesEnabledAsync();
+  if (!isServicesEnabled) {
+    throw new Error('Device Location / GPS is turned off. Please enable Location in your phone quick settings.');
+  }
+
+  let { status } = await Location.getForegroundPermissionsAsync();
+  if (status !== 'granted') {
+    const requested = await Location.requestForegroundPermissionsAsync();
+    status = requested.status;
+  }
+  if (status !== 'granted') {
+    throw new Error('Location permission is required to record workplace attendance.');
+  }
+
+  try {
+    const loc = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.High,
+    });
+    return {
+      latitude: loc.coords.latitude,
+      longitude: loc.coords.longitude,
+      altitudeMeters: loc.coords.altitude ?? undefined,
+      accuracyMeters: loc.coords.accuracy ? Math.min(loc.coords.accuracy, 250) : undefined,
+      timestamp: new Date().toISOString(),
+    };
+  } catch {
+    const lastKnown = await Location.getLastKnownPositionAsync();
+    if (lastKnown) {
+      return {
+        latitude: lastKnown.coords.latitude,
+        longitude: lastKnown.coords.longitude,
+        altitudeMeters: lastKnown.coords.altitude ?? undefined,
+        accuracyMeters: lastKnown.coords.accuracy ? Math.min(lastKnown.coords.accuracy, 250) : undefined,
+        timestamp: new Date().toISOString(),
+      };
+    }
+    const lowest = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    return {
+      latitude: lowest.coords.latitude,
+      longitude: lowest.coords.longitude,
+      altitudeMeters: lowest.coords.altitude ?? undefined,
+      accuracyMeters: lowest.coords.accuracy ? Math.min(lowest.coords.accuracy, 250) : undefined,
+      timestamp: new Date().toISOString(),
+    };
+  }
+}
+
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function formatCountdown(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+function formatTime(iso?: string): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+}
 
 function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
   });
 }
 
-function formatClock(seconds: number): string {
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-function formatTime(isoString?: string | null): string {
-  if (!isoString) return '—';
-  try {
-    return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '—';
+function statusColor(status: string): string {
+  switch (status) {
+    case 'WORKING': return palette.success;
+    case 'PAUSED': return palette.warning;
+    case 'CHECKED_OUT': return palette.muted;
+    default: return palette.muted;
   }
 }
 
-function formatCountdown(totalSecs: number): string {
-  if (totalSecs <= 0) return '00:00';
-  const mins = Math.floor(totalSecs / 60);
-  const secs = totalSecs % 60;
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'WORKING': return 'Working';
+    case 'PAUSED': return 'Paused';
+    case 'CHECKED_OUT': return 'Checked Out';
+    default: return status;
+  }
 }
 
-/**
- * Resolves the employee's assigned office from backend data.
- * STRICT RULE: If the employee has no assigned office in profile, returns null.
- * DO NOT FALLBACK TO RANDOM / FIRST OFFICE.
- */
-async function resolveEmployeeOffice(
-  profile: EmployeeProfile | null,
-  officeList: Office[],
-): Promise<Office | null> {
-  const officeIdOrCode =
-    profile?.officeLocationId ||
-    profile?.assignedOffice?.id ||
-    profile?.assignedOffice?.code;
+// ─── Challenge Helpers ────────────────────────────────────────────────────────
 
-  if (!officeIdOrCode && !profile?.officeLocationName) {
-    return null;
-  }
+const CHALLENGE_METADATA: Record<string, { icon: any; title: string; instruction: string; prompt: string }> = {
+  BLINK: {
+    icon: 'eye-outline',
+    title: 'Blink Your Eyes',
+    instruction: 'Look straight at the camera, then blink your eyes naturally.',
+    prompt: '👁️ BLINK YOUR EYES NOW!',
+  },
+  SMILE: {
+    icon: 'emoticon-happy-outline',
+    title: 'Smile at Camera',
+    instruction: 'Look straight at the camera, then give a natural smile.',
+    prompt: '😊 SMILE AT THE CAMERA NOW!',
+  },
+  TURN_LEFT: {
+    icon: 'arrow-left-circle-outline',
+    title: 'Turn Head Left',
+    instruction: 'Look straight at the camera, then turn your head slightly left.',
+    prompt: '👈 TURN HEAD SLIGHTLY LEFT!',
+  },
+  TURN_RIGHT: {
+    icon: 'arrow-right-circle-outline',
+    title: 'Turn Head Right',
+    instruction: 'Look straight at the camera, then turn your head slightly right.',
+    prompt: '👉 TURN HEAD SLIGHTLY RIGHT!',
+  },
+};
 
-  // 1. Try direct fetch by ID or Code from geofence-service
-  if (officeIdOrCode) {
-    const directOffice = await getOfficeById(officeIdOrCode);
-    if (directOffice) return directOffice;
-  }
+// ─── Face Enroll Modal (First-time / Onboarding) ──────────────────────────────
 
-  // 2. Try match from loaded office list by ID or Code
-  if (officeIdOrCode) {
-    const idLower = officeIdOrCode.trim().toLowerCase();
-    const matched = officeList.find(
-      (o) =>
-        o.id?.toLowerCase() === idLower ||
-        o.code?.toLowerCase() === idLower,
-    );
-    if (matched) return matched;
-  }
-
-  // 3. Try name substring match with officeLocationName
-  if (profile?.officeLocationName) {
-    const target = profile.officeLocationName.trim().toLowerCase();
-    const byName = officeList.find((o) => {
-      const oName = o.name?.trim().toLowerCase() || '';
-      const oCode = o.code?.trim().toLowerCase() || '';
-      return (
-        (oName && target.includes(oName)) ||
-        (oCode && target.includes(oCode)) ||
-        (oName && oName.includes(target))
-      );
-    });
-    if (byName) return byName;
-  }
-
-  return null;
+interface FaceEnrollModalProps {
+  visible: boolean;
+  employeeId: string;
+  onSuccess: () => void;
+  onCancel?: () => void;
 }
 
-/**
- * Resolves all authorized offices assigned to the employee.
- * Supports multi-location access: employees can work at Place A as well as Place B.
- */
-async function resolveEmployeeOffices(
-  profile: EmployeeProfile | null,
-  officeList: Office[],
-): Promise<Office[]> {
-  if (!profile) return [];
+function FaceEnrollModal({ visible, employeeId, onSuccess, onCancel }: FaceEnrollModalProps) {
+  const [step, setStep] = useState<'ready' | 'capturing' | 'enrolling' | 'success' | 'error'>('ready');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [hasCameraPermission, setHasCameraPermission] = useState(false);
+  const cameraRef = useRef<CameraView>(null);
 
-  const foundMap = new Map<string, Office>();
+  useEffect(() => {
+    if (visible) {
+      setStep('ready');
+      setErrorMsg('');
+      void requestPerm();
+    }
+  }, [visible]);
 
-  const addOffice = (off: Office | null | undefined) => {
-    if (off && off.id && !foundMap.has(off.id)) {
-      foundMap.set(off.id, off);
+  const requestPerm = async () => {
+    try {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Camera access is required to register your face biometrics.');
+        setStep('error');
+        return;
+      }
+      setHasCameraPermission(true);
+    } catch {
+      setErrorMsg('Failed to initialize camera permissions.');
+      setStep('error');
     }
   };
 
-  // 1. Check profile.assignedOffices array
-  if (Array.isArray(profile.assignedOffices) && profile.assignedOffices.length > 0) {
-    for (const assignment of profile.assignedOffices) {
-      if (!assignment) continue;
-      if (assignment.isActive === false) continue;
-      const targetId = assignment.id?.trim().toLowerCase();
-      const targetCode = assignment.code?.trim().toLowerCase();
-      const targetName = assignment.name?.trim().toLowerCase();
-
-      const matched = officeList.find((o) => {
-        const oId = o.id?.toLowerCase();
-        const oCode = o.code?.toLowerCase();
-        const oName = o.name?.toLowerCase();
-        return (
-          (targetId && oId === targetId) ||
-          (targetCode && oCode === targetCode) ||
-          (targetName && oName === targetName)
-        );
+  const handleCaptureAndEnroll = async () => {
+    if (!cameraRef.current) return;
+    setStep('capturing');
+    try {
+      // Use quality 0.4 for fast, crisp upload without exceeding payload limits
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.4,
+        base64: true,
+        skipProcessing: false,
       });
 
-      if (matched) {
-        addOffice(matched);
-      } else if (assignment.id) {
-        try {
-          const direct = await getOfficeById(assignment.id);
-          addOffice(direct);
-        } catch {
-          // ignore
-        }
-      }
-    }
-  }
-
-  // 2. Check profile.officeIds array
-  if (Array.isArray(profile.officeIds) && profile.officeIds.length > 0) {
-    for (const officeId of profile.officeIds) {
-      const idLower = officeId.trim().toLowerCase();
-      const matched = officeList.find(
-        (o) => o.id?.toLowerCase() === idLower || o.code?.toLowerCase() === idLower,
-      );
-      if (matched) {
-        addOffice(matched);
-      } else {
-        try {
-          const direct = await getOfficeById(officeId);
-          addOffice(direct);
-        } catch {
-          // ignore
-        }
-      }
-    }
-  }
-
-  // 3. Fallback / legacy single office fields if no offices found yet
-  if (foundMap.size === 0) {
-    const single = await resolveEmployeeOffice(profile, officeList);
-    if (single) {
-      addOffice(single);
-    }
-  }
-
-  return Array.from(foundMap.values());
-}
-
-export type GeofenceUIState =
-  | 'INSIDE'
-  | 'OUTSIDE'
-  | 'CHECKING'
-  | 'NO_OFFICE'
-  | 'PERMISSION_DENIED'
-  | 'GPS_DISABLED'
-  | 'API_ERROR';
-
-export default function EmployeeHomeScreen() {
-  const navigation = useNavigation<any>();
-  const { user, employeeProfile, refreshProfile, logout } = useAuth();
-
-  // Drawer & Alert state
-  const [isDrawerVisible, setIsDrawerVisible] = useState(false);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [inAppAlert, setInAppAlert] = useState<InAppAlertData | null>(null);
-
-  // Attendance state
-  const [todayData, setTodayData] = useState<TodayAttendance | null>(null);
-  const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null);
-  const [workingSeconds, setWorkingSeconds] = useState<number>(0);
-  const [loadingAttendance, setLoadingAttendance] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [feedback, setFeedback] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [graceSecondsLeft, setGraceSecondsLeft] = useState<number | null>(null);
-
-  // Attendance Verification & Success Modal state
-  const [isCheckInModalVisible, setIsCheckInModalVisible] = useState(false);
-  const [faceModalVisible, setFaceModalVisible] = useState(false);
-  const [faceModalMode, setFaceModalMode] = useState<'checkIn' | 'checkOut'>('checkIn');
-  const [attendancePhoto, setAttendancePhoto] = useState<string | null>(null);
-  const [checkInSuccessModal, setCheckInSuccessModal] = useState<{ checkInTime: string } | null>(null);
-  const [checkOutSuccessModal, setCheckOutSuccessModal] = useState<{
-    checkInTime: string;
-    checkOutTime: string;
-    duration: string;
-  } | null>(null);
-
-  // Geofence & Location state
-  const [location, setLocation] = useState<Location.LocationObjectCoords | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const [permissionDenied, setPermissionDenied] = useState(false);
-  const [gpsDisabled, setGpsDisabled] = useState(false);
-  const [apiError, setApiError] = useState(false);
-  const [verifyingGeofence, setVerifyingGeofence] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [geofenceResult, setGeofenceResult] = useState<VerifyLocationResult | null>(null);
-  const [assignedOffice, setAssignedOffice] = useState<Office | null>(null);
-  const [assignedOfficesList, setAssignedOfficesList] = useState<Office[]>([]);
-  const [offices, setOffices] = useState<Office[]>([]);
-
-  // Concurrency & Cache refs
-  const isVerifyingRef = useRef(false);
-  const officesCacheRef = useRef<Office[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const isTransitioningRef = useRef(false);
-  const activeSessionRef = useRef<AttendanceSession | null>(null);
-  const locationRef = useRef<Location.LocationObjectCoords | null>(null);
-  const [sessionStatusBanner, setSessionStatusBanner] = useState<{
-    type: 'PAUSED' | 'RESUMED';
-    message: string;
-  } | null>(null);
-
-  useEffect(() => {
-    activeSessionRef.current = activeSession;
-  }, [activeSession]);
-
-  // Helper for avatar initials
-  const getInitials = (): string => {
-    if (employeeProfile?.firstName) {
-      const first = employeeProfile.firstName[0] || '';
-      const last = employeeProfile.lastName?.[0] || '';
-      return (first + last).toUpperCase() || 'E';
-    }
-    if (user?.fullName) {
-      const parts = user.fullName.trim().split(/\s+/);
-      if (parts.length >= 2) {
-        return (parts[0][0] + parts[1][0]).toUpperCase();
-      }
-      return user.fullName.slice(0, 2).toUpperCase();
-    }
-    return 'EM';
-  };
-
-  // 1. Fetch unread notification count
-  const loadUnreadCount = useCallback(async () => {
-    const recipientId = employeeProfile?.id || user?.id;
-    if (!recipientId) return;
-    try {
-      const count = await getUnreadNotificationCount(recipientId);
-      setUnreadCount(count);
-    } catch {
-      // non-fatal
-    }
-  }, [employeeProfile?.id, user?.id]);
-
-  // 2. Load today's attendance records from server
-  const loadAttendance = useCallback(async () => {
-    try {
-      const empId = employeeProfile?.employeeCode || employeeProfile?.id;
-      const data = await getTodayAttendance(empId);
-      setTodayData(data);
-
-      const running = data.sessions.find(
-        (s) => s.status === 'WORKING' || s.status === 'PAUSED',
-      ) ?? null;
-      setActiveSession(running);
-
-      if (running) {
-        setWorkingSeconds(data.totalWorkingSecondsToday ?? running.totalWorkingSeconds ?? 0);
-      } else {
-        setWorkingSeconds(data.totalWorkingSecondsToday || 0);
-      }
-
-      // Check for automatic checkout in latest session
-      const latest = data.sessions[data.sessions.length - 1];
-      if (latest && latest.status === 'AUTO_CHECKED_OUT') {
-        setInAppAlert({
-          id: latest.id,
-          type: 'warning',
-          title: 'Automatic Check-Out',
-          message: `Your attendance was automatically checked out at ${formatTime(latest.checkOutAt)}.`,
-          onPress: () => navigation.navigate('AttendanceHistory'),
-        });
-      }
-    } catch {
-      // Keep existing state
-    } finally {
-      setLoadingAttendance(false);
-    }
-  }, [employeeProfile?.employeeCode, employeeProfile?.id, navigation]);
-
-  // Helper to update active session and preserve cumulative daily time + special condition credits
-  const updateSessionAndWorkingSeconds = useCallback((updatedSession: AttendanceSession) => {
-    setActiveSession(updatedSession);
-    setTodayData((prevToday) => {
-      if (!prevToday) {
-        if (typeof updatedSession.totalWorkingSeconds === 'number') {
-          const adj = updatedSession.approvedAdjustmentSeconds || 0;
-          setWorkingSeconds(updatedSession.totalWorkingSeconds + adj);
-        }
-        return prevToday;
-      }
-      const otherSessionsSeconds = (prevToday.sessions || [])
-        .filter((s) => s.id !== updatedSession.id)
-        .reduce((sum, s) => sum + (s.totalWorkingSeconds || 0), 0);
-      const sessionSeconds = typeof updatedSession.totalWorkingSeconds === 'number'
-        ? updatedSession.totalWorkingSeconds
-        : 0;
-      const specialSeconds = prevToday.totalSpecialConditionSecondsToday || updatedSession.approvedAdjustmentSeconds || 0;
-      const newTotal = otherSessionsSeconds + sessionSeconds + specialSeconds;
-      setWorkingSeconds(newTotal);
-
-      const updatedSessions = prevToday.sessions.map((s) => (s.id === updatedSession.id ? updatedSession : s));
-      return {
-        ...prevToday,
-        sessions: updatedSessions,
-        totalWorkingSecondsToday: newTotal,
-      };
-    });
-  }, []);
-
-  // 3. Resolve assigned office & evaluate geofence with GPS
-  const checkLocationAndGeofence = useCallback(
-    async (arg?: unknown) => {
-      const forceRefreshOffices = typeof arg === 'boolean' ? arg : false;
-      if (isVerifyingRef.current) return;
-      isVerifyingRef.current = true;
-      setVerifyingGeofence(true);
-      setLocationError(null);
-      setPermissionDenied(false);
-      setGpsDisabled(false);
-      setApiError(false);
-
-      try {
-        // Helper to pause active working session when location services or permissions are disabled
-        const pauseOnLocationOff = async (reasonNote: string) => {
-          const current = activeSessionRef.current;
-          if (current && current.status === 'WORKING' && !isTransitioningRef.current) {
-            isTransitioningRef.current = true;
-            try {
-              const empId = employeeProfile?.employeeCode || employeeProfile?.id;
-              const officeTarget =
-                current.officeId || assignedOffice?.id || assignedOffice?.code || 'OFFICE';
-              const updated = await recordGeofenceExit(
-                {
-                  officeId: officeTarget,
-                  clientEventId: generateUUID(),
-                  reason: 'LOCATION_OFF',
-                  location: {
-                    latitude: locationRef.current?.latitude || 0,
-                    longitude: locationRef.current?.longitude || 0,
-                    accuracyMeters: 50,
-                    timestamp: new Date().toISOString(),
-                  },
-                },
-                empId,
-              );
-              updateSessionAndWorkingSeconds(updated);
-              void loadAttendance();
-              setSessionStatusBanner({
-                type: 'PAUSED',
-                message: `${reasonNote}: Working timer paused automatically. Turn on location to resume.`,
-              });
-            } catch (exitErr) {
-              console.warn('Auto pause on location off error:', exitErr);
-            } finally {
-              isTransitioningRef.current = false;
-            }
-          }
-        };
-
-        // Step A: Request foreground location permission
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          setPermissionDenied(true);
-          setLocationError(
-            'Location access is required to verify that you are at your assigned office. Please enable location permissions in your device settings.',
-          );
-          await pauseOnLocationOff('Location permission disabled');
-          return;
-        }
-
-        // Step B: Check if device location services (GPS) are enabled
-        const isLocationServicesEnabled = await Location.hasServicesEnabledAsync();
-        if (!isLocationServicesEnabled) {
-          setGpsDisabled(true);
-          setLocationError('GPS is disabled on your device. Please turn on Location services in High Accuracy mode.');
-          await pauseOnLocationOff('Device GPS turned off');
-          return;
-        }
-
-        // Step C: Fetch active offices list if not already cached
-        let currentOffices = officesCacheRef.current;
-        if (currentOffices.length === 0 || forceRefreshOffices) {
-          try {
-            currentOffices = await getOffices();
-            officesCacheRef.current = currentOffices;
-            setOffices(currentOffices);
-          } catch {
-            // non-fatal, will attempt resolveEmployeeOffice
-          }
-        }
-
-        // Step D: Strictly resolve employee's assigned offices (multi-location access)
-        const assignedList = await resolveEmployeeOffices(employeeProfile, currentOffices);
-        setAssignedOfficesList(assignedList);
-
-        // If no office is assigned to employee, stop here and leave geofenceResult null
-        if (assignedList.length === 0) {
-          setAssignedOffice(null);
-          setGeofenceResult(null);
-          return;
-        }
-
-        // Step E: Get current GPS position with High accuracy
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        if (Boolean((pos as any)?.mocked)) {
-          Alert.alert(
-            "Security Alert",
-            "Spoofed or Mock Location detected! Please disable fake GPS apps to record attendance."
-          );
-          setGeofenceResult(null);
-          return;
-        }
-        setLocation(pos.coords);
-        locationRef.current = pos.coords;
-
-        // Step F: Call geofence-service verify endpoint across assigned offices
-        // If employee is physically inside ANY assigned workplace (Place A or Place B), detect that office!
-        try {
-          const safeAccuracy = Math.min(Math.round(pos.coords.accuracy ?? 10), 30);
-          let targetOffice: Office = assignedList[0];
-          let finalResult: VerifyLocationResult | null = null;
-          let minDistance = Infinity;
-
-          // If session is already active at a specific office, check that office first
-          const currentSession = activeSessionRef.current;
-          const sessionOfficeId = currentSession?.officeId?.toLowerCase();
-          const priorityList = sessionOfficeId
-            ? [
-                ...assignedList.filter(
-                  (o) =>
-                    o.id?.toLowerCase() === sessionOfficeId ||
-                    o.code?.toLowerCase() === sessionOfficeId,
-                ),
-                ...assignedList.filter(
-                  (o) =>
-                    o.id?.toLowerCase() !== sessionOfficeId &&
-                    o.code?.toLowerCase() !== sessionOfficeId,
-                ),
-              ]
-            : assignedList;
-
-          for (const off of priorityList) {
-            try {
-              const res = await verifyLocation({
-                officeId: off.code || off.id,
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                accuracyMeters: safeAccuracy,
-                altitudeMeters: pos.coords.altitude ?? undefined,
-              });
-
-              if (res.isInside) {
-                targetOffice = off;
-                finalResult = res;
-                break;
-              }
-
-              const dist =
-                typeof res.distanceToBoundaryMeters === 'number'
-                  ? res.distanceToBoundaryMeters
-                  : Infinity;
-              if (!finalResult || dist < minDistance) {
-                minDistance = dist;
-                targetOffice = off;
-                finalResult = res;
-              }
-            } catch (officeErr) {
-              console.warn(`Could not verify geofence for office ${off.code || off.id}:`, officeErr);
-            }
-          }
-
-          if (!finalResult) {
-            finalResult = await verifyLocation({
-              officeId: targetOffice.code || targetOffice.id,
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude,
-              accuracyMeters: safeAccuracy,
-              altitudeMeters: pos.coords.altitude ?? undefined,
-            });
-          }
-
-          setAssignedOffice(targetOffice);
-          setGeofenceResult(finalResult);
-          const result = finalResult;
-          setApiError(false);
-
-          // Automated Geofence Transition:
-          // Outside boundary -> Auto-pause WORKING session
-          // Return inside boundary -> Auto-resume PAUSED session
-          const activeSessionForTransition = activeSessionRef.current;
-          if (activeSessionForTransition && !isTransitioningRef.current) {
-            const empId = employeeProfile?.employeeCode || employeeProfile?.id;
-            const officeTarget = targetOffice.code || targetOffice.id;
-
-            if (activeSessionForTransition.status === 'WORKING' && !result.isInside) {
-              isTransitioningRef.current = true;
-              try {
-                const updated = await recordGeofenceExit(
-                  {
-                    officeId: officeTarget,
-                    clientEventId: generateUUID(),
-                    location: {
-                      latitude: pos.coords.latitude,
-                      longitude: pos.coords.longitude,
-                      accuracyMeters: safeAccuracy,
-                      timestamp: new Date().toISOString(),
-                    },
-                  },
-                  empId,
-                );
-                updateSessionAndWorkingSeconds(updated);
-                void loadAttendance();
-                setSessionStatusBanner({
-                  type: 'PAUSED',
-                  message: 'Outside office boundary: Working timer paused automatically.',
-                });
-              } catch (exitErr) {
-                console.warn('Auto geofence-exit error:', exitErr);
-              } finally {
-                isTransitioningRef.current = false;
-              }
-            } else if (activeSessionForTransition.status === 'PAUSED' && result.isInside) {
-              isTransitioningRef.current = true;
-              try {
-                const updated = await recordGeofenceReturn(
-                  {
-                    officeId: officeTarget,
-                    clientEventId: generateUUID(),
-                    location: {
-                      latitude: pos.coords.latitude,
-                      longitude: pos.coords.longitude,
-                      accuracyMeters: safeAccuracy,
-                      timestamp: new Date().toISOString(),
-                    },
-                  },
-                  empId,
-                );
-                updateSessionAndWorkingSeconds(updated);
-                void loadAttendance();
-                setSessionStatusBanner({
-                  type: 'RESUMED',
-                  message: 'Returned inside office boundary: Working timer resumed.',
-                });
-              } catch (returnErr) {
-                console.warn('Auto geofence-return error:', returnErr);
-              } finally {
-                isTransitioningRef.current = false;
-              }
-            }
-          }
-        } catch (geoErr) {
-          setApiError(true);
-          setGeofenceResult(null);
-          setLocationError(getErrorMessage(geoErr, 'Could not verify location with server.'));
-        }
-      } catch (err: unknown) {
-        setLocationError(getErrorMessage(err, 'Failed to acquire GPS location.'));
-        setApiError(true);
-      } finally {
-        isVerifyingRef.current = false;
-        setVerifyingGeofence(false);
-      }
-    },
-    [employeeProfile],
-  );
-
-  // Refresh all state (attendance + geofence + profile + unread notifications)
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    try {
-      await refreshProfile();
-    } catch {
-      // non-fatal
-    }
-    try {
-      await Promise.all([loadAttendance(), checkLocationAndGeofence(true), loadUnreadCount()]);
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [refreshProfile, loadAttendance, checkLocationAndGeofence, loadUnreadCount]);
-
-  // Initial load - runs strictly once on mount
-  useEffect(() => {
-    let isMounted = true;
-    void (async () => {
-      try {
-        await refreshProfile();
-      } catch {
-        // non-fatal
-      }
-      if (isMounted) {
-        loadAttendance();
-        checkLocationAndGeofence();
-        loadUnreadCount();
-      }
-    })();
-    return () => {
-      isMounted = false;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-verify strictly when employee office location identity changes
-  const officeKey = `${employeeProfile?.officeLocationId || ''}_${employeeProfile?.officeLocationName || ''}_${employeeProfile?.assignedOffice?.id || ''}`;
-  const lastOfficeKeyRef = useRef(officeKey);
-
-  useEffect(() => {
-    if (officeKey && officeKey !== lastOfficeKeyRef.current) {
-      lastOfficeKeyRef.current = officeKey;
-      void checkLocationAndGeofence(true);
-    }
-  }, [officeKey, checkLocationAndGeofence]);
-
-  // Live timer effect for active working session
-  useEffect(() => {
-    if (activeSession && activeSession.status === 'WORKING') {
-      timerRef.current = setInterval(() => {
-        setWorkingSeconds((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [activeSession]);
-
-  // Live countdown ticker for PAUSED session grace period
-  useEffect(() => {
-    if (activeSession && activeSession.status === 'PAUSED' && activeSession.currentGraceDeadline) {
-      const calcRemaining = () => {
-        const deadline = new Date(activeSession.currentGraceDeadline!).getTime();
-        const diff = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
-        return diff;
-      };
-
-      setGraceSecondsLeft(calcRemaining());
-      const graceInterval = setInterval(() => {
-        const rem = calcRemaining();
-        setGraceSecondsLeft(rem);
-        if (rem <= 0) {
-          // Grace period elapsed - trigger reload to synchronize auto-checkout
-          void loadAttendance();
-        }
-      }, 1000);
-
-      return () => clearInterval(graceInterval);
-    } else {
-      setGraceSecondsLeft(null);
-    }
-  }, [activeSession?.status, activeSession?.currentGraceDeadline, loadAttendance]);
-
-  // Continuous Geofence Monitoring for Active (WORKING or PAUSED) session
-  useEffect(() => {
-    if (!activeSession || (activeSession.status !== 'WORKING' && activeSession.status !== 'PAUSED')) {
-      return;
-    }
-
-    let isMounted = true;
-    let locationSub: Location.LocationSubscription | null = null;
-
-    // Heartbeat check every 8 seconds ensures turning off location or exiting is detected immediately
-    const heartbeatTimer = setInterval(() => {
-      void checkLocationAndGeofence();
-    }, 8000);
-
-    void (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted' && isMounted) {
-          locationSub = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.Balanced,
-              distanceInterval: 8,
-              timeInterval: 8000,
-            },
-            () => {
-              void checkLocationAndGeofence();
-            },
-          );
-        }
-      } catch {
-        // Heartbeat timer will handle periodic verification
-      }
-    })();
-
-    // Listen to AppState transitions (e.g. returning from Quick Settings or Settings after turning off GPS)
-    const appStateSub = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active' && isMounted) {
-        void checkLocationAndGeofence();
-      }
-    });
-
-    return () => {
-      isMounted = false;
-      clearInterval(heartbeatTimer);
-      if (locationSub) {
-        locationSub.remove();
-      }
-      appStateSub.remove();
-    };
-  }, [activeSession?.status, checkLocationAndGeofence]);
-
-  // Open Camera for Attendance Verification
-  const handleOpenAttendanceCamera = async () => {
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Camera Access Required',
-          'Camera access is required for attendance verification. Please enable camera in settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          ],
-        );
+      if (!photo?.base64) {
+        setErrorMsg('Failed to capture a clear photo. Please try again.');
+        setStep('error');
         return;
       }
 
-      const result = await ImagePicker.launchCameraAsync({
-        cameraType: ImagePicker.CameraType.front,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.5,
-        base64: true,
+      setStep('enrolling');
+      const res = await enrollFace({
+        employee_id: employeeId,
+        image_base64: photo.base64,
       });
 
-      if (!result.canceled && result.assets && result.assets[0]) {
-        const asset = result.assets[0];
-        const dataUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
-        setAttendancePhoto(dataUri);
+      if (res.success) {
+        setStep('success');
+        setTimeout(() => {
+          onSuccess();
+        }, 1200);
+      } else {
+        setErrorMsg(res.message || 'Face registration failed. Please try again.');
+        setStep('error');
       }
-    } catch (err: unknown) {
-      Alert.alert('Camera Error', getErrorMessage(err, 'Failed to launch camera.'));
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.detail ??
+        e?.response?.data?.message ??
+        e?.message ??
+        'Face enrollment error. Please center your face in good lighting and try again.';
+      setErrorMsg(msg);
+      setStep('error');
     }
   };
 
-  // Step 1: Initiate Check-In (Validate Geofence & Open Biometric Face Modal)
-  const handleInitiateCheckIn = () => {
-    if (!assignedOffice) {
-      Alert.alert(
-        'No Office Assigned',
-        'No office has been assigned to your account yet. Please contact your administrator.',
+  if (!visible) return null;
+
+  return (
+    <View style={faceStyles.overlay}>
+      <View style={faceStyles.modal}>
+        <View style={faceStyles.enrollHeader}>
+          <MaterialCommunityIcons name="face-recognition" size={28} color={palette.accent} />
+          <Text style={faceStyles.title}>Register Face Biometrics</Text>
+        </View>
+
+        {(step === 'ready' || step === 'capturing') && hasCameraPermission && (
+          <>
+            <View style={faceStyles.cameraWrap}>
+              <CameraView ref={cameraRef} style={faceStyles.camera} facing="front" />
+              <View style={[faceStyles.cameraBorder, { borderColor: palette.accent }]} />
+              <View style={faceStyles.faceGuideOverlay}>
+                <View style={faceStyles.faceGuideOval} />
+              </View>
+            </View>
+
+            <View style={faceStyles.enrollInfoBox}>
+              <Text style={faceStyles.enrollInfoTitle}>1-Time Face Registration</Text>
+              <Text style={faceStyles.instructions}>
+                Position your face inside the circle in good lighting. 1 photo will be captured to create your encrypted biometric profile.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[faceStyles.captureBtn, { backgroundColor: palette.accent }, step === 'capturing' && { opacity: 0.6 }]}
+              onPress={handleCaptureAndEnroll}
+              disabled={step === 'capturing'}
+            >
+              {step === 'capturing' ? (
+                <ActivityIndicator color="#0D0F14" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="camera" size={22} color="#0D0F14" />
+                  <Text style={[faceStyles.captureBtnText, { color: '#0D0F14' }]}>Capture & Register Face</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
+
+        {step === 'ready' && !hasCameraPermission && (
+          <View style={faceStyles.center}>
+            <ActivityIndicator color={palette.primary} size="large" />
+            <Text style={faceStyles.subtext}>Requesting camera permission...</Text>
+          </View>
+        )}
+
+        {step === 'enrolling' && (
+          <View style={faceStyles.center}>
+            <ActivityIndicator color={palette.accent} size="large" />
+            <Text style={[faceStyles.subtext, { fontWeight: '700' }]}>Creating 512-D Biometric Vector...</Text>
+            <Text style={[faceStyles.instructions, { fontSize: 13, marginTop: 4 }]}>
+              Validating face angle, lighting, and encrypting profile at rest.
+            </Text>
+          </View>
+        )}
+
+        {step === 'success' && (
+          <View style={faceStyles.center}>
+            <MaterialCommunityIcons name="check-decagram" size={64} color={palette.success} />
+            <Text style={[faceStyles.subtext, { color: palette.success, fontSize: 18, fontWeight: '700' }]}>
+              Face Registered!
+            </Text>
+            <Text style={[faceStyles.instructions, { marginTop: 4 }]}>
+              Your face profile is now active. You can now use facial check-in.
+            </Text>
+          </View>
+        )}
+
+        {step === 'error' && (
+          <View style={faceStyles.center}>
+            <MaterialCommunityIcons name="alert-circle" size={48} color={palette.error} />
+            <Text style={[faceStyles.subtext, { color: palette.error, textAlign: 'center' }]}>{errorMsg}</Text>
+            <TouchableOpacity style={faceStyles.retryBtn} onPress={() => { setErrorMsg(''); setStep('ready'); }}>
+              <Text style={faceStyles.retryBtnText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {step !== 'success' && step !== 'enrolling' && onCancel && (
+          <TouchableOpacity style={faceStyles.cancelBtn} onPress={onCancel}>
+            <Text style={faceStyles.cancelBtnText}>Dismiss</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ─── Face Verify Modal (Interactive User-Controlled 3-Frame Active Liveness) ───
+
+type FaceStep = 'preparing' | 'capturing' | 'verifying' | 'done' | 'error';
+
+interface FaceVerifyModalProps {
+  visible: boolean;
+  employeeId: string;
+  onSuccess: (token: string) => void;
+  onCancel: () => void;
+  onRequestReEnroll?: () => void;
+}
+
+function FaceVerifyModal({ visible, employeeId, onSuccess, onCancel, onRequestReEnroll }: FaceVerifyModalProps) {
+  const [step, setStep] = useState<FaceStep>('preparing');
+  const [challenge, setChallenge] = useState<{ id: string; action: string; instructions: string } | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [hasCameraPermission, setHasCameraPermission] = useState(false);
+  const [currentFrame, setCurrentFrame] = useState<1 | 2 | 3>(1);
+  const [capturedFrames, setCapturedFrames] = useState<string[]>([]);
+  const [isSnapping, setIsSnapping] = useState(false);
+  const [flashBorder, setFlashBorder] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [autoScanStatus, setAutoScanStatus] = useState('Position face in oval guide...');
+
+  const cameraRef = useRef<CameraView>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setStep('preparing');
+      setErrorMsg('');
+      setCurrentFrame(1);
+      setCapturedFrames([]);
+      setCountdown(null);
+      setAutoScanStatus('Position face in oval guide...');
+      void initFaceVerify();
+    }
+  }, [visible]);
+
+  useEffect(() => {
+    if (currentFrame === 2) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1.06, duration: 500, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [currentFrame]);
+
+  // ─── Real-Time Continuous Auto-Detection Loop ─────────────────────────────
+  useEffect(() => {
+    if (!visible || step !== 'capturing' || !hasCameraPermission) return;
+    let isMounted = true;
+    let inFlight = false;
+    let timeoutId: any;
+
+    const runScanLoop = async () => {
+      if (!isMounted) return;
+      if (!inFlight && !isSnapping && cameraRef.current) {
+        inFlight = true;
+        try {
+          const preview = await cameraRef.current.takePictureAsync({
+            quality: 0.20,
+            base64: true,
+            skipProcessing: true,
+          });
+
+          if (preview?.base64 && isMounted) {
+            if (currentFrame === 1) {
+              const res = await detectNeutralPose(preview.base64);
+              if (res.detected && isMounted) {
+                triggerShutterFlash();
+                setAutoScanStatus('✓ Neutral pose detected!');
+                setCapturedFrames([preview.base64]);
+                setCurrentFrame(2);
+              } else if (isMounted) {
+                setAutoScanStatus(res.message || 'Align face looking forward...');
+              }
+            } else if (currentFrame === 2 && challenge && capturedFrames.length >= 1) {
+              const res = await detectLiveAction({
+                action: challenge.action,
+                neutral_frame: capturedFrames[0],
+                current_frame: preview.base64,
+              });
+
+              if (res.detected && isMounted) {
+                setIsSnapping(true);
+                triggerShutterFlash();
+                setAutoScanStatus(`✓ ${res.message || 'Action verified!'}`);
+                const verifiedFrames = [capturedFrames[0], preview.base64];
+                setCapturedFrames(verifiedFrames);
+                void submitVerification(verifiedFrames);
+                return;
+              } else if (isMounted) {
+                setAutoScanStatus(res.message || 'Detecting activity...');
+              }
+            }
+          }
+        } catch {
+          // ignore transient frame capture errors
+        } finally {
+          inFlight = false;
+        }
+      }
+
+      if (isMounted && !isSnapping) {
+        timeoutId = setTimeout(runScanLoop, 550);
+      }
+    };
+
+    timeoutId = setTimeout(runScanLoop, 400);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, [visible, step, hasCameraPermission, currentFrame, challenge, capturedFrames, isSnapping]);
+
+  const initFaceVerify = async () => {
+    try {
+      const { status } = await Camera.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Camera permission is required for face verification.');
+        setStep('error');
+        return;
+      }
+      setHasCameraPermission(true);
+
+      const ch = await getChallenge(employeeId);
+      const instruction = (ch as any).instruction || (ch as any).instructions || '';
+      setChallenge({ id: ch.challenge_id, action: ch.action, instructions: instruction });
+      setCurrentFrame(1);
+      setCapturedFrames([]);
+      setStep('capturing');
+    } catch (e: any) {
+      setErrorMsg(e?.response?.data?.message ?? e?.message ?? 'Failed to get liveness challenge.');
+      setStep('error');
+    }
+  };
+
+  const triggerShutterFlash = () => {
+    setFlashBorder(true);
+    setTimeout(() => setFlashBorder(false), 200);
+  };
+
+  const snapPhoto = async (): Promise<string | null> => {
+    if (!cameraRef.current) return null;
+    triggerShutterFlash();
+    const photo = await cameraRef.current.takePictureAsync({
+      quality: 0.35,
+      base64: true,
+      skipProcessing: false,
+    });
+    return photo?.base64 ?? null;
+  };
+
+  const handleManualSnapFrame1 = async () => {
+    if (isSnapping) return;
+    setIsSnapping(true);
+    try {
+      const b64 = await snapPhoto();
+      if (b64) {
+        setCapturedFrames([b64]);
+        setCurrentFrame(2);
+        setAutoScanStatus('Photo 1 captured! Ready for action challenge.');
+      }
+    } finally {
+      setIsSnapping(false);
+    }
+  };
+
+  const handleManualSnapFrame2 = async () => {
+    if (isSnapping || capturedFrames.length === 0) return;
+    setIsSnapping(true);
+    try {
+      const b64 = await snapPhoto();
+      if (b64) {
+        const verifiedFrames = [capturedFrames[0], b64];
+        setCapturedFrames(verifiedFrames);
+        void submitVerification(verifiedFrames);
+      }
+    } finally {
+      setIsSnapping(false);
+    }
+  };
+
+  // Immediate verification submission
+  const submitVerification = async (frames: string[]) => {
+    if (!challenge) return;
+    setStep('verifying');
+    setAutoScanStatus('Matching face neural embedding...');
+    try {
+      const result = await verifyFace({
+        employee_id: employeeId,
+        challenge_id: challenge.id,
+        frames,
+      });
+
+      if (result.verified && result.verification_token) {
+        setStep('done');
+        setTimeout(() => onSuccess(result.verification_token!), 900);
+      } else {
+        setErrorMsg(result.message || 'Face verification failed.');
+        setStep('error');
+      }
+    } catch (e: any) {
+      const rawDetail = e?.response?.data?.detail;
+      const detailStr = Array.isArray(rawDetail)
+        ? rawDetail.map((d: any) => d.msg).join(', ')
+        : typeof rawDetail === 'string'
+          ? rawDetail
+          : undefined;
+
+      setErrorMsg(
+        detailStr ??
+        e?.response?.data?.message ??
+        e?.message ??
+        'Biometric verification failed. Please try again.'
       );
+      setStep('error');
+    } finally {
+      setIsSnapping(false);
+    }
+  };
+
+  const handleRetakeToFrame1 = () => {
+    setIsSnapping(false);
+    setCurrentFrame(1);
+    setCapturedFrames([]);
+    setAutoScanStatus('Position face in oval guide...');
+  };
+
+  const actionMeta = challenge ? CHALLENGE_METADATA[challenge.action] ?? {
+    icon: 'face-recognition',
+    title: challenge.action.replace('_', ' '),
+    instruction: challenge.instructions,
+    prompt: `NOW: ${challenge.action}!`,
+  } : null;
+
+  const isLegacyError =
+    errorMsg.toLowerCase().includes('legacy') ||
+    errorMsg.toLowerCase().includes('re-register') ||
+    errorMsg.toLowerCase().includes('needs updating');
+
+  if (!visible) return null;
+
+  return (
+    <View style={faceStyles.overlay}>
+      <View style={faceStyles.modal}>
+        <Text style={faceStyles.title}>Biometric Face Verification</Text>
+
+        {(step === 'capturing' || step === 'verifying') && hasCameraPermission && (
+          <View style={faceStyles.cameraWrap}>
+            <CameraView ref={cameraRef} style={faceStyles.camera} facing="front" />
+            <View
+              style={[
+                faceStyles.cameraBorder,
+                flashBorder && { borderColor: '#fff', borderWidth: 5 },
+                currentFrame === 2 && { borderColor: palette.warning, borderWidth: 3.5 },
+                currentFrame === 3 && { borderColor: palette.success, borderWidth: 3.5 },
+              ]}
+            />
+            {/* Guide circle outline */}
+            <View style={faceStyles.faceGuideOverlay}>
+              <View style={faceStyles.faceGuideOval} />
+            </View>
+
+            {/* Countdown Overlay */}
+            {countdown !== null && (
+              <View style={faceStyles.countdownOverlay}>
+                <Text style={faceStyles.countdownNumber}>{countdown}</Text>
+                <Text style={faceStyles.countdownLabel}>Capturing photo...</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {step === 'preparing' && (
+          <View style={faceStyles.center}>
+            <ActivityIndicator color={palette.primary} size="large" />
+            <Text style={faceStyles.subtext}>Starting biometric sensor...</Text>
+          </View>
+        )}
+
+        {step === 'capturing' && actionMeta && (
+          <View style={{ width: '100%', alignItems: 'center' }}>
+            {/* Real-Time Detection Status Banner */}
+            <View style={faceStyles.autoDetectBadge}>
+              <ActivityIndicator size="small" color={currentFrame === 2 ? palette.warning : palette.accent} />
+              <Text style={faceStyles.autoDetectText}>{autoScanStatus}</Text>
+            </View>
+
+            {/* Step Indicator Progress Bar */}
+            <View style={faceStyles.frameDotsContainer}>
+              <View style={[faceStyles.frameDot, currentFrame >= 1 && faceStyles.frameDotActive]}>
+                <Text style={faceStyles.frameDotText}>1</Text>
+              </View>
+              <View style={faceStyles.frameDotLine} />
+              <View style={[faceStyles.frameDot, currentFrame >= 2 && faceStyles.frameDotActive]}>
+                <Text style={faceStyles.frameDotText}>2</Text>
+              </View>
+            </View>
+
+            {/* FRAME 1: Neutral */}
+            {currentFrame === 1 && (
+              <View style={faceStyles.stepCard}>
+                <View style={faceStyles.stepHeader}>
+                  <MaterialCommunityIcons name="face-man" size={20} color={palette.primary} />
+                  <Text style={faceStyles.stepTitle}>Photo 1 of 2: Look Forward</Text>
+                </View>
+                <Text style={faceStyles.stepDesc}>
+                  Align your face directly in the oval guide. The camera will automatically capture once facing forward, or tap below to snap immediately.
+                </Text>
+
+                <TouchableOpacity
+                  style={[faceStyles.captureBtn, { marginTop: 10, backgroundColor: palette.primary }]}
+                  onPress={handleManualSnapFrame1}
+                  disabled={isSnapping}
+                >
+                  <MaterialCommunityIcons name="camera" size={20} color="#FFFFFF" />
+                  <Text style={[faceStyles.captureBtnText, { color: '#FFFFFF' }]}>
+                    {isSnapping ? 'Capturing...' : '📸 Auto-Scanning (or Tap to Snap)'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* FRAME 2: Action Challenge (Turn, Smile, Blink) */}
+            {currentFrame === 2 && (
+              <View style={[faceStyles.stepCard, { borderColor: palette.warning }]}>
+                <Animated.View style={[faceStyles.actionHighlightBox, { transform: [{ scale: pulseAnim }] }]}>
+                  <MaterialCommunityIcons name={actionMeta.icon} size={28} color={palette.warning} />
+                  <Text style={faceStyles.actionPromptTitle}>{actionMeta.prompt}</Text>
+                  <Text style={faceStyles.actionPromptSub}>{actionMeta.instruction}</Text>
+                </Animated.View>
+
+                <Text style={faceStyles.stepDesc}>
+                  ⚡ Please {actionMeta.instruction.toLowerCase()} — auto-detecting, or tap below to snap immediately!
+                </Text>
+
+                <TouchableOpacity
+                  style={[faceStyles.captureBtn, { marginTop: 10, backgroundColor: palette.warning }]}
+                  onPress={handleManualSnapFrame2}
+                  disabled={isSnapping}
+                >
+                  <MaterialCommunityIcons name="camera" size={20} color="#1F2937" />
+                  <Text style={[faceStyles.captureBtnText, { color: '#1F2937' }]}>
+                    {isSnapping ? 'Capturing...' : `📸 Auto-Detecting (or Tap to Snap ${challenge?.action || 'Action'})`}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[faceStyles.secondaryBtn, { marginTop: 8 }]}
+                  onPress={handleRetakeToFrame1}
+                >
+                  <MaterialCommunityIcons name="undo" size={16} color={palette.ink} />
+                  <Text style={faceStyles.secondaryBtnText}>↺ Restart from Photo 1</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {step === 'verifying' && (
+          <View style={faceStyles.center}>
+            <ActivityIndicator color={palette.accent} size="large" />
+            <Text style={[faceStyles.subtext, { fontWeight: '700' }]}>Analyzing Biometric Frames...</Text>
+            <Text style={[faceStyles.instructions, { fontSize: 13, marginTop: 4 }]}>
+              Evaluating YuNet facial landmarks, 3D motion geometry, and matching neural face embedding.
+            </Text>
+          </View>
+        )}
+
+        {step === 'done' && (
+          <View style={faceStyles.center}>
+            <MaterialCommunityIcons name="check-circle" size={56} color={palette.success} />
+            <Text style={[faceStyles.subtext, { color: palette.success, fontWeight: '700', fontSize: 18 }]}>
+              Verified & Live!
+            </Text>
+            <Text style={[faceStyles.instructions, { marginTop: 4 }]}>
+              Biometric check-in authorized.
+            </Text>
+          </View>
+        )}
+
+        {step === 'error' && (
+          <View style={faceStyles.center}>
+            <MaterialCommunityIcons name="alert-circle" size={48} color={palette.error} />
+            <Text style={[faceStyles.subtext, { color: palette.error, textAlign: 'center', lineHeight: 20 }]}>
+              {errorMsg}
+            </Text>
+
+            {isLegacyError && onRequestReEnroll && (
+              <TouchableOpacity
+                style={[faceStyles.captureBtn, { backgroundColor: palette.accent, marginTop: 12 }]}
+                onPress={onRequestReEnroll}
+              >
+                <MaterialCommunityIcons name="face-recognition" size={20} color="#0D0F14" />
+                <Text style={[faceStyles.captureBtnText, { color: '#0D0F14' }]}>
+                  Re-Register Face Biometrics Now
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={faceStyles.retryBtn}
+              onPress={() => {
+                setErrorMsg('');
+                void initFaceVerify();
+              }}
+            >
+              <Text style={faceStyles.retryBtnText}>Retry Scan</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {step !== 'done' && step !== 'verifying' && (
+          <TouchableOpacity style={faceStyles.cancelBtn} onPress={onCancel}>
+            <Text style={faceStyles.cancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const faceStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  modal: {
+    width: width * 0.92,
+    maxHeight: '90%',
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: palette.ink,
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  cameraWrap: {
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    overflow: 'hidden',
+    marginBottom: 14,
+    position: 'relative',
+    backgroundColor: '#000',
+  },
+  camera: {
+    flex: 1,
+  },
+  cameraBorder: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 105,
+    borderWidth: 3,
+    borderColor: palette.primary,
+  },
+  faceGuideOverlay: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: 'center',
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  faceGuideOval: {
+    width: 130,
+    height: 160,
+    borderRadius: 65,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.4)',
+    borderStyle: 'dashed',
+  },
+  countdownOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  countdownNumber: {
+    fontSize: 64,
+    fontWeight: '900',
+    color: '#fff',
+  },
+  countdownLabel: {
+    fontSize: 14,
+    color: palette.inkSecondary,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  challengeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: `${palette.primary}22`,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+  challengeAction: {
+    color: palette.primary,
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  autoDetectBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: palette.surfaceElevated,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  autoDetectText: {
+    color: palette.ink,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  challengeContextCard: {
+    width: '100%',
+    backgroundColor: palette.surfaceElevated,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  contextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  contextTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: palette.ink,
+  },
+  contextBody: {
+    fontSize: 12,
+    color: palette.inkSecondary,
+    marginBottom: 6,
+    lineHeight: 16,
+  },
+  stepList: {
+    gap: 4,
+  },
+  stepItem: {
+    fontSize: 12,
+    color: palette.ink,
+    lineHeight: 16,
+  },
+  stepBold: {
+    fontWeight: '700',
+    color: palette.accent,
+  },
+  enrollInfoBox: {
+    width: '100%',
+    backgroundColor: palette.surfaceElevated,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: 'center',
+  },
+  enrollInfoTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: palette.accent,
+    marginBottom: 4,
+  },
+  capturingInfo: {
+    alignItems: 'center',
+    width: '100%',
+    marginVertical: 6,
+  },
+  activePromptBanner: {
+    width: '100%',
+    backgroundColor: palette.surfaceElevated,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  activePromptBannerAction: {
+    backgroundColor: `${palette.warning}30`,
+    borderColor: palette.warning,
+  },
+  activePromptText: {
+    color: palette.ink,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  activePromptTextAction: {
+    color: palette.warning,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  actionHighlightText: {
+    color: palette.accent,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  frameDotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  frameDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: palette.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: palette.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  frameDotActive: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  frameDotText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  frameDotLine: {
+    width: 20,
+    height: 2,
+    backgroundColor: palette.border,
+  },
+  stepCard: {
+    width: '100%',
+    backgroundColor: palette.surfaceElevated,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  stepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  stepTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: palette.ink,
+  },
+  stepDesc: {
+    fontSize: 12,
+    color: palette.inkSecondary,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  timerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  timerBtnText: {
+    fontSize: 12,
+    color: palette.inkSecondary,
+    fontWeight: '600',
+  },
+  actionHighlightBox: {
+    width: '100%',
+    backgroundColor: `${palette.warning}20`,
+    borderWidth: 1,
+    borderColor: palette.warning,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 4,
+  },
+  actionPromptTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: palette.warning,
+    textAlign: 'center',
+  },
+  actionPromptSub: {
+    fontSize: 12,
+    color: palette.ink,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: palette.surface,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  secondaryBtnText: {
+    fontSize: 12,
+    color: palette.ink,
+    fontWeight: '600',
+  },
+  instructions: {
+    color: palette.inkSecondary,
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  captureBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: palette.primary,
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    width: '100%',
+  },
+  captureBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  center: {
+    alignItems: 'center',
+    gap: 10,
+    marginVertical: 16,
+  },
+  subtext: {
+    color: palette.inkSecondary,
+    fontSize: 14,
+    marginTop: 6,
+  },
+  retryBtn: {
+    marginTop: 10,
+    backgroundColor: palette.primary,
+    borderRadius: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  cancelBtn: {
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  cancelBtnText: {
+    color: palette.muted,
+    fontSize: 13,
+  },
+  enrollHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+});
+
+
+// ─── Main Employee Home Screen ────────────────────────────────────────────────
+
+type Screen = 'dashboard' | 'history' | 'profile';
+
+export default function EmployeeHomeScreen() {
+  const { user, logout } = useAuth();
+  const [activeScreen, setActiveScreen] = useState<Screen>('dashboard');
+
+  // Employee profile
+  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  // Attendance state
+  const [today, setToday] = useState<TodayAttendance | null>(null);
+  const [activeSession, setActiveSession] = useState<AttendanceSession | null>(null);
+  const [loadingToday, setLoadingToday] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // History
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Actions & Modals
+  const [isFaceEnrolled, setIsFaceEnrolled] = useState<boolean | null>(null);
+  const [showFaceModal, setShowFaceModal] = useState(false);
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Timer
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  // Load profile
+  useEffect(() => {
+    if (user?.id) void loadProfile();
+  }, [user?.id]);
+
+  // Load today on mount
+  useEffect(() => {
+    void loadToday();
+  }, []);
+
+  // Grace Countdown Timer - ticks every second when status === 'PAUSED'
+  const [graceSecondsLeft, setGraceSecondsLeft] = useState<number>(0);
+  const [geofenceChecking, setGeofenceChecking] = useState<boolean>(false);
+  const [lastGeofenceResult, setLastGeofenceResult] = useState<{
+    isInside: boolean;
+    distanceMeters?: number;
+    officeName?: string;
+    checkedAt: Date;
+  } | null>(null);
+
+  useEffect(() => {
+    if (activeSession?.status === 'PAUSED') {
+      const calcGrace = () => {
+        let deadline = 0;
+        if (activeSession.currentGraceDeadline) {
+          deadline = new Date(activeSession.currentGraceDeadline).getTime();
+        } else if (activeSession.currentPauseStartedAt) {
+          deadline = new Date(activeSession.currentPauseStartedAt).getTime() + 60 * 60 * 1000;
+        } else {
+          deadline = Date.now() + 60 * 60 * 1000;
+        }
+        const diff = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+        setGraceSecondsLeft(diff);
+        if (diff === 0) {
+          void loadToday();
+        }
+      };
+      calcGrace();
+      const interval = setInterval(calcGrace, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setGraceSecondsLeft(0);
+    }
+  }, [activeSession?.status, activeSession?.currentGraceDeadline, activeSession?.currentPauseStartedAt]);
+
+  // Timer for elapsed time - stops at 12:00 AM (midnight, no night shifts)
+  useEffect(() => {
+    if (activeSession?.status === 'WORKING' && activeSession.checkInAt) {
+      const update = () => {
+        const checkInDate = new Date(activeSession.checkInAt);
+        const checkInTime = checkInDate.getTime();
+        const now = new Date();
+
+        // 12:00 AM (midnight) boundary of the check-in day: 23:59:59.999
+        const midnight = new Date(
+          checkInDate.getFullYear(),
+          checkInDate.getMonth(),
+          checkInDate.getDate(),
+          23, 59, 59, 999
+        ).getTime();
+
+        // Stop timer after 12 o'clock at night (midnight)
+        if (now.getTime() >= midnight) {
+          const cappedSeconds = Math.max(0, Math.floor((midnight - checkInTime) / 1000));
+          setElapsedSeconds(cappedSeconds);
+
+          // If current calendar day has advanced, reload today to reset for the new day
+          if (now.toDateString() !== checkInDate.toDateString()) {
+            void loadToday();
+          }
+          return;
+        }
+
+        const seconds = Math.floor((now.getTime() - checkInTime) / 1000);
+        setElapsedSeconds(Math.max(activeSession.totalWorkingSeconds || 0, seconds));
+      };
+      update();
+      timerRef.current = setInterval(update, 1000);
+      return () => clearInterval(timerRef.current);
+    } else if (activeSession?.status === 'PAUSED') {
+      clearInterval(timerRef.current);
+      setElapsedSeconds(activeSession.totalWorkingSeconds || 0);
+    } else {
+      clearInterval(timerRef.current);
+      setElapsedSeconds(0);
+    }
+  }, [activeSession]);
+
+  // Concurrent Geofence Location Monitor
+  const performGeofenceCheck = useCallback(async (manual = false) => {
+    if (!activeSession || (activeSession.status !== 'WORKING' && activeSession.status !== 'PAUSED')) {
+      return;
+    }
+    if (geofenceChecking) return;
+
+    setGeofenceChecking(true);
+    try {
+      const loc = await getDeviceLocation();
+      const officeTarget = activeSession.officeId;
+
+      const res = await geofenceApi.verifyLocation({
+        officeId: officeTarget,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        altitudeMeters: loc.altitudeMeters,
+      });
+
+      const isInside = res?.isInside ?? false;
+      const distance = res?.distanceToBoundaryMeters ?? 0;
+      setLastGeofenceResult({
+        isInside,
+        distanceMeters: Math.round(distance),
+        officeName: res?.officeName || officeTarget,
+        checkedAt: new Date(),
+      });
+
+      // CASE 1: Employee was WORKING, but stepped OUTSIDE office boundary!
+      if (activeSession.status === 'WORKING' && !isInside) {
+        console.log(`[GeofenceMonitor] Employee left office (~${Math.round(distance)}m outside). Triggering geofence-exit...`);
+        try {
+          const pausedSession = await geofenceExit({
+            officeId: officeTarget,
+            location: loc,
+            clientEventId: generateUUID(),
+            employeeId: employee?.id,
+          });
+          setActiveSession(pausedSession);
+          await loadToday();
+          Alert.alert(
+            '⚠️ Stepped Outside Workplace',
+            `You are outside your office boundary (~${Math.round(distance)}m away).\n\nYour working timer has been automatically paused. A 60-minute grace period has started.\n\nPlease return to the office within 60 minutes to resume your timer, or your shift will be automatically checked out.`,
+            [{ text: 'Understood' }]
+          );
+        } catch (exitErr: any) {
+          console.warn('Geofence exit call warning:', exitErr?.message);
+        }
+      }
+      // CASE 2: Employee was PAUSED, and walked BACK INSIDE office boundary!
+      else if (activeSession.status === 'PAUSED' && isInside) {
+        console.log(`[GeofenceMonitor] Employee returned inside office. Triggering geofence-return...`);
+        try {
+          const resumedSession = await geofenceReturn({
+            officeId: officeTarget,
+            location: loc,
+            clientEventId: generateUUID(),
+            employeeId: employee?.id,
+          });
+          setActiveSession(resumedSession);
+          await loadToday();
+          Alert.alert(
+            '✅ Back in Office',
+            `Welcome back inside the office geofence!\n\nYour working timer has automatically resumed.`,
+            [{ text: 'Continue Working' }]
+          );
+        } catch (returnErr: any) {
+          console.warn('Geofence return call warning:', returnErr?.message);
+        }
+      } else if (manual) {
+        if (isInside) {
+          Alert.alert('📍 Location Verified', `You are safely inside the office boundary (${res?.officeName || officeTarget}).`);
+        } else {
+          Alert.alert('📍 Outside Office', `You are currently ~${Math.round(distance)}m outside the office perimeter.`);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[GeofenceMonitor] Background location check warning:', e?.message);
+    } finally {
+      setGeofenceChecking(false);
+    }
+  }, [activeSession, employee?.id, geofenceChecking]);
+
+  // Periodic 30-second background location checks while session is active
+  useEffect(() => {
+    if (activeSession && (activeSession.status === 'WORKING' || activeSession.status === 'PAUSED')) {
+      const interval = setInterval(() => {
+        void performGeofenceCheck();
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [activeSession?.status, activeSession?.id, performGeofenceCheck]);
+
+  // Load history when screen changes
+  useEffect(() => {
+    if (activeScreen === 'history' && history.length === 0) {
+      void loadHistory();
+    }
+  }, [activeScreen]);
+
+  const checkFaceStatus = async (empId: string) => {
+    try {
+      const status = await getFaceStatus(empId);
+      setIsFaceEnrolled(status.is_enrolled);
+      if (!status.is_enrolled) {
+        // Automatically prompt face enrollment at first login!
+        setShowEnrollModal(true);
+      }
+    } catch (e: any) {
+      console.warn('Face status check warning:', e?.message);
+    }
+  };
+
+  const [selectedCheckInOfficeId, setSelectedCheckInOfficeId] = useState<string | null>(null);
+
+  const loadProfile = async () => {
+    try {
+      setLoadingProfile(true);
+      const emp = await getMyProfile(user!.id);
+      setEmployee(emp);
+      if (emp?.id) {
+        api.defaults.headers.common['x-employee-id'] = emp.id;
+        void checkFaceStatus(emp.id);
+      }
+    } catch {
+      // silent fail - profile might not be created yet
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  const loadToday = async () => {
+    try {
+      setLoadingToday(true);
+      const data = await getTodayAttendance();
+      setToday(data);
+      const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+      const active = sessions.find(
+        (s) => s.status === 'WORKING' || s.status === 'PAUSED'
+      );
+      setActiveSession(active ?? null);
+    } catch (e: any) {
+      console.error('Load today error:', e?.message);
+    } finally {
+      setLoadingToday(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      setLoadingHistory(true);
+      const data = await getAttendanceHistory({ page: 1, limit: 30 });
+      setHistory(Array.isArray(data?.items) ? data.items : []);
+    } catch (e: any) {
+      console.error('Load history error:', e?.message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadToday();
+    if (employee?.id) await checkFaceStatus(employee.id);
+    if (activeScreen === 'history') await loadHistory();
+    setRefreshing(false);
+  }, [activeScreen, employee?.id]);
+
+  // Check-in flow: verify enrollment & location/geofence FIRST, then launch face verification
+  const handleCheckIn = async () => {
+    if (!employee) {
+      Alert.alert('Profile Not Found', 'Your employee profile has not been set up yet. Please contact HR.');
       return;
     }
 
-    if (!geofenceResult?.isInside) {
-      const distance = geofenceResult?.distanceToBoundaryMeters
-        ? ` (${Math.round(geofenceResult.distanceToBoundaryMeters)}m away)`
-        : '';
+    // 1. Mandatory Face Enrollment Check
+    if (isFaceEnrolled === false) {
       Alert.alert(
-        'Outside Assigned Office',
-        `You are outside your assigned office${distance}.\nPlease reach the office premises to mark attendance.`,
+        'Face Registration Required',
+        'You must complete your one-time face biometric registration before checking in.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Refresh Location', onPress: checkLocationAndGeofence },
+          { text: 'Register Face Now', onPress: () => setShowEnrollModal(true) },
         ],
       );
       return;
     }
 
-    if (!location) {
-      Alert.alert('GPS Required', 'Please refresh your location to verify geofence before check-in.');
+    // 2. Pre-verify device location and office geofence BEFORE opening face scanner
+    const activeAssignments = employee.assignments?.filter((a) => a.isActive) || [];
+    if (activeAssignments.length === 0) {
+      Alert.alert('No Office Assigned', 'You are not assigned to any office. Please contact HR.');
       return;
     }
 
-    // Launch live biometric face recognition modal
-    setFaceModalMode('checkIn');
-    setFaceModalVisible(true);
-  };
-
-  // Step 2: Confirm Check-In with Face Verification Token
-  const handleConfirmCheckIn = async (verificationToken?: string, photoUri?: string) => {
-    setActionLoading(true);
-    setFeedback(null);
-
     try {
-      const officeId =
-        assignedOffice?.code ||
-        employeeProfile?.officeLocationId ||
-        employeeProfile?.assignedOffice?.code ||
-        assignedOffice?.id ||
-        geofenceResult?.officeId ||
-        'OFFICE-001';
+      setActionLoading(true);
+      const loc = await getDeviceLocation();
 
-      // Fallback token if not passed directly from Face AI verification
-      let finalVerificationToken = verificationToken;
-      if (!finalVerificationToken && attendancePhoto) {
+      // Check all assigned offices to see if user is inside any of them
+      let verifiedAssignment: EmployeeAssignment | null = null;
+      let minDistance = 999999;
+      let closestOfficeName = 'Office';
+
+      for (const assign of activeAssignments) {
         try {
-          const tokenRes = await getAttendanceToken(attendancePhoto);
-          finalVerificationToken = tokenRes.token;
+          const res = await geofenceApi.verifyLocation({
+            officeId: assign.officeId,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            altitudeMeters: loc.altitudeMeters,
+          });
+          if (res?.isInside) {
+            verifiedAssignment = assign;
+            break;
+          }
+          if (res && typeof res.distanceToBoundaryMeters === 'number' && res.distanceToBoundaryMeters < minDistance) {
+            minDistance = res.distanceToBoundaryMeters;
+            closestOfficeName = res.officeName || assign.officeId;
+          }
         } catch {
-          // Handled in attendanceApi
+          // continue checking other assignments
         }
       }
 
-      const safeAccuracy = Math.min(Math.round(location?.accuracy ?? 10), 30);
-      const session = await checkInAttendance(
-        {
-          officeId,
-          clientEventId: generateUUID(),
-          faceVerificationToken: finalVerificationToken,
-          location: {
-            latitude: location!.latitude,
-            longitude: location!.longitude,
-            accuracyMeters: safeAccuracy,
-            timestamp: new Date().toISOString(),
-          },
-        },
-        employeeProfile?.employeeCode || employeeProfile?.id,
-      );
+      if (!verifiedAssignment) {
+        // Fallback to first primary or active assignment if geofence check could not confirm
+        const fallback = activeAssignments.find((a) => a.isPrimary) || activeAssignments[0];
+        const dist = Math.round(minDistance < 999999 ? minDistance : 0);
+        const lat = loc.latitude.toFixed(6);
+        const lng = loc.longitude.toFixed(6);
+        Alert.alert(
+          '📍 Outside Office Geofence',
+          `You are currently ~${dist}m outside your designated office area (${closestOfficeName}).\n\nYour Current GPS Location:\n• Latitude: ${lat}\n• Longitude: ${lng}\n• Accuracy: ${loc.accuracyMeters ? `±${Math.round(loc.accuracyMeters)}m` : 'N/A'}\n\nTip: You can copy these coordinates to adjust your office geofence in the Web Portal (Admin → Geofence Studio).`,
+          [
+            { text: 'Dismiss', style: 'cancel' },
+            {
+              text: '📋 Copy Coordinates',
+              onPress: async () => {
+                await Clipboard.setStringAsync(`${lat}, ${lng}`);
+                Alert.alert('✅ Copied', `Coordinates "${lat}, ${lng}" copied to clipboard! Paste this into the Web Portal Geofence Studio.`);
+              },
+            },
+          ]
+        );
+        return;
+      }
 
-      setActiveSession(session);
-      const checkInTime = formatTime(session.checkInAt);
-      setIsCheckInModalVisible(false);
-      setAttendancePhoto(null);
-
-      // Show Check-in Successful modal
-      setCheckInSuccessModal({ checkInTime });
-
-      setFeedback({ message: 'Checked in successfully! Have a productive day.', type: 'success' });
-      await loadAttendance();
-      await loadUnreadCount();
-    } catch (err: unknown) {
-      setFeedback({
-        message: getErrorMessage(err, 'Check-in failed. Please verify GPS and try again.'),
-        type: 'error',
-      });
-      Alert.alert('Check-In Failed', getErrorMessage(err, 'Unable to mark check-in.'));
+      // Store the verified office for this check-in session
+      setSelectedCheckInOfficeId(verifiedAssignment.officeId);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Could not verify your GPS location.';
+      Alert.alert('Location Verification Failed', msg);
+      return;
     } finally {
       setActionLoading(false);
     }
+
+    // 3. Office location confirmed! Launch auto-detect face verification modal
+    setShowFaceModal(true);
   };
 
-  // Step 3: Initiate Check-Out with Face Verification
-  const handleInitiateCheckOut = () => {
-    Alert.alert(
-      "Today's Attendance Check-Out",
-      `Check-in: ${formatTime(activeSession?.checkInAt)}\nWorking Duration: ${formatClock(workingSeconds)}\n\nFace biometric verification is required to complete check-out. Proceed to camera?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Verify Face & Check Out',
-          onPress: () => {
-            setFaceModalMode('checkOut');
-            setFaceModalVisible(true);
-          },
-        },
-      ],
-    );
-  };
-
-  // Step 4: Confirm Check-Out (executed after face verification)
-  const handleCheckOut = async (verificationToken?: string) => {
-    if (!location) {
-      await checkLocationAndGeofence();
-    }
-
-    setActionLoading(true);
-    setFeedback(null);
+  const handleFaceSuccess = async (faceVerificationToken: string) => {
+    setShowFaceModal(false);
+    if (!employee) return;
 
     try {
-      const checkInFormatted = formatTime(activeSession?.checkInAt);
-      const officeId =
-        activeSession?.officeId ||
-        assignedOffice?.code ||
-        employeeProfile?.officeLocationId ||
-        employeeProfile?.assignedOffice?.code ||
-        assignedOffice?.id ||
-        'OFFICE-001';
+      setActionLoading(true);
+      const loc = await getDeviceLocation();
 
-      const safeAccuracy = Math.min(Math.round(location?.accuracy ?? 10), 30);
-      await checkOutAttendance(
-        {
-          officeId,
-          clientEventId: generateUUID(),
-          location: {
-            latitude: location?.latitude ?? 0,
-            longitude: location?.longitude ?? 0,
-            accuracyMeters: safeAccuracy,
-            timestamp: new Date().toISOString(),
-          },
-        },
-        employeeProfile?.employeeCode || employeeProfile?.id,
-      );
+      // Resolve office assignment (verified office from step 2, or first active assignment)
+      const activeAssignments = employee.assignments?.filter((a) => a.isActive) || [];
+      const targetOfficeId =
+        selectedCheckInOfficeId ||
+        activeAssignments.find((a) => a.isPrimary)?.officeId ||
+        activeAssignments[0]?.officeId;
 
-      const checkOutTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const durationFormatted = formatClock(workingSeconds);
+      if (!targetOfficeId) {
+        Alert.alert('No Office Assigned', 'You are not assigned to any office. Please contact HR.');
+        return;
+      }
 
-      setActiveSession(null);
-      setCheckOutSuccessModal({
-        checkInTime: checkInFormatted,
-        checkOutTime,
-        duration: durationFormatted,
+      const session = await checkIn({
+        officeId: targetOfficeId,
+        location: loc,
+        faceVerificationToken,
+        clientEventId: generateUUID(),
+        employeeId: employee.id,
       });
 
-      setFeedback({ message: 'Checked out successfully. Time logged for today.', type: 'success' });
-      await loadAttendance();
-      await loadUnreadCount();
-    } catch (err: unknown) {
-      setFeedback({
-        message: getErrorMessage(err, 'Check-out failed. Please try again.'),
-        type: 'error',
-      });
-      Alert.alert('Check-Out Failed', getErrorMessage(err, 'Unable to record check-out.'));
+      setActiveSession(session);
+      await loadToday();
+      Alert.alert('✅ Checked In', `Welcome! You checked in at ${formatTime(session.checkInAt)}`);
+    } catch (e: any) {
+      const resData = e?.response?.data;
+      const msg =
+        (typeof resData?.message === 'string' && resData.message) ||
+        (Array.isArray(resData?.message) && resData.message.join(', ')) ||
+        resData?.error?.message ||
+        resData?.detail ||
+        e?.message ||
+        'Check-in failed. Please verify your location and try again.';
+      Alert.alert('Check-in Failed', msg);
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Determine current UI geofence state (States 1 to 6)
-  const isWorking = activeSession?.status === 'WORKING';
-  const isPaused = activeSession?.status === 'PAUSED';
-  const hasAssignedOffice = Boolean(
-    assignedOffice ||
-      employeeProfile?.officeLocationId ||
-      employeeProfile?.assignedOffice?.id,
+  const handleCheckOut = async () => {
+    if (!activeSession) return;
+    Alert.alert('Check Out', 'Are you sure you want to check out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Check Out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setActionLoading(true);
+            const loc = await getDeviceLocation();
+            const session = await checkOut({
+              officeId: activeSession.officeId,
+              location: {
+                latitude: loc.latitude,
+                longitude: loc.longitude,
+              },
+              clientEventId: generateUUID(),
+            });
+            setActiveSession(null);
+            await loadToday();
+            Alert.alert('👋 Checked Out', `Total work time: ${formatDuration(session.totalWorkingSeconds)}`);
+          } catch (e: any) {
+            const msg = e?.response?.data?.message ?? e?.message ?? 'Check-out failed';
+            Alert.alert('Check-out Failed', msg);
+          } finally {
+            setActionLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  const renderDashboard = () => (
+    <ScrollView
+      contentContainerStyle={styles.scrollContent}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Greeting */}
+      <View style={styles.greetingRow}>
+        <View>
+          <Text style={styles.greeting}>
+            {new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening'} 👋
+          </Text>
+          <Text style={styles.greetingName}>{user?.fullName ?? user?.username}</Text>
+        </View>
+        <TouchableOpacity onPress={() => void logout()} style={styles.logoutBtn}>
+          <MaterialCommunityIcons name="logout" size={20} color={palette.muted} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Date */}
+      <Text style={styles.dateText}>{new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+
+      {/* Face Biometric Registration Banner */}
+      {isFaceEnrolled === false && (
+        <TouchableOpacity style={styles.enrollBanner} onPress={() => setShowEnrollModal(true)}>
+          <View style={styles.enrollBannerIcon}>
+            <MaterialCommunityIcons name="face-recognition" size={24} color={palette.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.enrollBannerTitle}>Face Registration Required</Text>
+            <Text style={styles.enrollBannerSub}>Set up your face biometrics to enable attendance check-in.</Text>
+          </View>
+          <View style={styles.enrollBannerBtn}>
+            <Text style={styles.enrollBannerBtnText}>Enroll</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* Status Card */}
+      {(() => {
+        const isSessionActiveToday = Boolean(
+          activeSession &&
+          (activeSession.status === 'WORKING' || activeSession.status === 'PAUSED') &&
+          new Date(activeSession.checkInAt).toDateString() === new Date().toDateString()
+        );
+        const isPastMidnightSession = Boolean(
+          activeSession &&
+          (activeSession.status === 'WORKING' || activeSession.status === 'PAUSED') &&
+          new Date(activeSession.checkInAt).toDateString() !== new Date().toDateString()
+        );
+
+        return (
+          <>
+            <View style={[styles.statusCard, { borderColor: isSessionActiveToday ? statusColor(activeSession!.status) + '44' : palette.border }]}>
+              <View style={styles.statusHeader}>
+                <View style={[styles.statusDot, { backgroundColor: isSessionActiveToday ? statusColor(activeSession!.status) : (isPastMidnightSession ? palette.warning : palette.muted) }]} />
+                <Text style={[styles.statusLabel, { color: isSessionActiveToday ? statusColor(activeSession!.status) : (isPastMidnightSession ? palette.warning : palette.muted) }]}>
+                  {isSessionActiveToday
+                    ? statusLabel(activeSession!.status)
+                    : isPastMidnightSession
+                      ? 'Workday Ended at 12:00 AM'
+                      : 'Not Checked In'}
+                </Text>
+              </View>
+
+              {isSessionActiveToday && activeSession?.status === 'WORKING' && (
+                <>
+                  <Text style={styles.timerText}>{formatDuration(elapsedSeconds)}</Text>
+                  <Text style={styles.timerSub}>since {formatTime(activeSession.checkInAt)}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <MaterialCommunityIcons name="map-marker-radius" size={16} color="#15803D" />
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#15803D' }}>
+                      Inside Office Perimeter (Active 30s Check)
+                    </Text>
+                  </View>
+                </>
+              )}
+
+              {isSessionActiveToday && activeSession?.status === 'PAUSED' && (
+                <View style={{ width: '100%', alignItems: 'center', marginTop: 4 }}>
+                  <Text style={[styles.timerText, { color: palette.warning, fontSize: 36 }]}>
+                    {formatDuration(elapsedSeconds)}
+                  </Text>
+                  <Text style={[styles.timerSub, { color: palette.warning, fontWeight: '700' }]}>
+                    ⏸ Working Timer Paused
+                  </Text>
+
+                  {/* Grace Countdown Alert Box */}
+                  <View style={{
+                    width: '100%',
+                    backgroundColor: '#FFFBEB',
+                    borderColor: '#FCD34D',
+                    borderWidth: 1.5,
+                    borderRadius: 14,
+                    padding: 14,
+                    marginTop: 12,
+                    alignItems: 'center',
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialCommunityIcons name="timer-sand" size={20} color="#D97706" />
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#B45309', textTransform: 'uppercase' }}>
+                        Grace Period Countdown
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 32, fontWeight: '900', color: '#D97706', marginVertical: 4 }}>
+                      {formatCountdown(graceSecondsLeft)}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#92400E', textAlign: 'center' }}>
+                      Step back inside the office boundary to automatically resume your working timer.
+                    </Text>
+
+                    {lastGeofenceResult?.distanceMeters ? (
+                      <Text style={{ fontSize: 11, color: '#B45309', marginTop: 4, fontWeight: '600' }}>
+                        Currently ~{lastGeofenceResult.distanceMeters}m outside {lastGeofenceResult.officeName || 'office'}
+                      </Text>
+                    ) : null}
+
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        backgroundColor: '#FEF3C7',
+                        borderColor: '#F59E0B',
+                        borderWidth: 1,
+                        paddingVertical: 8,
+                        paddingHorizontal: 16,
+                        borderRadius: 10,
+                        marginTop: 10,
+                      }}
+                      onPress={() => performGeofenceCheck(true)}
+                      disabled={geofenceChecking}
+                    >
+                      {geofenceChecking ? (
+                        <ActivityIndicator size="small" color="#D97706" />
+                      ) : (
+                        <>
+                          <MaterialCommunityIcons name="crosshairs-gps" size={16} color="#D97706" />
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: '#B45309' }}>
+                            Verify Location Now
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {isPastMidnightSession && (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={[styles.timerSub, { color: palette.muted }]}>
+                    Previous session closed at midnight. No night shifts.
+                  </Text>
+                </View>
+              )}
+
+              {!isSessionActiveToday && !isPastMidnightSession && today?.sessions && today.sessions.length > 0 && (
+                <Text style={[styles.timerSub, { color: palette.success }]}>
+                  Total today: {formatDuration(today.totalWorkingSecondsToday ?? 0)}
+                </Text>
+              )}
+
+              {loadingToday && <ActivityIndicator color={palette.primary} style={{ marginTop: 12 }} />}
+            </View>
+
+            {/* Action Buttons */}
+            <View style={styles.actionRow}>
+              {!isSessionActiveToday ? (
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.checkInBtn, actionLoading && styles.btnDisabled]}
+                  onPress={handleCheckIn}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="login" size={24} color="#fff" />
+                      <Text style={styles.actionBtnText}>Check In</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.checkOutBtn, actionLoading && styles.btnDisabled]}
+                  onPress={handleCheckOut}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <MaterialCommunityIcons name="logout" size={24} color="#fff" />
+                      <Text style={styles.actionBtnText}>Check Out</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        );
+      })()}
+
+      {/* Real-time GPS Location & Geofence Inspector */}
+      <GpsLocationInspector
+        assignedOfficeId={employee?.assignments?.find((a) => a.isActive)?.officeId}
+        assignedOfficeName={employee?.assignments?.find((a) => a.isActive)?.officeName}
+      />
+
+
+      {/* Today Sessions */}
+      {today?.sessions && today.sessions.length > 0 && (
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>Today's Sessions</Text>
+          {today.sessions.map((s, i) => (
+            <View key={s.id} style={[styles.sessionRow, i > 0 && styles.sessionDivider]}>
+              <View style={[styles.sessionStatusDot, { backgroundColor: statusColor(s.status) }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sessionTime}>
+                  {formatTime(s.checkInAt)} → {s.checkOutAt ? formatTime(s.checkOutAt) : 'ongoing'}
+                </Text>
+                <Text style={styles.sessionStatus}>{statusLabel(s.status)}</Text>
+              </View>
+              {s.totalWorkingSeconds > 0 && (
+                <Text style={styles.sessionDuration}>{formatDuration(s.totalWorkingSeconds)}</Text>
+              )}
+            </View>
+          ))}
+          <View style={styles.sessionTotal}>
+            <Text style={styles.sessionTotalLabel}>Total</Text>
+            <Text style={styles.sessionTotalValue}>{formatDuration(today.totalWorkingSecondsToday)}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Office Info */}
+      {employee?.assignments && employee.assignments.filter((a) => a.isActive).length > 0 && (
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>My Offices</Text>
+          {employee.assignments.filter((a) => a.isActive).map((a) => (
+            <View key={a.id} style={styles.officeRow}>
+              <MaterialCommunityIcons name="office-building" size={18} color={palette.primary} />
+              <Text style={styles.officeName}>{a.officeName ?? a.officeId}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </ScrollView>
   );
 
-  let geofenceUIState: GeofenceUIState = 'NO_OFFICE';
-  if (!hasAssignedOffice) {
-    geofenceUIState = 'NO_OFFICE';
-  } else if (verifyingGeofence) {
-    geofenceUIState = 'CHECKING';
-  } else if (permissionDenied) {
-    geofenceUIState = 'PERMISSION_DENIED';
-  } else if (gpsDisabled) {
-    geofenceUIState = 'GPS_DISABLED';
-  } else if (apiError) {
-    geofenceUIState = 'API_ERROR';
-  } else if (geofenceResult?.isInside) {
-    geofenceUIState = 'INSIDE';
-  } else {
-    geofenceUIState = 'OUTSIDE';
-  }
+  const renderHistory = () => (
+    <ScrollView
+      contentContainerStyle={styles.scrollContent}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.primary} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.screenHeader}>
+        <Text style={styles.screenTitle}>Attendance History</Text>
+      </View>
 
-  const isInside = geofenceUIState === 'INSIDE';
+      {loadingHistory ? (
+        <ActivityIndicator color={palette.primary} style={{ marginTop: 40 }} />
+      ) : history.length === 0 ? (
+        <View style={styles.emptyState}>
+          <MaterialCommunityIcons name="calendar-blank" size={48} color={palette.muted} />
+          <Text style={styles.emptyText}>No attendance records yet</Text>
+        </View>
+      ) : (
+        history.map((item) => (
+          <View key={item.id} style={styles.historyCard}>
+            <View style={styles.historyDateRow}>
+              <Text style={styles.historyDate}>{formatDate(item.attendanceDate)}</Text>
+              <View style={[styles.historyBadge, { backgroundColor: statusColor(item.status) + '22' }]}>
+                <Text style={[styles.historyBadgeText, { color: statusColor(item.status) }]}>
+                  {statusLabel(item.status)}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.historyTimes}>
+              <View style={styles.historyTimeItem}>
+                <MaterialCommunityIcons name="login" size={14} color={palette.success} />
+                <Text style={styles.historyTimeText}>{formatTime(item.checkInAt)}</Text>
+              </View>
+              <MaterialCommunityIcons name="arrow-right" size={14} color={palette.muted} />
+              <View style={styles.historyTimeItem}>
+                <MaterialCommunityIcons name="logout" size={14} color={palette.error} />
+                <Text style={styles.historyTimeText}>{item.checkOutAt ? formatTime(item.checkOutAt) : '—'}</Text>
+              </View>
+              {item.totalWorkingSeconds > 0 && (
+                <Text style={styles.historyDuration}>{formatDuration(item.totalWorkingSeconds)}</Text>
+              )}
+            </View>
+          </View>
+        ))
+      )}
+    </ScrollView>
+  );
 
-  // Compute office location coordinates & geofence radius
-  const officeMetrics = assignedOffice ? computeOfficeLocationAndRadius(assignedOffice) : null;
+  const renderProfile = () => (
+    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.screenHeader}>
+        <Text style={styles.screenTitle}>My Profile</Text>
+      </View>
 
-  const latestSession = todayData?.sessions[todayData.sessions.length - 1];
-  const isAutoCheckedOut = latestSession?.status === 'AUTO_CHECKED_OUT';
+      {/* Avatar */}
+      <View style={styles.avatarCircle}>
+        <Text style={styles.avatarText}>{(user?.fullName ?? user?.username ?? '?')[0].toUpperCase()}</Text>
+      </View>
 
-  const employeeName =
-    employeeProfile?.firstName ||
-    user?.fullName?.split(' ')[0] ||
-    'Employee';
+      <View style={styles.profileCard}>
+        <View style={styles.profileRow}>
+          <MaterialCommunityIcons name="account" size={18} color={palette.primary} />
+          <View>
+            <Text style={styles.profileLabel}>Full Name</Text>
+            <Text style={styles.profileValue}>{user?.fullName ?? '—'}</Text>
+          </View>
+        </View>
+        <View style={styles.profileDivider} />
+        <View style={styles.profileRow}>
+          <MaterialCommunityIcons name="email" size={18} color={palette.primary} />
+          <View>
+            <Text style={styles.profileLabel}>Email</Text>
+            <Text style={styles.profileValue}>{user?.email}</Text>
+          </View>
+        </View>
+        {employee && (
+          <>
+            <View style={styles.profileDivider} />
+            <View style={styles.profileRow}>
+              <MaterialCommunityIcons name="badge-account" size={18} color={palette.primary} />
+              <View>
+                <Text style={styles.profileLabel}>Employee Code</Text>
+                <Text style={styles.profileValue}>{employee.employeeCode}</Text>
+              </View>
+            </View>
+            {employee.department && (
+              <>
+                <View style={styles.profileDivider} />
+                <View style={styles.profileRow}>
+                  <MaterialCommunityIcons name="domain" size={18} color={palette.primary} />
+                  <View>
+                    <Text style={styles.profileLabel}>Department</Text>
+                    <Text style={styles.profileValue}>{employee.department}</Text>
+                  </View>
+                </View>
+              </>
+            )}
+            {employee.jobTitle && (
+              <>
+                <View style={styles.profileDivider} />
+                <View style={styles.profileRow}>
+                  <MaterialCommunityIcons name="briefcase" size={18} color={palette.primary} />
+                  <View>
+                    <Text style={styles.profileLabel}>Job Title</Text>
+                    <Text style={styles.profileValue}>{employee.jobTitle}</Text>
+                  </View>
+                </View>
+              </>
+            )}
+          </>
+        )}
+      </View>
 
-  const officeDisplayName =
-    assignedOffice?.name ||
-    employeeProfile?.officeLocationName ||
-    employeeProfile?.assignedOffice?.name ||
-    'Assigned Office';
+      {/* Biometrics Card */}
+      {employee && (
+        <View style={[styles.profileCard, { marginTop: 16 }]}>
+          <Text style={styles.profileSectionTitle}>Biometrics & Security</Text>
+          <View style={styles.profileRow}>
+            <MaterialCommunityIcons
+              name={isFaceEnrolled ? 'check-decagram' : 'alert-circle'}
+              size={22}
+              color={isFaceEnrolled ? palette.success : palette.warning}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.profileLabel}>Face Biometrics</Text>
+              <Text style={styles.profileValue}>
+                {isFaceEnrolled ? 'Enrolled & Active' : 'Not Registered'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.smallBtn, isFaceEnrolled ? styles.reEnrollBtn : styles.enrollBtn]}
+              onPress={() => setShowEnrollModal(true)}
+            >
+              <Text style={styles.smallBtnText}>{isFaceEnrolled ? 'Re-enroll' : 'Enroll Now'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
-  const officeDisplayCode =
-    assignedOffice?.code ||
-    employeeProfile?.officeLocationId ||
-    employeeProfile?.assignedOffice?.code ||
-    '—';
+      <TouchableOpacity style={styles.logoutFullBtn} onPress={() => void logout()}>
+        <MaterialCommunityIcons name="logout" size={18} color={palette.error} />
+        <Text style={styles.logoutFullBtnText}>Sign Out</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Floating In-App Alert Toast */}
-      <InAppNotificationBanner
-        alert={inAppAlert}
-        onDismiss={() => setInAppAlert(null)}
-      />
+      {/* Face Enroll Modal (First-time / Onboarding) */}
+      {employee && (
+        <FaceEnrollModal
+          visible={showEnrollModal}
+          employeeId={employee.id}
+          onSuccess={() => {
+            setIsFaceEnrolled(true);
+            setShowEnrollModal(false);
+            Alert.alert('✅ Face Registered', 'Your face biometric profile is now active! You can now check in.');
+          }}
+          onCancel={() => setShowEnrollModal(false)}
+        />
+      )}
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            colors={[palette.primary]}
-          />
-        }
-      >
-        {/* Top Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.greeting}>
-              Hello, {employeeName} 👋
-            </Text>
-            <Text style={styles.subGreeting}>
-              {employeeProfile?.jobTitle || 'Intern Trainee'}
-              {employeeProfile?.department ? ` • ${employeeProfile.department.name}` : ''}
-            </Text>
-          </View>
+      {/* Face Verify Modal */}
+      {employee && (
+        <FaceVerifyModal
+          visible={showFaceModal}
+          employeeId={employee.id}
+          onSuccess={handleFaceSuccess}
+          onCancel={() => setShowFaceModal(false)}
+          onRequestReEnroll={() => {
+            setShowFaceModal(false);
+            setShowEnrollModal(true);
+          }}
+        />
+      )}
 
-          {/* Top-Right Profile / Drawer Trigger */}
+      {/* Content */}
+      <View style={styles.content}>
+        {activeScreen === 'dashboard' && renderDashboard()}
+        {activeScreen === 'history' && renderHistory()}
+        {activeScreen === 'profile' && renderProfile()}
+      </View>
+
+      {/* Bottom Tab Bar */}
+      <View style={styles.tabBar}>
+        {(
+          [
+            { key: 'dashboard', icon: 'view-dashboard', label: 'Home' },
+            { key: 'history', icon: 'calendar-clock', label: 'History' },
+            { key: 'profile', icon: 'account-circle', label: 'Profile' },
+          ] as const
+        ).map((tab) => (
           <TouchableOpacity
-            style={styles.profileBtn}
-            activeOpacity={0.8}
-            onPress={() => setIsDrawerVisible(true)}
-            accessibilityLabel="Open user menu"
+            key={tab.key}
+            style={styles.tabItem}
+            onPress={() => setActiveScreen(tab.key)}
           >
-            {employeeProfile?.profilePhotoUrl ? (
-              <Avatar.Image
-                size={44}
-                source={{ uri: employeeProfile.profilePhotoUrl }}
-                style={styles.avatar}
-              />
-            ) : (
-              <Avatar.Text
-                size={44}
-                label={getInitials()}
-                style={styles.avatar}
-                labelStyle={styles.avatarLabel}
-              />
-            )}
-            {unreadCount > 0 && (
-              <View style={styles.headerBadge}>
-                <Text style={styles.headerBadgeText}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {feedback && (
-          <ErrorMessage
-            message={feedback.message}
-            variant={feedback.type === 'success' ? 'info' : 'error'}
-          />
-        )}
-
-        {/* SECTION 6 — LOCATION PERMISSION & GPS BANNER */}
-        {permissionDenied && (
-          <Card style={styles.permissionCard} mode="outlined">
-            <Card.Content style={styles.permissionContent}>
-              <View style={styles.permissionIconWrap}>
-                <MaterialCommunityIcons name="map-marker-alert-outline" size={24} color="#D97706" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.permissionTitle}>Location Access Required</Text>
-                <Text style={styles.permissionText}>
-                  Location access is required to verify that you are at your assigned office. Please enable location permissions in your device settings.
-                </Text>
-                <View style={styles.permissionActions}>
-                  <TouchableOpacity
-                    style={styles.settingsBtn}
-                    onPress={() => void Linking.openSettings()}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.settingsBtnText}>Open Settings</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.recheckBtn}
-                    onPress={checkLocationAndGeofence}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.recheckBtnText}>Try Again</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </Card.Content>
-          </Card>
-        )}
-
-        {gpsDisabled && (
-          <Card style={styles.permissionCard} mode="outlined">
-            <Card.Content style={styles.permissionContent}>
-              <View style={styles.permissionIconWrap}>
-                <MaterialCommunityIcons name="crosshairs-gps" size={24} color="#D97706" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.permissionTitle}>GPS Disabled</Text>
-                <Text style={styles.permissionText}>
-                  GPS is disabled on your device. Please turn on location services in High Accuracy mode to verify office presence.
-                </Text>
-                <TouchableOpacity
-                  style={[styles.settingsBtn, { marginTop: 8 }]}
-                  onPress={checkLocationAndGeofence}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.settingsBtnText}>Re-check GPS</Text>
-                </TouchableOpacity>
-              </View>
-            </Card.Content>
-          </Card>
-        )}
-
-        {/* SECTION 5 — DEDICATED ASSIGNED OFFICE CARD */}
-        <Card style={styles.officeCard} mode="outlined">
-          <Card.Content style={styles.officeCardContent}>
-            <View style={styles.officeCardHeader}>
-              <View style={styles.officeTitleRow}>
-                <MaterialCommunityIcons name="office-building" size={20} color={palette.primary} />
-                <Text style={styles.officeSectionTitle}>YOUR ASSIGNED OFFICE</Text>
-              </View>
-              {hasAssignedOffice ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  {assignedOfficesList.length > 1 && (
-                    <View style={styles.multiOfficeBadge}>
-                      <Text style={styles.multiOfficeBadgeText}>
-                        {assignedOfficesList.length} Workplaces
-                      </Text>
-                    </View>
-                  )}
-                  <View style={styles.activeBadge}>
-                    <View style={styles.activeBadgeDot} />
-                    <Text style={styles.activeBadgeText}>
-                      {assignedOffice?.isActive !== false ? 'Active' : 'Inactive'}
-                    </Text>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.unassignedBadge}>
-                  <Text style={styles.unassignedBadgeText}>Not Assigned</Text>
-                </View>
-              )}
-            </View>
-
-            <Divider style={styles.officeDivider} />
-
-            {hasAssignedOffice ? (
-              <View>
-                {/* Multi-Location Switcher Chips if employee has more than 1 assigned office */}
-                {assignedOfficesList.length > 1 && (
-                  <View style={styles.multiOfficeBox}>
-                    <Text style={styles.multiOfficeBoxLabel}>
-                      Multi-Location Access (Tap workplace to inspect):
-                    </Text>
-                    <View style={styles.multiOfficeChipRow}>
-                      {assignedOfficesList.map((off) => {
-                        const isCurrent =
-                          (assignedOffice?.id && off.id && assignedOffice.id === off.id) ||
-                          (assignedOffice?.code &&
-                            off.code &&
-                            assignedOffice.code.toLowerCase() === off.code.toLowerCase());
-                        const isInsideThis = isCurrent && geofenceResult?.isInside;
-                        return (
-                          <TouchableOpacity
-                            key={off.id || off.code}
-                            style={[
-                              styles.multiOfficeChip,
-                              isCurrent && styles.multiOfficeChipSelected,
-                              isInsideThis && styles.multiOfficeChipInside,
-                            ]}
-                            onPress={() => {
-                              setAssignedOffice(off);
-                              if (location) {
-                                void verifyLocation({
-                                  officeId: off.code || off.id,
-                                  latitude: location.latitude,
-                                  longitude: location.longitude,
-                                  accuracyMeters: Math.min(Math.round(location.accuracy ?? 10), 30),
-                                  altitudeMeters: location.altitude ?? undefined,
-                                })
-                                  .then((res) => setGeofenceResult(res))
-                                  .catch((e) => console.warn('Office switch verify error:', e));
-                              }
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <MaterialCommunityIcons
-                              name={isInsideThis ? 'check-circle' : isCurrent ? 'office-building-marker' : 'office-building'}
-                              size={14}
-                              color={isInsideThis ? '#15803D' : isCurrent ? palette.primary : palette.muted}
-                            />
-                            <Text
-                              style={[
-                                styles.multiOfficeChipText,
-                                isCurrent && styles.multiOfficeChipTextSelected,
-                                isInsideThis && styles.multiOfficeChipTextInside,
-                              ]}
-                            >
-                              {off.name || off.code}
-                            </Text>
-                            {isInsideThis && <View style={styles.chipInsideDot} />}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                )}
-                <View style={styles.officeMainRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.officeNameText}>{officeDisplayName}</Text>
-                    <Text style={styles.officeCodeText}>Code: {officeDisplayCode}</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.refreshOfficeBtn}
-                    onPress={checkLocationAndGeofence}
-                    disabled={verifyingGeofence}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons
-                      name="crosshairs-gps"
-                      size={15}
-                      color={palette.primary}
-                    />
-                    <Text style={styles.refreshOfficeText}>
-                      {verifyingGeofence ? 'Checking...' : 'Refresh Location'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Office Info Grid */}
-                <View style={styles.officeDetailsGrid}>
-                  <View style={styles.officeDetailItem}>
-                    <Text style={styles.officeDetailLabel}>Geofence Radius</Text>
-                    <Text style={styles.officeDetailValue}>
-                      {officeMetrics?.radiusMeters
-                        ? `${officeMetrics.radiusMeters} metres`
-                        : 'Configured Perimeter'}
-                    </Text>
-                  </View>
-
-                  <View style={styles.officeDetailItem}>
-                    <Text style={styles.officeDetailLabel}>Office Coordinates</Text>
-                    <Text style={styles.officeDetailValue}>
-                      {officeMetrics
-                        ? `${officeMetrics.latitude.toFixed(5)}, ${officeMetrics.longitude.toFixed(5)}`
-                        : 'Polygon Defined'}
-                    </Text>
-                  </View>
-                </View>
-
-                {assignedOffice?.city && (
-                  <View style={styles.officeLocationRow}>
-                    <MaterialCommunityIcons name="map-marker-outline" size={14} color={palette.muted} />
-                    <Text style={styles.officeLocationText}>
-                      {assignedOffice.city}
-                      {assignedOffice.country ? `, ${assignedOffice.country}` : ''}
-                      {assignedOffice.address ? ` • ${assignedOffice.address}` : ''}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            ) : (
-              /* No Office Assigned Empty State */
-              <View style={styles.noOfficeBox}>
-                <View style={styles.noOfficeIconWrap}>
-                  <MaterialCommunityIcons name="office-building-marker-outline" size={32} color="#D97706" />
-                </View>
-                <Text style={styles.noOfficeTitle}>No Office Assigned</Text>
-                <Text style={styles.noOfficeDesc}>
-                  No office has been assigned to your account yet. Please contact your administrator.
-                </Text>
-                <TouchableOpacity
-                  style={styles.noOfficeRefreshBtn}
-                  onPress={handleRefresh}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons name="refresh" size={16} color={palette.primary} />
-                  <Text style={styles.noOfficeRefreshText}>Check for Assignment</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </Card.Content>
-        </Card>
-
-        {/* SECTION 7 — REAL-TIME GEOFENCE STATUS CARD */}
-        <Card
-          style={[
-            styles.geofenceCard,
-            geofenceUIState === 'INSIDE'
-              ? styles.geofenceCardInside
-              : geofenceUIState === 'OUTSIDE'
-              ? styles.geofenceCardOutside
-              : styles.geofenceCardNeutral,
-          ]}
-          mode="outlined"
-        >
-          <Card.Content style={styles.geofenceContent}>
-            <View style={styles.rowBetween}>
-              <View style={styles.statusIndicatorRow}>
-                {geofenceUIState === 'CHECKING' ? (
-                  <ActivityIndicator size={12} color={palette.primary} style={{ marginRight: 8 }} />
-                ) : (
-                  <View
-                    style={[
-                      styles.statusDot,
-                      {
-                        backgroundColor:
-                          geofenceUIState === 'INSIDE'
-                            ? palette.success
-                            : geofenceUIState === 'OUTSIDE'
-                            ? '#F59E0B'
-                            : geofenceUIState === 'API_ERROR' || geofenceUIState === 'PERMISSION_DENIED'
-                            ? palette.error
-                            : '#94A3B8',
-                      },
-                    ]}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.geofenceTitle,
-                    {
-                      color:
-                        geofenceUIState === 'INSIDE'
-                          ? '#166534'
-                          : geofenceUIState === 'OUTSIDE'
-                          ? '#92400E'
-                          : geofenceUIState === 'API_ERROR' || geofenceUIState === 'PERMISSION_DENIED'
-                          ? palette.error
-                          : palette.ink,
-                    },
-                  ]}
-                >
-                  {geofenceUIState === 'INSIDE' && 'Inside Assigned Office'}
-                  {geofenceUIState === 'OUTSIDE' && "Outside Office"}
-                  {geofenceUIState === 'CHECKING' && 'Verifying Location...'}
-                  {geofenceUIState === 'NO_OFFICE' && 'No Office Assigned'}
-                  {geofenceUIState === 'PERMISSION_DENIED' && 'Location Permission Denied'}
-                  {geofenceUIState === 'GPS_DISABLED' && 'GPS Unavailable'}
-                  {geofenceUIState === 'API_ERROR' && 'Verification Server Error'}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={checkLocationAndGeofence}
-                disabled={verifyingGeofence}
-                style={styles.refreshBtn}
-                activeOpacity={0.7}
-              >
-                {verifyingGeofence ? (
-                  <View style={styles.verifyingRow}>
-                    <ActivityIndicator size={14} color={palette.primary} />
-                    <Text style={styles.verifyingText}>Verifying...</Text>
-                  </View>
-                ) : (
-                  <View style={styles.refreshRow}>
-                    <MaterialCommunityIcons name="crosshairs-gps" size={15} color={palette.primary} />
-                    <Text style={styles.refreshText}>Refresh GPS</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            <Divider style={styles.geoDivider} />
-
-            {/* Current GPS Coordinates */}
-            {location && (
-              <View style={styles.coordsRow}>
-                <MaterialCommunityIcons name="map-marker-radius-outline" size={14} color={palette.muted} />
-                <Text style={styles.coordsText}>
-                  Your GPS: {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)} (±
-                  {Math.round(location.accuracy ?? 0)}m)
-                </Text>
-              </View>
-            )}
-
-            {/* State Explanatory Banners */}
-            {geofenceUIState === 'INSIDE' && (
-              <View style={styles.insideNotice}>
-                <View style={styles.noticeIconWrap}>
-                  <MaterialCommunityIcons name="check-circle" size={16} color={palette.success} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.insideText}>
-                    You are inside your assigned office ({officeDisplayName}).
-                  </Text>
-                  <Text style={styles.insideSubtext}>
-                    Location verified. Ready for attendance check-in.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {geofenceUIState === 'OUTSIDE' && (
-              <View style={styles.outsideNotice}>
-                <View style={styles.noticeIconWrap}>
-                  <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#D97706" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.outsideText}>
-                    You are outside your assigned office ({officeDisplayName}).
-                  </Text>
-                  {Boolean(geofenceResult?.distanceToBoundaryMeters) && (
-                    <Text style={styles.outsideDistanceText}>
-                      Distance to boundary: ~{Math.round(geofenceResult!.distanceToBoundaryMeters)}m away
-                    </Text>
-                  )}
-                  <Text style={styles.outsideSubtext}>
-                    Attendance check-in is restricted to your assigned office geofence.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {geofenceUIState === 'CHECKING' && (
-              <View style={styles.checkingNotice}>
-                <ActivityIndicator size={16} color={palette.primary} style={{ marginTop: 1 }} />
-                <Text style={styles.checkingText}>
-                  Acquiring GPS fix and verifying boundary with geofence service...
-                </Text>
-              </View>
-            )}
-
-            {geofenceUIState === 'NO_OFFICE' && (
-              <View style={styles.noOfficeNotice}>
-                <MaterialCommunityIcons name="information-outline" size={16} color={palette.muted} />
-                <Text style={styles.noOfficeNoticeText}>
-                  No office has been assigned to your account. Check-in is disabled until an office is allocated by an administrator.
-                </Text>
-              </View>
-            )}
-
-            {geofenceUIState === 'API_ERROR' && (
-              <View style={styles.errorNotice}>
-                <MaterialCommunityIcons name="cloud-alert" size={16} color={palette.error} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.errorNoticeText}>
-                    Unable to verify location with the server.
-                  </Text>
-                  <TouchableOpacity onPress={checkLocationAndGeofence} style={{ marginTop: 4 }}>
-                    <Text style={styles.errorRetryText}>Tap here to retry verification</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-          </Card.Content>
-        </Card>
-
-        {/* SECTION 8 — WORKING DURATION & DYNAMIC ACTION BUTTON CARD */}
-        <Card style={styles.trackerCard} mode="elevated">
-          <Card.Content style={styles.trackerContent}>
-            <Text style={styles.trackerHeading}>Today's Working Duration</Text>
-
-            {/* LIVE TICKING CLOCK */}
-            <View style={styles.clockContainer}>
-              <Text style={styles.clockText}>{formatClock(workingSeconds)}</Text>
-              {isWorking ? (
-                <View style={styles.liveIndicator}>
-                  <View style={styles.pulsingDot} />
-                  <Text style={styles.liveText}>RECORDING LIVE</Text>
-                </View>
-              ) : isPaused ? (
-                <View style={[styles.autoCheckOutBadge, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
-                  <MaterialCommunityIcons name="pause-circle-outline" size={13} color="#D97706" />
-                  <Text style={[styles.autoCheckOutText, { color: '#B45309' }]}>PAUSED (OUTSIDE GEOFENCE)</Text>
-                </View>
-              ) : isAutoCheckedOut ? (
-                <View style={styles.autoCheckOutBadge}>
-                  <MaterialCommunityIcons name="clock-alert-outline" size={13} color="#D97706" />
-                  <Text style={styles.autoCheckOutText}>AUTOMATICALLY CHECKED OUT</Text>
-                </View>
-              ) : null}
-            </View>
-
-            {/* SPECIAL CONDITION WORKING HOURS BREAKDOWN */}
-            {Boolean(
-              todayData?.totalSpecialConditionSecondsToday &&
-                todayData.totalSpecialConditionSecondsToday > 0,
-            ) && (
-              <View style={styles.specialConditionCard}>
-                <View style={styles.specialConditionHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <MaterialCommunityIcons
-                      name="star-circle"
-                      size={18}
-                      color="#7C3AED"
-                      style={{ marginRight: 6 }}
-                    />
-                    <Text style={styles.specialConditionTitle}>
-                      Special Condition Working Hours
-                    </Text>
-                  </View>
-                  <View style={styles.specialConditionBadge}>
-                    <Text style={styles.specialConditionBadgeText}>HR APPROVED</Text>
-                  </View>
-                </View>
-
-                <View style={styles.specialConditionRow}>
-                  <View style={styles.specialConditionStat}>
-                    <Text style={styles.specialConditionStatLabel}>Regular</Text>
-                    <Text style={styles.specialConditionStatVal}>
-                      {formatClock(
-                        todayData?.totalRegularWorkingSecondsToday ??
-                          Math.max(
-                            0,
-                            workingSeconds -
-                              (todayData?.totalSpecialConditionSecondsToday || 0),
-                          ),
-                      )}
-                    </Text>
-                  </View>
-
-                  <View style={styles.specialConditionDivider} />
-
-                  <View style={styles.specialConditionStat}>
-                    <Text style={styles.specialConditionStatLabel}>Special Credit</Text>
-                    <Text
-                      style={[
-                        styles.specialConditionStatVal,
-                        { color: '#7C3AED' },
-                      ]}
-                    >
-                      +{formatClock(todayData?.totalSpecialConditionSecondsToday || 0)}
-                    </Text>
-                  </View>
-
-                  <View style={styles.specialConditionDivider} />
-
-                  <View style={styles.specialConditionStat}>
-                    <Text style={styles.specialConditionStatLabel}>Total Hours</Text>
-                    <Text
-                      style={[
-                        styles.specialConditionStatVal,
-                        { color: palette.primary, fontWeight: '800' },
-                      ]}
-                    >
-                      {formatClock(workingSeconds)}
-                    </Text>
-                  </View>
-                </View>
-
-                {Boolean(
-                  todayData?.sessions?.find((s) => s.specialConditionReason)
-                    ?.specialConditionReason,
-                ) && (
-                  <Text style={styles.specialConditionReasonText}>
-                    Note: "
-                    {
-                      todayData?.sessions?.find((s) => s.specialConditionReason)
-                        ?.specialConditionReason
-                    }
-                    "
-                  </Text>
-                )}
-              </View>
-            )}
-
-            {/* STATUS BANNER NOTIFICATION */}
-            {sessionStatusBanner && (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: sessionStatusBanner.type === 'PAUSED' ? '#FEF3C7' : '#DCFCE7',
-                  borderWidth: 1,
-                  borderColor: sessionStatusBanner.type === 'PAUSED' ? '#F59E0B' : '#22C55E',
-                  borderRadius: 10,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  marginBottom: 12,
-                }}
-              >
-                <MaterialCommunityIcons
-                  name={sessionStatusBanner.type === 'PAUSED' ? 'pause-circle' : 'play-circle'}
-                  size={20}
-                  color={sessionStatusBanner.type === 'PAUSED' ? '#D97706' : '#16A34A'}
-                  style={{ marginRight: 8 }}
-                />
-                <Text
-                  style={{
-                    flex: 1,
-                    fontSize: 13,
-                    fontWeight: '600',
-                    color: sessionStatusBanner.type === 'PAUSED' ? '#92400E' : '#166534',
-                  }}
-                >
-                  {sessionStatusBanner.message}
-                </Text>
-                <TouchableOpacity onPress={() => setSessionStatusBanner(null)}>
-                  <MaterialCommunityIcons name="close" size={16} color="#64748B" />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* DYNAMIC ACTION BUTTON WITH 6 STATES */}
-            <View style={styles.actionContainer}>
-              {isWorking ? (
-                // Checked In -> Check Out Action
-                <View>
-                  <AppButton
-                    onPress={handleInitiateCheckOut}
-                    loading={actionLoading}
-                    disabled={actionLoading}
-                    style={[styles.actionBtn, { backgroundColor: palette.error }]}
-                    textColor="#FFFFFF"
-                  >
-                    Check Out Now
-                  </AppButton>
-                  <Text style={styles.actionSubtitle}>
-                    Session active since {formatTime(activeSession?.checkInAt)}
-                  </Text>
-                </View>
-              ) : isPaused ? (
-                // Paused Session -> Live Grace Period Countdown Card & Actions
-                <View>
-                  <View style={styles.graceCard}>
-                    <View style={styles.graceHeader}>
-                      <MaterialCommunityIcons name="timer-sand" size={24} color="#D97706" />
-                      <Text style={styles.graceTitle}>Grace Period Active (Timer Paused)</Text>
-                    </View>
-
-                    <View style={styles.graceTimerWrap}>
-                      <Text
-                        style={[
-                          styles.graceTimerDigits,
-                          graceSecondsLeft !== null && graceSecondsLeft < 180 ? styles.graceTimerDigitsUrgent : null,
-                        ]}
-                      >
-                        {graceSecondsLeft !== null ? formatCountdown(graceSecondsLeft) : '—:—'}
-                      </Text>
-                      <Text style={styles.graceTimerLabel}>
-                        {graceSecondsLeft !== null && graceSecondsLeft <= 0
-                          ? 'GRACE PERIOD EXPIRED — AUTO-CHECKOUT IN PROGRESS'
-                          : 'GRACE TIME REMAINING TO RETURN TO OFFICE'}
-                      </Text>
-                    </View>
-
-                    <Text style={styles.graceDesc}>
-                      You are currently outside your assigned office ({officeDisplayName}). Working hours are paused. Return inside the office boundary to automatically resume tracking.
-                    </Text>
-
-                    {Boolean(activeSession?.currentGraceDeadline) && (
-                      <View style={styles.graceDeadlineRow}>
-                        <MaterialCommunityIcons name="clock-alert-outline" size={16} color="#B45309" />
-                        <Text style={styles.graceDeadlineText}>
-                          Auto-checkout deadline: {formatTime(activeSession?.currentGraceDeadline)}
-                        </Text>
-                      </View>
-                    )}
-
-                    <View style={styles.graceBtnRow}>
-                      <TouchableOpacity
-                        style={styles.graceResumeBtn}
-                        onPress={() => void checkLocationAndGeofence()}
-                        disabled={verifyingGeofence}
-                        activeOpacity={0.8}
-                      >
-                        <MaterialCommunityIcons
-                          name={verifyingGeofence ? 'progress-clock' : 'crosshairs-gps'}
-                          size={18}
-                          color="#FFFFFF"
-                        />
-                        <Text style={styles.graceResumeBtnText}>
-                          {verifyingGeofence ? 'Verifying...' : 'Check Location'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={styles.graceCheckoutBtn}
-                        onPress={handleInitiateCheckOut}
-                        disabled={actionLoading}
-                        activeOpacity={0.8}
-                      >
-                        <MaterialCommunityIcons name="logout" size={18} color="#FFFFFF" />
-                        <Text style={styles.graceCheckoutBtnText}>Check Out Now</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <Text style={styles.actionSubtitle}>
-                    Session started at {formatTime(activeSession?.checkInAt)} • Working Timer Paused
-                  </Text>
-                </View>
-              ) : (
-                // Not Checked In -> 6 Geofence UI States
-                <View>
-                  {/* STATE 1: INSIDE OFFICE */}
-                  {geofenceUIState === 'INSIDE' && (
-                    <View>
-                      <AppButton
-                        onPress={handleInitiateCheckIn}
-                        loading={actionLoading}
-                        disabled={actionLoading}
-                        style={[styles.actionBtn, { backgroundColor: palette.success }]}
-                        textColor="#FFFFFF"
-                        icon="check-circle"
-                      >
-                        CHECK IN
-                      </AppButton>
-                      <Text style={[styles.actionSubtitle, { color: '#166534' }]}>
-                        You are inside your assigned office. Ready to check in.
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* STATE 2: OUTSIDE OFFICE */}
-                  {geofenceUIState === 'OUTSIDE' && (
-                    <View>
-                      <AppButton
-                        onPress={handleInitiateCheckIn}
-                        disabled
-                        style={[styles.actionBtn, { backgroundColor: '#94A3B8' }]}
-                        textColor="#FFFFFF"
-                        icon="map-marker-off"
-                      >
-                        CANNOT CHECK IN — OUTSIDE OFFICE
-                      </AppButton>
-                      <Text style={styles.actionSubtitle}>
-                        You must be inside your assigned office to check in
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* STATE 3: LOCATION CHECKING */}
-                  {geofenceUIState === 'CHECKING' && (
-                    <View>
-                      <AppButton
-                        disabled
-                        loading
-                        style={[styles.actionBtn, { backgroundColor: '#64748B' }]}
-                        textColor="#FFFFFF"
-                      >
-                        VERIFYING LOCATION...
-                      </AppButton>
-                      <Text style={styles.actionSubtitle}>
-                        Acquiring GPS fix and checking boundary...
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* STATE 4: NO OFFICE ASSIGNED */}
-                  {geofenceUIState === 'NO_OFFICE' && (
-                    <View>
-                      <AppButton
-                        disabled
-                        style={[styles.actionBtn, { backgroundColor: '#94A3B8' }]}
-                        textColor="#FFFFFF"
-                        icon="office-building-remove"
-                      >
-                        NO OFFICE ASSIGNED
-                      </AppButton>
-                      <Text style={styles.actionSubtitle}>
-                        Contact your HR admin to assign an office location
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* STATE 5: GPS UNAVAILABLE / PERMISSION DENIED */}
-                  {(geofenceUIState === 'PERMISSION_DENIED' || geofenceUIState === 'GPS_DISABLED') && (
-                    <View>
-                      <AppButton
-                        onPress={() => {
-                          if (permissionDenied) {
-                            void Linking.openSettings();
-                          } else {
-                            void checkLocationAndGeofence();
-                          }
-                        }}
-                        style={[styles.actionBtn, { backgroundColor: '#D97706' }]}
-                        textColor="#FFFFFF"
-                        icon="crosshairs-gps"
-                      >
-                        ENABLE LOCATION TO CHECK IN
-                      </AppButton>
-                      <Text style={styles.actionSubtitle}>
-                        {permissionDenied
-                          ? 'Tap to open settings and grant location permissions'
-                          : 'Tap to refresh GPS location'}
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* STATE 6: API ERROR */}
-                  {geofenceUIState === 'API_ERROR' && (
-                    <View>
-                      <AppButton
-                        onPress={checkLocationAndGeofence}
-                        loading={verifyingGeofence}
-                        style={[styles.actionBtn, { backgroundColor: '#D97706' }]}
-                        textColor="#FFFFFF"
-                        icon="reload"
-                      >
-                        RETRY LOCATION CHECK
-                      </AppButton>
-                      <Text style={styles.actionSubtitle}>
-                        Could not verify location with server. Tap to retry.
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
-            </View>
-          </Card.Content>
-        </Card>
-
-        {/* TODAY'S METRICS SECTION */}
-        <Text style={styles.sectionHeading}>Today's Metrics</Text>
-        <View style={styles.metricsGrid}>
-          {/* First Check-In */}
-          <Card style={styles.metricCard} mode="outlined">
-            <Card.Content style={styles.metricContent}>
-              <MaterialCommunityIcons
-                name="login-variant"
-                size={18}
-                color={palette.primary}
-                style={styles.metricIcon}
-              />
-              <Text style={styles.metricLabel}>First Check-In</Text>
-              <Text style={styles.metricVal}>
-                {formatTime(todayData?.sessions[0]?.checkInAt)}
-              </Text>
-            </Card.Content>
-          </Card>
-
-          {/* Last Check-Out */}
-          <Card style={styles.metricCard} mode="outlined">
-            <Card.Content style={styles.metricContent}>
-              <MaterialCommunityIcons
-                name="logout-variant"
-                size={18}
-                color={palette.muted}
-                style={styles.metricIcon}
-              />
-              <Text style={styles.metricLabel}>Last Check-Out</Text>
-              <Text style={styles.metricVal}>
-                {formatTime(latestSession?.checkOutAt)}
-              </Text>
-            </Card.Content>
-          </Card>
-
-          {/* Today's Status */}
-          <Card style={styles.metricCard} mode="outlined">
-            <Card.Content style={styles.metricContent}>
-              <MaterialCommunityIcons
-                name={isWorking ? 'briefcase-clock' : 'check-circle-outline'}
-                size={18}
-                color={
-                  isWorking
-                    ? palette.success
-                    : isAutoCheckedOut
-                    ? '#D97706'
-                    : palette.primary
-                }
-                style={styles.metricIcon}
-              />
-              <Text style={styles.metricLabel}>Today's Status</Text>
-              <Text
-                style={[
-                  styles.metricVal,
-                  {
-                    color: isWorking
-                      ? palette.success
-                      : isPaused
-                      ? '#D97706'
-                      : isAutoCheckedOut
-                      ? '#D97706'
-                      : todayData?.sessions.length
-                      ? palette.primary
-                      : palette.muted,
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {isWorking
-                  ? 'Working'
-                  : isPaused
-                  ? 'Paused (Grace)'
-                  : isAutoCheckedOut
-                  ? 'Auto Checked Out'
-                  : todayData?.sessions.length
-                  ? 'Completed'
-                  : 'Not Checked In'}
-              </Text>
-            </Card.Content>
-          </Card>
-
-          {/* Punctuality */}
-          <Card style={styles.metricCard} mode="outlined">
-            <Card.Content style={styles.metricContent}>
-              <MaterialCommunityIcons
-                name="calendar-clock"
-                size={18}
-                color={palette.primary}
-                style={styles.metricIcon}
-              />
-              <Text style={styles.metricLabel}>Punctuality</Text>
-              <Text style={styles.metricVal}>
-                {todayData?.sessions[0]?.checkInStatus?.replace('_', ' ') ||
-                  (todayData?.sessions.length ? 'On Time' : '—')}
-              </Text>
-            </Card.Content>
-          </Card>
-        </View>
-
-        {/* NAVIGATION TO FULL HISTORY */}
-        <TouchableOpacity
-          style={styles.historyBtn}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('MyAttendance')}
-        >
-          <Text style={styles.historyBtnText}>View My Attendance & Calendar</Text>
-          <MaterialCommunityIcons name="arrow-right" size={18} color={palette.primary} />
-        </TouchableOpacity>
-      </ScrollView>
-
-      {/* Right-Side Sliding Profile Drawer */}
-      <ProfileDrawer
-        visible={isDrawerVisible}
-        onClose={() => setIsDrawerVisible(false)}
-        onNavigateProfile={() => navigation.navigate('Profile')}
-        onNavigateNotifications={() => navigation.navigate('Notifications')}
-        onNavigateMsgToHr={() => navigation.navigate('MsgToHr')}
-        onNavigateMyAttendance={() => navigation.navigate('MyAttendance')}
-        onLogout={() => {
-          Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Sign Out',
-              style: 'destructive',
-              onPress: async () => {
-                const current = activeSessionRef.current;
-                if (current && current.status === 'WORKING') {
-                  try {
-                    const empId = employeeProfile?.employeeCode || employeeProfile?.id;
-                    const officeTarget =
-                      current.officeId || assignedOffice?.id || assignedOffice?.code || 'OFFICE';
-                    await recordGeofenceExit(
-                      {
-                        officeId: officeTarget,
-                        clientEventId: generateUUID(),
-                        reason: 'SIGN_OUT',
-                        location: {
-                          latitude: locationRef.current?.latitude || 0,
-                          longitude: locationRef.current?.longitude || 0,
-                          accuracyMeters: 10,
-                          timestamp: new Date().toISOString(),
-                        },
-                      },
-                      empId,
-                    );
-                  } catch (e) {
-                    console.warn('Could not auto-pause on sign out:', e);
-                  }
-                }
-                await logout();
-              },
-            },
-          ]);
-        }}
-        user={user}
-        employeeProfile={employeeProfile}
-        unreadCount={unreadCount}
-      />
-
-      {/* Live Face Biometric Verification Modal for Check-In & Check-Out */}
-      <FaceCameraModal
-        visible={faceModalVisible}
-        mode={faceModalMode}
-        employeeId={employeeProfile?.employeeCode || employeeProfile?.id || ''}
-        officeName={officeDisplayName}
-        onVerified={(token, photoUri) => {
-          setFaceModalVisible(false);
-          if (faceModalMode === 'checkIn') {
-            void handleConfirmCheckIn(token, photoUri);
-          } else {
-            void handleCheckOut(token);
-          }
-        }}
-        onCancel={() => setFaceModalVisible(false)}
-      />
-
-      {/* Attendance Verification & Photo Capture Modal */}
-      <Modal
-        visible={isCheckInModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          if (!actionLoading) {
-            setIsCheckInModalVisible(false);
-            setAttendancePhoto(null);
-          }
-        }}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeaderRow}>
-              <Text style={styles.modalTitle}>Attendance Check-In</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  if (!actionLoading) {
-                    setIsCheckInModalVisible(false);
-                    setAttendancePhoto(null);
-                  }
-                }}
-              >
-                <MaterialCommunityIcons name="close" size={24} color={palette.muted} />
-              </TouchableOpacity>
-            </View>
-
-            <Divider style={{ marginVertical: 12 }} />
-
-            {/* Office & Geofence Verification Status */}
-            <View style={styles.modalInfoRow}>
-              <MaterialCommunityIcons name="office-building" size={20} color={palette.primary} />
-              <View style={{ marginLeft: 10, flex: 1 }}>
-                <Text style={styles.modalLabel}>Assigned Office</Text>
-                <Text style={styles.modalValue}>{officeDisplayName} ({officeDisplayCode})</Text>
-              </View>
-            </View>
-
-            <View style={[styles.modalInfoRow, { marginTop: 10 }]}>
-              <MaterialCommunityIcons name="check-decagram" size={20} color={palette.success} />
-              <View style={{ marginLeft: 10, flex: 1 }}>
-                <Text style={styles.modalLabel}>Location Status</Text>
-                <Text style={[styles.modalValue, { color: palette.success }]}>
-                  Verified • Inside Office Geofence
-                </Text>
-              </View>
-            </View>
-
-            {/* Attendance Photo Preview / Camera Prompt */}
-            <View style={styles.attendancePhotoSection}>
-              {attendancePhoto ? (
-                <View style={{ alignItems: 'center' }}>
-                  <Image source={{ uri: attendancePhoto }} style={styles.attendancePhotoThumb} />
-                  <View style={styles.photoVerifiedBadge}>
-                    <MaterialCommunityIcons name="check-circle" size={16} color={palette.success} />
-                    <Text style={styles.photoVerifiedText}>Photo Captured</Text>
-                  </View>
-                  <AppButton
-                    mode="text"
-                    onPress={handleOpenAttendanceCamera}
-                    disabled={actionLoading}
-                    icon="camera-retake"
-                    style={{ marginTop: 4 }}
-                  >
-                    Retake Photo
-                  </AppButton>
-                </View>
-              ) : (
-                <View style={{ alignItems: 'center' }}>
-                  <View style={styles.emptyCameraBox}>
-                    <MaterialCommunityIcons name="camera-outline" size={38} color={palette.primary} />
-                  </View>
-                  <Text style={styles.cameraInstructions}>
-                    A live verification selfie is required to confirm presence inside the office before check-in.
-                  </Text>
-                  <AppButton
-                    mode="contained"
-                    onPress={handleOpenAttendanceCamera}
-                    icon="camera"
-                    style={{ marginTop: 12, width: '100%' }}
-                  >
-                    Open Camera
-                  </AppButton>
-                </View>
-              )}
-            </View>
-
-            {/* Confirm Check-In Action Button */}
-            {attendancePhoto && (
-              <AppButton
-                mode="contained"
-                onPress={() => void handleConfirmCheckIn()}
-                loading={actionLoading}
-                disabled={actionLoading}
-                style={[styles.confirmCheckInBtn, { backgroundColor: palette.success }]}
-              >
-                CONFIRM CHECK-IN
-              </AppButton>
-            )}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Check-In Success Modal */}
-      <Modal
-        visible={Boolean(checkInSuccessModal)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCheckInSuccessModal(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { alignItems: 'center', paddingVertical: 28 }]}>
-            <View style={styles.successIconCircle}>
-              <MaterialCommunityIcons name="check" size={42} color="#FFFFFF" />
-            </View>
-            <Text style={styles.successHeading}>Check-in Successful!</Text>
-            <Text style={styles.successSubheading}>
-              Check-in Time: {checkInSuccessModal?.checkInTime}
+            <MaterialCommunityIcons
+              name={tab.icon as any}
+              size={24}
+              color={activeScreen === tab.key ? palette.primary : palette.muted}
+            />
+            <Text style={[styles.tabLabel, activeScreen === tab.key && styles.tabLabelActive]}>
+              {tab.label}
             </Text>
-            <Text style={styles.successDesc}>Your working duration has started.</Text>
-
-            <AppButton
-              mode="contained"
-              onPress={() => setCheckInSuccessModal(null)}
-              style={{ marginTop: 20, width: '100%' }}
-            >
-              Go to Home
-            </AppButton>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Check-Out Success Modal */}
-      <Modal
-        visible={Boolean(checkOutSuccessModal)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCheckOutSuccessModal(null)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { alignItems: 'center', paddingVertical: 28 }]}>
-            <View style={[styles.successIconCircle, { backgroundColor: palette.primary }]}>
-              <MaterialCommunityIcons name="briefcase-check" size={38} color="#FFFFFF" />
-            </View>
-            <Text style={styles.successHeading}>Check-out Successful!</Text>
-
-            <Card style={styles.checkoutSummaryCard} mode="outlined">
-              <Card.Content>
-                <View style={styles.infoRowModal}>
-                  <Text style={styles.infoRowKey}>Check-in Time:</Text>
-                  <Text style={styles.infoRowVal}>{checkOutSuccessModal?.checkInTime}</Text>
-                </View>
-                <View style={styles.infoRowModal}>
-                  <Text style={styles.infoRowKey}>Check-out Time:</Text>
-                  <Text style={styles.infoRowVal}>{checkOutSuccessModal?.checkOutTime}</Text>
-                </View>
-                <Divider style={{ marginVertical: 8 }} />
-                <View style={styles.infoRowModal}>
-                  <Text style={[styles.infoRowKey, { fontWeight: '700' }]}>Total Working Duration:</Text>
-                  <Text style={[styles.infoRowVal, { color: palette.primary, fontWeight: '700' }]}>
-                    {checkOutSuccessModal?.duration}
-                  </Text>
-                </View>
-              </Card.Content>
-            </Card>
-
-            <AppButton
-              mode="contained"
-              onPress={() => setCheckOutSuccessModal(null)}
-              style={{ marginTop: 16, width: '100%' }}
-            >
-              Done
-            </AppButton>
-          </View>
-        </View>
-      </Modal>
+          </TouchableOpacity>
+        ))}
+      </View>
     </SafeAreaView>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: palette.background,
+  safe: { flex: 1, backgroundColor: palette.background },
+  content: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 40 },
+
+  // Greeting
+  greetingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  greeting: { color: palette.inkSecondary, fontSize: 14 },
+  greetingName: { color: palette.ink, fontSize: 22, fontWeight: '700', marginTop: 2 },
+  logoutBtn: { padding: 8, backgroundColor: palette.card, borderRadius: 10 },
+  dateText: { color: palette.muted, fontSize: 13, marginBottom: 20 },
+
+  // Status Card
+  statusCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    marginBottom: 16,
+    alignItems: 'center',
+    minHeight: 140,
+    justifyContent: 'center',
   },
-  scroll: {
+  statusHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  statusLabel: { fontSize: 14, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 },
+  timerText: { fontSize: 48, fontWeight: '800', color: palette.ink, letterSpacing: -1 },
+  timerSub: { color: palette.inkSecondary, fontSize: 13, marginTop: 4 },
+  graceWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+
+  // Action Row
+  actionRow: { marginBottom: 20 },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 18,
+    borderRadius: 16,
+  },
+  checkInBtn: { backgroundColor: palette.success },
+  checkOutBtn: { backgroundColor: palette.error },
+  btnDisabled: { opacity: 0.6 },
+  actionBtnText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+
+  // Section Card
+  sectionCard: {
+    backgroundColor: palette.card,
+    borderRadius: 16,
     padding: 16,
-    paddingBottom: 40,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 16,
-    paddingTop: 4,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
-  headerLeft: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  greeting: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: palette.ink,
-    letterSpacing: -0.3,
-  },
-  subGreeting: {
-    fontSize: 13,
-    color: palette.muted,
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  profileBtn: {
-    position: 'relative',
-    padding: 2,
-  },
-  avatar: {
-    backgroundColor: palette.primary,
-  },
-  avatarLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  headerBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: palette.error,
-    borderRadius: 9,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-    borderWidth: 2,
-    borderColor: palette.background,
-  },
-  headerBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '800',
-  },
+  sectionTitle: { color: palette.inkSecondary, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
 
-  // Permission Banner Card
-  permissionCard: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
+  // Sessions
+  sessionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  sessionDivider: { borderTopWidth: 1, borderTopColor: palette.border },
+  sessionStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  sessionTime: { color: palette.ink, fontSize: 14, fontWeight: '600' },
+  sessionStatus: { color: palette.muted, fontSize: 12, marginTop: 2 },
+  sessionDuration: { color: palette.inkSecondary, fontSize: 14, fontWeight: '600' },
+  sessionTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: palette.border },
+  sessionTotalLabel: { color: palette.muted, fontSize: 13, fontWeight: '600' },
+  sessionTotalValue: { color: palette.primary, fontSize: 15, fontWeight: '700' },
+
+  // Offices
+  officeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  officeName: { color: palette.ink, fontSize: 14 },
+
+  // Screens
+  screenHeader: { marginBottom: 20 },
+  screenTitle: { color: palette.ink, fontSize: 22, fontWeight: '700' },
+
+  // History
+  historyCard: {
+    backgroundColor: palette.card,
     borderRadius: 14,
-    marginBottom: 16,
-  },
-  permissionContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  permissionIconWrap: {
-    marginTop: 2,
-  },
-  permissionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#92400E',
-    marginBottom: 4,
-  },
-  permissionText: {
-    fontSize: 12,
-    color: '#78350F',
-    lineHeight: 17,
-  },
-  permissionActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
-  settingsBtn: {
-    backgroundColor: '#D97706',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-  },
-  settingsBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  recheckBtn: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-  },
-  recheckBtnText: {
-    color: '#92400E',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  // SECTION 5: Office Card
-  officeCard: {
-    backgroundColor: palette.surface,
-    borderColor: palette.border,
-    borderRadius: 16,
-    marginBottom: 16,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  officeCardContent: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  officeCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  officeTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  officeSectionTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: palette.ink,
-    letterSpacing: 0.6,
-  },
-  activeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    gap: 5,
-  },
-  activeBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: palette.success,
-  },
-  activeBadgeText: {
-    color: '#166534',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  unassignedBadge: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  unassignedBadgeText: {
-    color: '#92400E',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  multiOfficeBadge: {
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  multiOfficeBadgeText: {
-    color: '#4F46E5',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  multiOfficeBox: {
+    padding: 16,
     marginBottom: 12,
-    backgroundColor: '#F8FAFC',
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  multiOfficeBoxLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: palette.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
-  multiOfficeChipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  multiOfficeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
     borderWidth: 1,
     borderColor: palette.border,
-    backgroundColor: palette.surface,
-    gap: 5,
   },
-  multiOfficeChipSelected: {
-    borderColor: palette.primary,
-    backgroundColor: '#EFF6FF',
-  },
-  multiOfficeChipInside: {
-    borderColor: '#86EFAC',
-    backgroundColor: '#F0FDF4',
-  },
-  multiOfficeChipText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: palette.muted,
-  },
-  multiOfficeChipTextSelected: {
-    color: palette.primary,
-    fontWeight: '700',
-  },
-  multiOfficeChipTextInside: {
-    color: '#15803D',
-    fontWeight: '700',
-  },
-  chipInsideDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#22C55E',
-    marginLeft: 2,
-  },
-  officeDivider: {
-    marginVertical: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-  },
-  officeMainRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  officeNameText: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: palette.ink,
-  },
-  officeCodeText: {
-    fontSize: 12,
-    color: palette.muted,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  refreshOfficeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EEF2F6',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    gap: 5,
-  },
-  refreshOfficeText: {
-    color: palette.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  officeDetailsGrid: {
-    flexDirection: 'row',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 8,
-    gap: 12,
-  },
-  officeDetailItem: {
-    flex: 1,
-  },
-  officeDetailLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: palette.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 2,
-  },
-  officeDetailValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: palette.ink,
-  },
-  officeLocationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
-  },
-  officeLocationText: {
-    fontSize: 11,
-    color: palette.muted,
-  },
+  historyDateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  historyDate: { color: palette.ink, fontSize: 14, fontWeight: '600' },
+  historyBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  historyBadgeText: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+  historyTimes: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  historyTimeItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  historyTimeText: { color: palette.inkSecondary, fontSize: 13 },
+  historyDuration: { marginLeft: 'auto', color: palette.primary, fontSize: 13, fontWeight: '700' },
 
-  // No Office Box
-  noOfficeBox: {
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-  },
-  noOfficeIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FEF3C7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  noOfficeTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#92400E',
-    marginBottom: 4,
-  },
-  noOfficeDesc: {
-    fontSize: 12,
-    color: '#78350F',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 12,
-  },
-  noOfficeRefreshBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#EEF2F6',
-  },
-  noOfficeRefreshText: {
-    color: palette.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
+  // Empty
+  emptyState: { alignItems: 'center', gap: 12, marginTop: 60 },
+  emptyText: { color: palette.muted, fontSize: 15 },
 
-  // SECTION 7: Geofence Card
-  geofenceCard: {
-    borderRadius: 16,
-    marginBottom: 16,
-  },
-  geofenceCardInside: {
-    borderColor: '#BBF7D0',
-    backgroundColor: '#F0FDF4',
-  },
-  geofenceCardOutside: {
-    borderColor: '#FDE68A',
-    backgroundColor: '#FFFDF5',
-  },
-  geofenceCardNeutral: {
-    borderColor: palette.border,
-    backgroundColor: palette.surface,
-  },
-  geofenceContent: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  rowBetween: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statusIndicatorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    paddingRight: 8,
-  },
-  statusDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    marginRight: 8,
-  },
-  geofenceTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  refreshBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: '#EEF2F6',
-  },
-  refreshRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  refreshText: {
-    color: palette.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  verifyingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  verifyingText: {
-    color: palette.primary,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  geoDivider: {
-    marginVertical: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-  },
-  coordsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-  },
-  coordsText: {
-    fontSize: 11,
-    color: palette.muted,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  insideNotice: {
-    marginTop: 6,
-    backgroundColor: '#DCFCE7',
-    padding: 10,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  insideText: {
-    fontSize: 12,
-    color: '#166534',
-    fontWeight: '700',
-    lineHeight: 17,
-  },
-  insideSubtext: {
-    fontSize: 11,
-    color: '#15803D',
-    marginTop: 2,
-  },
-  outsideNotice: {
-    marginTop: 6,
-    backgroundColor: '#FEF3C7',
-    padding: 10,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  outsideText: {
-    fontSize: 12,
-    color: '#92400E',
-    fontWeight: '700',
-    lineHeight: 17,
-  },
-  outsideDistanceText: {
-    fontSize: 12,
-    color: '#B45309',
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  outsideSubtext: {
-    fontSize: 11,
-    color: '#78350F',
-    marginTop: 2,
-  },
-  checkingNotice: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 8,
-  },
-  checkingText: {
-    fontSize: 12,
-    color: palette.muted,
-    flex: 1,
-  },
-  noOfficeNotice: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: '#F1F5F9',
-    padding: 10,
-    borderRadius: 8,
-  },
-  noOfficeNoticeText: {
-    fontSize: 12,
-    color: palette.muted,
-    flex: 1,
-    lineHeight: 17,
-  },
-  errorNotice: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: '#FEE2E2',
-    padding: 10,
-    borderRadius: 8,
-  },
-  errorNoticeText: {
-    fontSize: 12,
-    color: palette.error,
-    fontWeight: '600',
-  },
-  errorRetryText: {
-    fontSize: 11,
-    color: palette.primary,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-  },
-  noticeIconWrap: {
-    marginTop: 1,
-  },
-
-  // SECTION 8: Tracker & Check-In Action Card
-  trackerCard: {
-    backgroundColor: palette.surface,
-    borderRadius: 16,
+  // Profile
+  avatarCircle: {
+    width: 80, height: 80, borderRadius: 40,
+    backgroundColor: palette.primary + '33',
+    borderWidth: 2, borderColor: palette.primary,
+    alignSelf: 'center',
+    justifyContent: 'center', alignItems: 'center',
     marginBottom: 20,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
   },
-  trackerContent: {
+  avatarText: { fontSize: 32, fontWeight: '700', color: palette.primary },
+  profileCard: {
+    backgroundColor: palette.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    gap: 0,
+  },
+  profileRow: { flexDirection: 'row', gap: 14, paddingVertical: 12, alignItems: 'flex-start' },
+  profileDivider: { height: 1, backgroundColor: palette.border, marginHorizontal: -16 },
+  profileLabel: { color: palette.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
+  profileValue: { color: palette.ink, fontSize: 15, fontWeight: '500' },
+  logoutFullBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    marginTop: 24, paddingVertical: 16,
+    backgroundColor: palette.error + '15',
+    borderRadius: 14, borderWidth: 1, borderColor: palette.error + '33',
+  },
+  logoutFullBtnText: { color: palette.error, fontSize: 16, fontWeight: '600' },
+
+  // Tab Bar
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: palette.surface,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+    paddingBottom: 8,
+    paddingTop: 8,
+  },
+  tabItem: { flex: 1, alignItems: 'center', gap: 4 },
+  tabLabel: { fontSize: 11, color: palette.muted },
+  tabLabelActive: { color: palette.primary, fontWeight: '600' },
+
+  // Face Enrollment Banner & Profile Card
+  enrollBanner: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 22,
-    paddingHorizontal: 16,
+    gap: 12,
+    backgroundColor: `${palette.accent}15`,
+    borderColor: `${palette.accent}40`,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
   },
-  trackerHeading: {
+  enrollBannerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: `${palette.accent}25`,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  enrollBannerTitle: { color: palette.ink, fontSize: 15, fontWeight: '700' },
+  enrollBannerSub: { color: palette.inkSecondary, fontSize: 12, marginTop: 2 },
+  enrollBannerBtn: {
+    backgroundColor: palette.accent,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  enrollBannerBtnText: { color: '#0D0F14', fontWeight: '700', fontSize: 13 },
+  profileSectionTitle: {
+    color: palette.inkSecondary,
     fontSize: 12,
     fontWeight: '700',
-    color: palette.muted,
     textTransform: 'uppercase',
     letterSpacing: 1,
-  },
-  clockContainer: {
-    alignItems: 'center',
-    marginVertical: 14,
-  },
-  clockText: {
-    fontSize: 44,
-    fontWeight: '800',
-    color: palette.ink,
-    letterSpacing: 2,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  liveIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  pulsingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: palette.success,
-    marginRight: 6,
-  },
-  liveText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: palette.success,
-    letterSpacing: 0.5,
-  },
-  autoCheckOutBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
-    gap: 4,
-  },
-  autoCheckOutText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#92400E',
-    letterSpacing: 0.5,
-  },
-  actionContainer: {
-    width: '100%',
-    marginTop: 8,
-  },
-  actionBtn: {
-    borderRadius: 12,
-    paddingVertical: 4,
-  },
-  actionSubtitle: {
-    textAlign: 'center',
-    fontSize: 11,
-    color: palette.muted,
-    marginTop: 8,
-    fontWeight: '500',
-  },
-
-  // Today's Metrics
-  sectionHeading: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: palette.ink,
-    marginBottom: 12,
-    letterSpacing: -0.2,
-  },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 20,
-  },
-  metricCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: palette.surface,
-    borderColor: palette.border,
-    borderRadius: 12,
-  },
-  metricContent: {
-    padding: 12,
-    alignItems: 'center',
-  },
-  metricIcon: {
-    marginBottom: 4,
-  },
-  metricLabel: {
-    fontSize: 11,
-    color: palette.muted,
-    textTransform: 'uppercase',
-    fontWeight: '600',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  metricVal: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: palette.ink,
-  },
-  historyBtn: {
-    backgroundColor: palette.surface,
-    borderWidth: 1,
-    borderColor: palette.border,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  historyBtnText: {
-    color: palette.primary,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  // Modals
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    width: '100%',
-    maxWidth: 420,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 8,
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: palette.ink,
-  },
-  modalInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  modalLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: palette.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  modalValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: palette.ink,
-    marginTop: 1,
-  },
-  attendancePhotoSection: {
-    marginVertical: 18,
-    alignItems: 'center',
-    width: '100%',
-  },
-  emptyCameraBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  cameraInstructions: {
-    fontSize: 13,
-    color: palette.muted,
-    textAlign: 'center',
-    lineHeight: 18,
-    paddingHorizontal: 12,
-  },
-  attendancePhotoThumb: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    borderWidth: 3,
-    borderColor: palette.success,
-  },
-  photoVerifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 10,
-    gap: 4,
-  },
-  photoVerifiedText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#166534',
-  },
-  confirmCheckInBtn: {
-    marginTop: 10,
-    borderRadius: 12,
-    paddingVertical: 4,
-    width: '100%',
-  },
-  successIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: palette.success,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  successHeading: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: palette.ink,
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  successSubheading: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: palette.primary,
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  successDesc: {
-    fontSize: 13,
-    color: palette.muted,
-    textAlign: 'center',
-  },
-  checkoutSummaryCard: {
-    width: '100%',
-    marginTop: 16,
-    backgroundColor: '#F8FAFC',
-    borderColor: palette.border,
-    borderRadius: 12,
-  },
-  infoRowModal: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  infoRowKey: {
-    fontSize: 13,
-    color: palette.muted,
-  },
-  infoRowVal: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: palette.ink,
-  },
-  // Grace Period & Paused Session Card Styles
-  graceCard: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#F59E0B',
-    borderWidth: 1.5,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 14,
-  },
-  graceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  graceTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#92400E',
-  },
-  graceTimerWrap: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    marginBottom: 10,
-  },
-  graceTimerDigits: {
-    fontSize: 34,
-    fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    color: '#B45309',
-    letterSpacing: 2,
-  },
-  graceTimerDigitsUrgent: {
-    color: '#DC2626',
-  },
-  graceTimerLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#92400E',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  graceDesc: {
-    fontSize: 13,
-    color: '#78350F',
-    lineHeight: 18,
-    marginBottom: 10,
-  },
-  graceDeadlineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
-  },
-  graceDeadlineText: {
-    fontSize: 12,
-    color: '#92400E',
-    fontWeight: '600',
-  },
-  graceBtnRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
-  },
-  graceResumeBtn: {
-    flex: 1,
-    backgroundColor: palette.primary,
-    borderRadius: 10,
-    paddingVertical: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  graceResumeBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  graceCheckoutBtn: {
-    flex: 1,
-    backgroundColor: '#EF4444',
-    borderRadius: 10,
-    paddingVertical: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  graceCheckoutBtnText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  specialConditionCard: {
-    backgroundColor: '#F5F3FF',
-    borderColor: '#C4B5FD',
-    borderWidth: 1.5,
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 12,
     marginBottom: 8,
   },
-  specialConditionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  specialConditionTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#6D28D9',
-  },
-  specialConditionBadge: {
-    backgroundColor: '#DDD6FE',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  specialConditionBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#5B21B6',
-  },
-  specialConditionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+  smallBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    alignSelf: 'center',
   },
-  specialConditionStat: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  specialConditionStatLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#64748B',
-    marginBottom: 2,
-  },
-  specialConditionStatVal: {
-    fontSize: 13,
-    fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    color: palette.ink,
-  },
-  specialConditionDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: '#E2E8F0',
-  },
-  specialConditionReasonText: {
-    fontSize: 11,
-    fontStyle: 'italic',
-    color: '#6D28D9',
-    marginTop: 6,
-  },
+  enrollBtn: { backgroundColor: palette.accent },
+  reEnrollBtn: { backgroundColor: `${palette.primary}33`, borderWidth: 1, borderColor: palette.primary },
+  smallBtnText: { color: palette.ink, fontSize: 12, fontWeight: '600' },
 });

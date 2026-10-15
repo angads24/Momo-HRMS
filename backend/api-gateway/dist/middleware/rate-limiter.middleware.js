@@ -15,8 +15,11 @@ let RateLimiterMiddleware = class RateLimiterMiddleware {
     use(req, res, next) {
         const now = Date.now();
         const path = req.path || req.originalUrl || '';
+        if (path.includes('/stream') || path.includes('/health')) {
+            return next();
+        }
         let key = '';
-        let maxAttempts = 100;
+        let maxAttempts = 300;
         const windowMs = 60 * 1000;
         const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
         if (path.includes('/auth/login') && req.method === 'POST') {

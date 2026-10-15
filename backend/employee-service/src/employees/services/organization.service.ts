@@ -19,7 +19,7 @@ export class OrganizationService {
     });
 
     return departments.map((d: any) => ({
-      id: d.id,
+      id: d.code || d.id,
       code: d.code,
       name: d.name,
       description: d.description,
@@ -27,7 +27,11 @@ export class OrganizationService {
       employeeCount: d._count?.employees ?? 0,
       createdAt: d.createdAt?.toISOString?.() ?? d.createdAt,
       updatedAt: d.updatedAt?.toISOString?.() ?? d.updatedAt,
-      designations: d.designations,
+      designations: (d.designations || []).map((des: any) => ({
+        ...des,
+        id: des.code || des.id,
+        departmentId: d.code || d.id,
+      })),
     }));
   }
 

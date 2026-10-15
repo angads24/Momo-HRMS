@@ -92,6 +92,13 @@ export class GeofenceService {
   }
 
   /**
+   * Fast count of total registered offices.
+   */
+  async countOffices(): Promise<number> {
+    return this.prisma.office.count();
+  }
+
+  /**
    * List all registered offices.
    */
   async listOffices() {
@@ -110,7 +117,7 @@ export class GeofenceService {
     });
 
     return offices.map((o) => ({
-      id: o.id,
+      id: o.code || o.id,
       code: o.code,
       name: o.name,
       address: o.address,
@@ -121,7 +128,7 @@ export class GeofenceService {
       maxAltitudeMeters: o.maxAltitudeMeters,
       activePolygon: o.polygons[0]
         ? {
-            id: o.polygons[0].id,
+            id: `${o.code}-POLY-01`,
             name: o.polygons[0].name,
             version: o.polygons[0].version,
             isActive: o.polygons[0].isActive,
@@ -160,7 +167,7 @@ export class GeofenceService {
     }
 
     return {
-      id: office.id,
+      id: office.code || office.id,
       code: office.code,
       name: office.name,
       address: office.address,
@@ -171,7 +178,7 @@ export class GeofenceService {
       maxAltitudeMeters: office.maxAltitudeMeters,
       activePolygon: office.polygons[0]
         ? {
-            id: office.polygons[0].id,
+            id: `${office.code}-POLY-01`,
             name: office.polygons[0].name,
             version: office.polygons[0].version,
             isActive: office.polygons[0].isActive,

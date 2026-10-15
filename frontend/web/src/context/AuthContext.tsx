@@ -24,6 +24,9 @@ interface AuthContextValue {
 const NO_MODULE_MESSAGE =
   'Your account does not have access to any module. Please contact your administrator.';
 
+const EMPLOYEE_WEB_RESTRICTED_MESSAGE =
+  'Access Restricted: The Momo HRMS web portal is exclusively for HR and Administrators. Employees must log in using the Momo HRMS mobile app.';
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -71,6 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           endSession(NO_MODULE_MESSAGE);
           return;
         }
+        if (restored.appRole === 'EMPLOYEE') {
+          await clearTokens();
+          endSession(EMPLOYEE_WEB_RESTRICTED_MESSAGE);
+          return;
+        }
         setUser(restored);
         setStatus('authenticated');
       } catch (error) {
@@ -94,6 +102,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await logoutUser(); // don't leave a live session for an account we can't route
       await clearTokens();
       throw new Error(NO_MODULE_MESSAGE);
+    }
+    if (loggedIn.appRole === 'EMPLOYEE') {
+      await logoutUser().catch(() => {});
+      await clearTokens();
+      throw new Error(EMPLOYEE_WEB_RESTRICTED_MESSAGE);
     }
 
     setNotice(null);

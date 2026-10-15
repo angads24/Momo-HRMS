@@ -26,6 +26,9 @@ export declare class OfficeController {
             }[];
         } | null;
     }[]>;
+    getOfficeCount(): Promise<{
+        count: number;
+    }>;
     getOfficeById(id: string): Promise<{
         id: string;
         code: string;

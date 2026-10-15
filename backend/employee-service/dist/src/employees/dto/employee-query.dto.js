@@ -17,7 +17,6 @@ const class_validator_1 = require("class-validator");
 class EmployeeQueryDto {
     constructor() {
         this.page = 1;
-        this.limit = 20;
     }
 }
 exports.EmployeeQueryDto = EmployeeQueryDto;
@@ -35,9 +34,14 @@ __decorate([
     (0, class_transformer_1.Type)(() => Number),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
-    (0, class_validator_1.Max)(100),
+    (0, class_validator_1.Max)(10000),
     __metadata("design:type", Number)
 ], EmployeeQueryDto.prototype, "limit", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Fetch all employees at once without pagination limit' }),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Object)
+], EmployeeQueryDto.prototype, "all", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Filter by department ID' }),
     (0, class_validator_1.IsOptional)(),

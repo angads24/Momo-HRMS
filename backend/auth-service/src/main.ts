@@ -21,16 +21,7 @@ async function bootstrap() {
   app.use(helmet());
 
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const configured = configService.get('corsOrigins', { infer: true }) || [];
-      if (configured.includes('*') || configured.includes(origin)) return callback(null, true);
-      const isLocalNetwork = /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(
-        origin,
-      );
-      if (isLocalNetwork) return callback(null, true);
-      return callback(null, true);
-    },
+    origin: configService.get('corsOrigins', { infer: true }),
     credentials: true,
   });
 

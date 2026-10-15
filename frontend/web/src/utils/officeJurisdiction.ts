@@ -149,7 +149,7 @@ export async function resolveHrOfficeScope(
       if (!hrEmp) {
         const hrEmail = user.email.toLowerCase();
         const cleanEmail = hrEmail.replace(/\.hr\d*(?=@|$)/i, '');
-        const res = await fetchEmployees({ search: cleanEmail, limit: 10 });
+        const res = await fetchEmployees({ search: cleanEmail });
         const list = Array.isArray(res.data) ? res.data : [];
         hrEmp =
           list.find(

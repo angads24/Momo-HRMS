@@ -22,7 +22,7 @@ export default function HrEmployeeReportPage() {
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([fetchEmployees({ limit: 100 }), fetchOffices()])
+    Promise.all([fetchEmployees(), fetchOffices()])
       .then(async ([empRes, officesData]) => {
         if (!mounted) return;
         const rawEmps = Array.isArray(empRes.data) ? empRes.data : [];

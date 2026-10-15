@@ -211,19 +211,15 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
           employeeId: targetId,
           startDate,
           endDate,
-          page: 1,
-          limit: 500,
         }).catch(async () => {
           if (targetCode && targetCode !== targetId) {
             return fetchAttendanceHistory({
               employeeId: targetCode,
               startDate,
               endDate,
-              page: 1,
-              limit: 500,
             });
           }
-          return { items: [], page: 1, limit: 500, total: 0, totalPages: 1 };
+          return { items: [], page: 1, limit: 100, total: 0, totalPages: 1 };
         });
 
         const todayPromise = fetchTodayAttendance({

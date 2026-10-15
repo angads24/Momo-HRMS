@@ -260,16 +260,12 @@ export default function AddEmployeePage() {
       const defaultDepartment = departments.find((d) => d.status === 'ACTIVE') || departments[0];
 
       if (selectedRole === 'HR') {
-        // Dual-Account Creation Flow for HR
+        // Unified HR Creation Flow: Creates 1 Employee record in employee_db and provisions 2 Auth accounts
         const finalHrEmail = resolvedHrEmail || (await generateUniqueEmail(firstName, lastName, { isHr: true }));
         const finalAttendanceEmail =
           resolvedAttendanceEmail || (await generateUniqueEmail(firstName, lastName, { isHr: false, isIntern: false }));
 
-        const code1 = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
-        let code2 = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
-        if (code2 === code1) {
-          code2 = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
-        }
+        const employeeCode = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
 
         const selectedOffices = offices.filter((o) => selectedOfficeIds.includes(o.id));
         const primaryOffice = selectedOffices[0];
@@ -277,18 +273,19 @@ export default function AddEmployeePage() {
         const assignedOfficeName = selectedOffices.map((o) => (o.name ? `${o.name} (${o.code})` : o.code)).join(', ') || undefined;
         const assignedOfficeIds = selectedOffices.flatMap((o) => [o.id, o.code]).filter(Boolean) as string[];
 
-        // Account 1: HR Functional Account (for HR Web Portal)
+        // Single Employee Record: department Human Resources, title HR Specialist, official email finalAttendanceEmail
         const hrPayload: CreateEmployeePayload = {
-          employeeCode: code1,
+          employeeCode,
           firstName,
           lastName,
-          email: finalHrEmail,
+          email: finalAttendanceEmail,
+          hrWebEmail: finalHrEmail,
           personalEmail: personalEmail.trim().toLowerCase(),
           phone: '+91 90000 00000',
           dateOfJoining: new Date().toISOString().slice(0, 10),
           jobTitle: 'HR Specialist',
           departmentId: hrDepartment.id,
-          roleId: hrRole.id,
+          roleId: hrRole.id || employeeRole.id,
           provisionAccount: true,
           sendEmail: autoSendCredentials,
           officeLocationId: assignedOfficeId,
@@ -296,34 +293,27 @@ export default function AddEmployeePage() {
           primaryOfficeId: assignedOfficeId,
           officeIds: assignedOfficeIds,
         };
-        const createdHr = await createEmployeeWithRetry(hrPayload, { isHr: true });
+        const createdEmployeeRecord = await createEmployeeWithRetry(hrPayload, { isHr: false, isIntern: false });
 
-        // Account 2: Employee Attendance Account (for Mobile App Attendance)
-        const attendancePayload: CreateEmployeePayload = {
-          employeeCode: code2,
-          firstName,
-          lastName,
-          email: finalAttendanceEmail,
-          personalEmail: personalEmail.trim().toLowerCase(),
-          phone: '+91 90000 00000',
-          dateOfJoining: new Date().toISOString().slice(0, 10),
-          jobTitle: 'HR Specialist (Attendance)',
-          departmentId: hrDepartment.id,
-          roleId: employeeRole.id,
-          provisionAccount: true,
-          sendEmail: autoSendCredentials,
-          officeLocationId: assignedOfficeId,
-          officeLocationName: assignedOfficeName,
-          primaryOfficeId: assignedOfficeId,
-          officeIds: assignedOfficeIds,
-        };
-        const createdAttendance = await createEmployeeWithRetry(attendancePayload, { isHr: false, isIntern: false });
+        const hrCreds = (createdEmployeeRecord as any).hrPortalCredentials;
+        const hrTempPass = hrCreds?.temporaryPassword || 'Generated';
+        const attendanceTempPass = createdEmployeeRecord.temporaryPassword || 'Generated';
 
         setCreatedDualAccounts({
-          hrAccount: createdHr,
-          attendanceAccount: createdAttendance,
+          hrAccount: {
+            ...createdEmployeeRecord,
+            email: finalHrEmail,
+            temporaryPassword: hrTempPass,
+            role: { id: hrRole.id, name: 'HR_ADMIN' },
+          },
+          attendanceAccount: {
+            ...createdEmployeeRecord,
+            email: finalAttendanceEmail,
+            temporaryPassword: attendanceTempPass,
+            role: { id: employeeRole.id, name: 'EMPLOYEE' },
+          },
         });
-        setCreatedEmployee(createdHr);
+        setCreatedEmployee(createdEmployeeRecord);
         setFeedback(
           autoSendCredentials
             ? `HR Dual Accounts created! Credentials dispatched to ${personalEmail.trim()}.`

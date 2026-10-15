@@ -7,7 +7,7 @@ import { z } from 'zod';
  * one uppercase, one lowercase and one symbol (any non letter/number).
  * The backend still re-checks everything - this is only for instant feedback.
  */
-export type PasswordRuleId = 'length' | 'uppercase' | 'lowercase' | 'number' | 'symbol';
+export type PasswordRuleId = 'length' | 'uppercase' | 'lowercase' | 'symbol';
 
 export interface PasswordRule {
   id: PasswordRuleId;
@@ -19,7 +19,6 @@ export const PASSWORD_RULES: PasswordRule[] = [
   { id: 'length', label: 'At least 8 characters', test: (v) => v.length >= 8 },
   { id: 'uppercase', label: 'At least 1 uppercase letter (A-Z)', test: (v) => /[A-Z]/.test(v) },
   { id: 'lowercase', label: 'At least 1 lowercase letter (a-z)', test: (v) => /[a-z]/.test(v) },
-  { id: 'number', label: 'At least 1 number (0-9)', test: (v) => /[0-9]/.test(v) },
   { id: 'symbol', label: 'At least 1 special symbol (!@#$%^&*)', test: (v) => /[^A-Za-z0-9]/.test(v) },
 ];
 

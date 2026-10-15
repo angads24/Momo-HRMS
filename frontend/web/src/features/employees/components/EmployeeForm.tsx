@@ -234,7 +234,11 @@ export function EmployeeForm({
             <InputLabel id="dept-select-label">Department</InputLabel>
             <Select
               labelId="dept-select-label"
-              value={formData.departmentId}
+              value={
+                departments.some((d) => d.id === formData.departmentId)
+                  ? formData.departmentId
+                  : departments.find((d) => d.code === formData.departmentId)?.id || ''
+              }
               label="Department *"
               onChange={(e) => setFormData((prev) => ({ ...prev, departmentId: e.target.value }))}
             >

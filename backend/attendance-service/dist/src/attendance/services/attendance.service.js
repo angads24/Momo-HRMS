@@ -651,13 +651,15 @@ let AttendanceService = AttendanceService_1 = class AttendanceService {
             return new Date(b.checkInAt).getTime() - new Date(a.checkInAt).getTime();
         });
         const total = sessionDtos.length;
-        const paginatedItems = sessionDtos.slice((page - 1) * limit, page * limit);
+        const isPaginated = typeof query.page === 'number' && typeof query.limit === 'number' && query.page > 0 && query.limit > 0 && !query.all;
+        const isAll = !isPaginated || query.all === 'true' || query.all === '1' || (query.limit !== undefined && query.limit >= 1000);
+        const paginatedItems = isAll ? sessionDtos : sessionDtos.slice((page - 1) * limit, page * limit);
         return {
             items: paginatedItems,
-            page,
-            limit,
+            page: isAll ? 1 : page,
+            limit: isAll ? total : limit,
             total,
-            totalPages: Math.max(1, Math.ceil(total / limit)),
+            totalPages: isAll ? 1 : Math.max(1, Math.ceil(total / limit)),
         };
     }
     async getHistory(employeeId, query) {
@@ -722,13 +724,15 @@ let AttendanceService = AttendanceService_1 = class AttendanceService {
             return new Date(b.checkInAt).getTime() - new Date(a.checkInAt).getTime();
         });
         const total = sessionDtos.length;
-        const paginatedItems = sessionDtos.slice((page - 1) * limit, page * limit);
+        const isPaginated = typeof query.page === 'number' && typeof query.limit === 'number' && query.page > 0 && query.limit > 0 && !query.all;
+        const isAll = !isPaginated || query.all === 'true' || query.all === '1' || (query.limit !== undefined && query.limit >= 1000);
+        const paginatedItems = isAll ? sessionDtos : sessionDtos.slice((page - 1) * limit, page * limit);
         return {
             items: paginatedItems,
-            page,
-            limit,
+            page: isAll ? 1 : page,
+            limit: isAll ? total : limit,
             total,
-            totalPages: Math.max(1, Math.ceil(total / limit)),
+            totalPages: isAll ? 1 : Math.max(1, Math.ceil(total / limit)),
         };
     }
     async getById(employeeId, sessionId) {

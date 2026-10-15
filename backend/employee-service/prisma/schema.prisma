@@ -1,7 +1,3 @@
-// Employee Service - Prisma Schema
-// Owns ONLY employee profile records, departments, designations, and office assignments.
-// Does NOT own user passwords/roles (Auth Service) or attendance data (Attendance Service).
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,13 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum EmploymentStatus {
-  ACTIVE
-  PROBATION
-  ON_LEAVE
-  TERMINATED
-}
-
 model Department {
   id           String        @id @default(uuid())
   code         String        @unique @db.VarChar(64)
@@ -25,7 +14,6 @@ model Department {
   description  String?       @db.VarChar(255)
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
-
   designations Designation[]
   employees    Employee[]
 
@@ -39,8 +27,7 @@ model Designation {
   departmentId String?     @map("department_id")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
-
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  department   Department? @relation(fields: [departmentId], references: [id])
   employees    Employee[]
 
   @@index([departmentId])
@@ -48,34 +35,33 @@ model Designation {
 }
 
 model Employee {
-  id               String                   @id @default(uuid())
-  employeeCode     String                   @unique @map("employee_code") @db.VarChar(64)
-  userId           String?                  @unique @map("user_id") @db.VarChar(64)
-  firstName        String                   @map("first_name") @db.VarChar(64)
-  lastName         String                   @map("last_name") @db.VarChar(64)
-  email            String                   @unique @db.VarChar(255)
-  phone                    String?                  @db.VarChar(32)
-  personalEmail            String?                  @map("personal_email") @db.VarChar(255)
-  dateOfBirth              DateTime?                @map("date_of_birth")
-  gender                   String?                  @db.VarChar(32)
-  address                  String?                  @db.Text
-  permanentAddress         String?                  @map("permanent_address") @db.Text
-  alternatePhone           String?                  @map("alternate_phone") @db.VarChar(32)
-  emergencyContactName     String?                  @map("emergency_contact_name") @db.VarChar(128)
-  emergencyContactRelation String?                  @map("emergency_contact_relation") @db.VarChar(64)
-  emergencyContactPhone    String?                  @map("emergency_contact_phone") @db.VarChar(32)
-  profilePhotoUrl          String?                  @map("profile_photo_url") @db.LongText
-  isOnboarded              Boolean                  @default(false) @map("is_onboarded")
-  departmentId             String?                  @map("department_id")
-  designationId            String?                  @map("designation_id")
-  employmentStatus         EmploymentStatus         @default(ACTIVE) @map("employment_status")
-  dateOfJoining            DateTime                 @default(now()) @map("date_of_joining")
-  createdAt                DateTime                 @default(now()) @map("created_at")
-  updatedAt                DateTime                 @updatedAt @map("updated_at")
-
-  department       Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  designation      Designation?             @relation(fields: [designationId], references: [id], onDelete: SetNull)
-  assignments      EmployeeOfficeAssignment[]
+  id                         String                     @id @default(uuid())
+  employeeCode               String                     @unique @map("employee_code") @db.VarChar(64)
+  userId                     String?                    @unique @map("user_id") @db.VarChar(64)
+  firstName                  String                     @map("first_name") @db.VarChar(64)
+  lastName                   String                     @map("last_name") @db.VarChar(64)
+  email                      String                     @unique @db.VarChar(255)
+  phone                      String?                    @db.VarChar(32)
+  personalEmail             String?                    @map("personal_email") @db.VarChar(255)
+  dateOfBirth               DateTime?                  @map("date_of_birth")
+  gender                    String?                    @db.VarChar(32)
+  address                   String?                    @db.Text
+  permanentAddress          String?                    @map("permanent_address") @db.Text
+  alternatePhone            String?                    @map("alternate_phone") @db.VarChar(32)
+  emergencyContactName     String?                    @map("emergency_contact_name") @db.VarChar(128)
+  emergencyContactRelation String?                    @map("emergency_contact_relation") @db.VarChar(64)
+  emergencyContactPhone    String?                    @map("emergency_contact_phone") @db.VarChar(32)
+  profilePhotoUrl          String?                    @map("profile_photo_url") @db.LongText
+  isOnboarded               Boolean                    @default(false) @map("is_onboarded")
+  departmentId               String?                    @map("department_id")
+  designationId              String?                    @map("designation_id")
+  employmentStatus           EmploymentStatus           @default(ACTIVE) @map("employment_status")
+  dateOfJoining              DateTime                   @default(now()) @map("date_of_joining")
+  createdAt                  DateTime                   @default(now()) @map("created_at")
+  updatedAt                  DateTime                   @updatedAt @map("updated_at")
+  assignments                EmployeeOfficeAssignment[]
+  department                 Department?                @relation(fields: [departmentId], references: [id])
+  designation                Designation?               @relation(fields: [designationId], references: [id])
 
   @@index([departmentId])
   @@index([designationId])
@@ -93,11 +79,17 @@ model EmployeeOfficeAssignment {
   isActive      Boolean   @default(true) @map("is_active")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
-
   employee      Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([employeeId])
   @@index([officeId])
   @@index([isActive])
   @@map("employee_office_assignments")
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  PROBATION
+  ON_LEAVE
+  TERMINATED
 }

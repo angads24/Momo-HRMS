@@ -1,17 +1,10 @@
-import pymysql
-pymysql.install_as_MySQLdb()
-
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
 
-db_url = settings.DATABASE_URL
-if db_url and db_url.startswith("mysql://"):
-    db_url = db_url.replace("mysql://", "mysql+pymysql://", 1)
-
 engine = create_engine(
-    db_url,
+    settings.DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=3600,
     pool_size=10,

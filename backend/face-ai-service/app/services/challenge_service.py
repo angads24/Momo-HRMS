@@ -41,15 +41,14 @@ class ChallengeService:
             "expires_in_seconds": self.ttl_seconds,
         }
 
-    def validate_and_consume(self, challenge_id: str, employee_id: str, candidate_ids: Optional[list] = None) -> Optional[dict]:
+    def validate_and_consume(self, challenge_id: str, employee_id: str) -> Optional[dict]:
         self._cleanup_expired()
         
         challenge = self._challenges.get(challenge_id)
         if not challenge:
             return None
             
-        allowed = set([employee_id] + (candidate_ids or []))
-        if challenge["employee_id"] not in allowed:
+        if challenge["employee_id"] != employee_id:
             return None
             
         if time.time() > challenge["expires_at"]:

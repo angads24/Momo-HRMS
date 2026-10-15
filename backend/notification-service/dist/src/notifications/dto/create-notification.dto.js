@@ -20,24 +20,24 @@ exports.NOTIFICATION_TYPES = [
     'EXCEPTION_REQUESTED',
     'EXCEPTION_APPROVED',
     'EXCEPTION_REJECTED',
+    'SYSTEM_ALERT',
     'SPECIAL_WORKING_HOURS_REQUEST',
     'SPECIAL_CONDITION_APPROVED',
     'SPECIAL_CONDITION_REJECTED',
-    'SYSTEM_ALERT',
 ];
 class CreateNotificationDto {
 }
 exports.CreateNotificationDto = CreateNotificationDto;
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'Target recipient (employee ID, user ID, or ALL)' }),
+    (0, swagger_1.ApiProperty)({ description: 'Target recipient (employee ID, user ID, HR, ADMIN, or ALL)' }),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsNotEmpty)(),
     __metadata("design:type", String)
 ], CreateNotificationDto.prototype, "recipientId", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ description: 'Recipient classification (EMPLOYEE, USER, BROADCAST, HR)', default: 'EMPLOYEE' }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Recipient classification (EMPLOYEE, USER, BROADCAST, HR, ADMIN)', default: 'EMPLOYEE' }),
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsIn)(['EMPLOYEE', 'USER', 'BROADCAST', 'HR']),
+    (0, class_validator_1.IsIn)(['EMPLOYEE', 'USER', 'BROADCAST', 'HR', 'ADMIN']),
     __metadata("design:type", String)
 ], CreateNotificationDto.prototype, "recipientType", void 0);
 __decorate([

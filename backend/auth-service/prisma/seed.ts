@@ -101,9 +101,9 @@ async function main() {
   // Optional: bootstrap a first SUPER_ADMIN user from env vars so the
   // system is usable immediately after first deploy. Skipped if the
   // env vars are not set, or if the user already exists.
-  const bootstrapEmail = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL || "admin@company.com";
-  const bootstrapUsername = process.env.BOOTSTRAP_SUPER_ADMIN_USERNAME || "admin";
-  const bootstrapPassword = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD || "Admin123!";
+  const bootstrapEmail = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL;
+  const bootstrapUsername = process.env.BOOTSTRAP_SUPER_ADMIN_USERNAME;
+  const bootstrapPassword = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD;
 
   if (bootstrapEmail && bootstrapUsername && bootstrapPassword) {
     const normalizedEmail = bootstrapEmail.trim().toLowerCase();

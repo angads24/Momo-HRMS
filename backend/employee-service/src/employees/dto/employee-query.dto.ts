@@ -16,8 +16,12 @@ export class EmployeeQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
-  limit?: number = 20;
+  @Max(10000)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'Fetch all employees at once without pagination limit' })
+  @IsOptional()
+  all?: boolean | string;
 
   @ApiPropertyOptional({ description: 'Filter by department ID' })
   @IsOptional()

@@ -33,8 +33,8 @@ export async function fetchNotifications(
   if (params.email) queryParams.email = params.email;
   if (params.role) queryParams.role = params.role;
   if (typeof params.isRead === 'boolean') queryParams.isRead = params.isRead;
-  if (params.page) queryParams.page = params.page;
-  if (params.limit) queryParams.limit = params.limit;
+  if (typeof params.page === 'number') queryParams.page = params.page;
+  if (typeof params.limit === 'number') queryParams.limit = params.limit;
 
   const response = await api.get<PaginatedNotificationsResponse | BackendEnvelope<PaginatedNotificationsResponse>>(
     `${NOTIFICATION_API_URL}`,
@@ -47,8 +47,9 @@ export async function fetchNotifications(
  * Get count of unread notifications for a recipient.
  * GET /api/v1/notifications/unread-count?recipientId=...
  */
-export async function fetchUnreadCount(recipientId: string, email?: string, role?: string): Promise<number> {
-  const params: Record<string, string> = { recipientId };
+export async function fetchUnreadCount(recipientId?: string, email?: string, role?: string): Promise<number> {
+  const params: Record<string, string> = {};
+  if (recipientId) params.recipientId = recipientId;
   if (email) params.email = email;
   if (role) params.role = role;
   const response = await api.get<{ count: number } | BackendEnvelope<{ count: number }>>(
@@ -110,9 +111,12 @@ export async function markAllNotificationsAsRead(
  * Delete a notification by ID.
  * DELETE /api/v1/notifications/:id
  */
-export async function deleteNotification(id: string): Promise<{ success: boolean }> {
+export async function deleteNotification(id: string, userId?: string): Promise<{ success: boolean }> {
+  const params: Record<string, string> = {};
+  if (userId) params.userId = userId;
   const response = await api.delete<{ success: boolean } | BackendEnvelope<{ success: boolean }>>(
     `${NOTIFICATION_API_URL}/${id}`,
+    { params },
   );
   return unwrapResponse(response.data);
 }

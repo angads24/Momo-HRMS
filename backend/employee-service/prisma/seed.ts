@@ -50,7 +50,9 @@ async function main() {
   // 3. Default Employee (matching dev default EMP-001)
   const defaultEmp = await prisma.employee.upsert({
     where: { employeeCode: 'EMP-001' },
-    update: {},
+    update: {
+      userId: '472a384d-5d29-48d9-8a7a-1761964c7b2e',
+    },
     create: {
       id: 'e1a2b3c4-0000-0000-0000-000000000001',
       employeeCode: 'EMP-001',
@@ -60,6 +62,7 @@ async function main() {
       phone: '+91 9876543210',
       departmentId: engDept.id,
       designationId: swe.id,
+      userId: '472a384d-5d29-48d9-8a7a-1761964c7b2e',
       employmentStatus: EmploymentStatus.ACTIVE,
     },
   });

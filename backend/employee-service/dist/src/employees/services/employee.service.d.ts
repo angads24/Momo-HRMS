@@ -34,6 +34,10 @@ export declare class EmployeeService implements OnModuleInit {
         total: number;
         totalPages: number;
     }>;
+    getDashboardMetrics(): Promise<{
+        employeeCount: number;
+        departmentCount: number;
+    }>;
     getEmployeeById(idOrCode: string): Promise<any>;
     getEmployeeProfile(idOrCode: string): Promise<{
         employee: any;

@@ -1,3 +1,4 @@
+import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { NotificationsService } from './notifications.service';
 import { SseService } from './sse.service';
@@ -20,14 +21,31 @@ export declare class NotificationsController {
         createdAt: Date;
         updatedAt: Date;
     }>;
-    findAll(query: QueryNotificationsDto): Promise<{
+    createNotification(dto: CreateNotificationDto): Promise<{
+        type: string;
+        title: string;
+        recipientId: string;
+        recipientType: string;
+        body: string;
+        metadata: import("@prisma/client/runtime/library").JsonValue | null;
+        isRead: boolean;
+        id: string;
+        readAt: Date | null;
+        createdAt: Date;
+        updatedAt: Date;
+    }>;
+    findAll(query: QueryNotificationsDto, req: Request): Promise<{
         items: {
+            recipientId: any;
+            recipientDisplay: string;
+            recipientName: string;
+            from: any;
+            to: string;
+            metadata: Record<string, any>;
             type: string;
             title: string;
-            recipientId: string;
             recipientType: string;
             body: string;
-            metadata: import("@prisma/client/runtime/library").JsonValue | null;
             isRead: boolean;
             id: string;
             readAt: Date | null;
@@ -40,10 +58,10 @@ export declare class NotificationsController {
         limit: number;
         totalPages: number;
     }>;
-    getUnreadCount(recipientId?: string, email?: string, role?: string): Promise<{
+    getUnreadCount(recipientId?: string, email?: string, role?: string, req?: Request): Promise<{
         count: number;
     }>;
-    stream(recipientId: string, email?: string): Observable<MessageEvent>;
+    stream(recipientId?: string, email?: string, req?: Request): Observable<MessageEvent>;
     markAsRead(id: string): Promise<{
         type: string;
         title: string;
@@ -57,10 +75,11 @@ export declare class NotificationsController {
         createdAt: Date;
         updatedAt: Date;
     }>;
-    markAllAsRead(recipientId?: string, email?: string, role?: string, body?: any): Promise<{
+    markAllAsRead(recipientId?: string, email?: string, role?: string, body?: any, req?: Request): Promise<{
         updated: number;
     }>;
-    remove(id: string): Promise<{
+    remove(id: string, hard?: string, queryUserId?: string, req?: Request): Promise<{
         success: boolean;
+        mode: string;
     }>;
 }

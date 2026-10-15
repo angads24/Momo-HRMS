@@ -21,6 +21,7 @@ export class AuthEnrichmentMiddleware implements NestMiddleware {
     delete req.headers['x-employee-id'];
     delete req.headers['x-roles'];
     delete req.headers['x-permissions'];
+    delete req.headers['x-email'];
     delete req.headers['x-gateway-secret'];
     delete req.headers['x-gateway-signature'];
     delete req.headers['x-gateway-timestamp'];
@@ -51,6 +52,9 @@ export class AuthEnrichmentMiddleware implements NestMiddleware {
             req.headers['x-permissions'] = Array.isArray(decoded.permissions)
               ? decoded.permissions.join(',')
               : String(decoded.permissions);
+          }
+          if (decoded.email) {
+            req.headers['x-email'] = String(decoded.email);
           }
         }
       } catch (err) {

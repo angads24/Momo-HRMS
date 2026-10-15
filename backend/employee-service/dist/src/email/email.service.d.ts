@@ -8,6 +8,8 @@ export interface SendCredentialEmailOptions {
     temporaryPassword?: string;
     isPasswordReset?: boolean;
     roleName?: string;
+    hrPortalEmail?: string;
+    hrPortalPassword?: string;
 }
 export interface CredentialDeliveryResult {
     delivered: boolean;

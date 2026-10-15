@@ -24,4 +24,5 @@ export declare class CreateEmployeeDto {
     address?: string;
     profilePhotoUrl?: string;
     employmentType?: string;
+    hrWebEmail?: string;
 }

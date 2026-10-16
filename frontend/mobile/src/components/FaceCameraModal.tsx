@@ -22,8 +22,8 @@ import {
 import type { ChallengeResponse } from '../api/faceApi';
 import { palette } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
-import { AppButton } from './AppButton';
 import { downsampleFaceImage } from '../utils/imageUtils';
+import { AppButton } from './AppButton';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const OVAL_WIDTH = Math.min(SCREEN_WIDTH * 0.70, 270);
@@ -161,26 +161,24 @@ export function FaceCameraModal({
 
       try {
         const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.4,
-          base64: false,
+          quality: 0.45,
+          base64: true,
           skipProcessing: true,
         });
 
-        const photoSource = photo?.uri || (photo as any)?.base64;
-        if (!photoSource) {
+        if (!photo || !photo.base64) {
           isAnalyzingRef.current = false;
           return;
         }
-        const downsampledB64 = await downsampleFaceImage(photoSource, 360, 0.5);
 
         // ── Phase 1: Detect Neutral Pose ──
         if (activeStep === 'NEUTRAL') {
-          const res = await detectNeutral(downsampledB64);
+          const res = await detectNeutral(photo.base64);
           if (res.detected) {
             setNeutralDetected(true);
-            setNeutralFrame(downsampledB64);
+            setNeutralFrame(photo.base64);
             setNeutralPreviewUri(photo.uri);
-            neutralFrameRef.current = downsampledB64;
+            neutralFrameRef.current = photo.base64;
 
             // Advance to Phase 2: Action Challenge
             setCurrentStep('ACTION');
@@ -230,9 +228,11 @@ export function FaceCameraModal({
     setErrorMessage(null);
 
     try {
+      const downsampleNeutral = await downsampleFaceImage(neutralB64, 480, 0.65);
+      const downsampleAction = await downsampleFaceImage(actionB64, 480, 0.65);
       const verifyRes = await verifyFace(employeeId, challengeRef.current.challenge_id, [
-        neutralB64,
-        actionB64,
+        downsampleNeutral,
+        downsampleAction,
       ]);
 
       if (verifyRes.verified && verifyRes.verification_token) {
@@ -268,9 +268,9 @@ export function FaceCameraModal({
 
       if (currentStep === 'NEUTRAL') {
         setNeutralDetected(true);
-        setNeutralFrame(downsampledB64);
+        setNeutralFrame(photo.base64);
         setNeutralPreviewUri(photo.uri);
-        neutralFrameRef.current = downsampledB64;
+        neutralFrameRef.current = photo.base64;
         setCurrentStep('ACTION');
         const actionLabel = getActionDisplay(challenge.action).label;
         setStepPrompt(`Step 2 of 2: ${actionLabel}! Auto-capturing when detected...`);

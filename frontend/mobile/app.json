@@ -1,31 +1,27 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "Momo HRMS",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true,
-      "infoPlist": {
-        "NSCameraUsageDescription": "Momo HRMS needs camera access for face biometric enrollment and attendance verification.",
-        "NSLocationWhenInUseUsageDescription": "Momo HRMS needs location access to verify attendance at your designated workplace.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Momo HRMS needs location access to verify attendance at your designated workplace."
-      }
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0D0F14",
+        "backgroundColor": "#0F172A",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "package": "com.momo.hrms",
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
       ]
     },
     "web": {
@@ -33,14 +29,12 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-status-bar",
-      "expo-location",
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Momo HRMS needs camera access for face biometric verification during attendance check-in."
-        }
-      ]
-    ]
+      "expo-status-bar"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3c1e3c19-8371-4a24-818e-35848d024a40"
+      }
+    }
   }
 }

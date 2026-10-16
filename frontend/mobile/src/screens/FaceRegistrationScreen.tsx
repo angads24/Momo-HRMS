@@ -18,8 +18,8 @@ import { useAuth } from '../context/AuthContext';
 import { enrollFace } from '../api/faceApi';
 import { palette } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
-import { AppButton } from '../components/AppButton';
 import { downsampleFaceImage } from '../utils/imageUtils';
+import { AppButton } from '../components/AppButton';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const OVAL_WIDTH = Math.min(SCREEN_WIDTH * 0.72, 280);
@@ -105,16 +105,14 @@ export default function FaceRegistrationScreen() {
     try {
       setErrorMessage(null);
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.6,
-        base64: false,
+        quality: 0.5,
+        base64: true,
       });
 
-      const photoSource = photo?.uri || (photo as any)?.base64;
-      if (photoSource) {
-        const downsampledB64 = await downsampleFaceImage(photoSource, 480, 0.65);
+      if (photo && photo.base64) {
         setCapturedPhoto({
-          uri: photo?.uri || '',
-          base64: downsampledB64,
+          uri: photo.uri,
+          base64: photo.base64,
         });
       } else {
         Alert.alert('Capture Error', 'Failed to capture photo data. Please try again.');
@@ -143,7 +141,8 @@ export default function FaceRegistrationScreen() {
     setErrorMessage(null);
 
     try {
-      const response = await enrollFace(empId, capturedPhoto.base64);
+      const downsampledB64 = await downsampleFaceImage(capturedPhoto.base64, 480, 0.65);
+      const response = await enrollFace(empId, downsampledB64);
 
       if (response && response.success) {
         setIsSuccess(true);

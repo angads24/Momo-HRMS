@@ -590,7 +590,7 @@ export default function MyAttendanceScreen() {
                           <View>
                             <Text style={styles.logCardDate}>{dateOnly}</Text>
                             <Text style={styles.logCardOffice}>
-                              {item.officeId ? `Office: ${item.officeId}` : 'Assigned Workplace'}
+                              {(item as any).officeName || (item.officeId && !/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(item.officeId) ? `Office: ${item.officeId}` : 'Assigned Workplace')}
                             </Text>
                           </View>
 

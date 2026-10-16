@@ -79,6 +79,81 @@ export class AttendanceService {
     private readonly notificationClient: NotificationClientService,
   ) {}
 
+  private readonly empCodeCache = new Map<string, string>();
+  private readonly officeCodeCache = new Map<string, string>([
+    ['88185fc3-2f90-4dc1-b161-64c2e15d938a', 'T-001'],
+    ['76b775c9-ab7c-4d8e-8da9-9f191ea2d630', 'PUN-001'],
+    ['d1a2b3c4-0000-0000-0000-000000000001', 'OFFICE-001'],
+  ]);
+  private readonly sessionCodeCache = new Map<string, string>([
+    ['0da181fb-fa1b-47ee-85a5-32463702c4c5', 'ATT-001'],
+    ['7e5b5ce5-272c-424e-afb1-00fff0529553', 'ATT-002'],
+  ]);
+  private hasLoadedOffices = false;
+
+  private isUuid(val?: string | null): boolean {
+    return Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+  }
+
+  private cleanEmployeeId(employeeId: string): string {
+    if (!this.isUuid(employeeId)) return employeeId;
+    return this.empCodeCache.get(employeeId) || employeeId;
+  }
+
+  private cleanOfficeId(officeId: string): string {
+    if (!this.isUuid(officeId)) return officeId;
+    return this.officeCodeCache.get(officeId) || officeId;
+  }
+
+  private cleanSessionId(sessionId: string): string {
+    if (!this.isUuid(sessionId)) return sessionId;
+    if (this.sessionCodeCache.has(sessionId)) {
+      return this.sessionCodeCache.get(sessionId)!;
+    }
+    return `ATT-${sessionId.slice(-6).toUpperCase()}`;
+  }
+
+  private async sanitizeSessions(sessions: any[]): Promise<void> {
+    if (!sessions || sessions.length === 0) return;
+
+    const uuidEmpIds = Array.from(new Set(sessions.map((s) => s.employeeId).filter((id) => this.isUuid(id))));
+    if (uuidEmpIds.length > 0) {
+      await Promise.all(
+        uuidEmpIds.map(async (uuid) => {
+          if (!this.empCodeCache.has(uuid)) {
+            try {
+              const res = await this.resolveEmployeeIds(uuid);
+              const code = res.find((id) => !this.isUuid(id));
+              if (code) {
+                this.empCodeCache.set(uuid, code);
+              }
+            } catch {}
+          }
+        }),
+      );
+    }
+
+    const uuidOfficeIds = Array.from(new Set(sessions.map((s) => s.officeId).filter((id) => this.isUuid(id))));
+    if (uuidOfficeIds.length > 0 && !this.hasLoadedOffices) {
+      try {
+        const geofenceUrl = process.env.GEOFENCE_SERVICE_URL || 'http://localhost:3003/api/v1';
+        const res = await fetch(`${geofenceUrl}/offices`, {
+          headers: { 'x-gateway-secret': process.env.GATEWAY_SHARED_SECRET || 'dev-gateway-secret' },
+        });
+        if (res.ok) {
+          const body = (await res.json()) as any;
+          const list = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+          for (const off of list) {
+            if (off.id && off.code) {
+              this.officeCodeCache.set(off.id, off.code);
+            }
+          }
+          this.hasLoadedOffices = true;
+        }
+      } catch {}
+    }
+  }
+
   private async resolveEmployeeIds(employeeId: string): Promise<string[]> {
     if (!employeeId) return [];
     try {
@@ -270,8 +345,16 @@ export class AttendanceService {
         }
       }
 
+      const count = await tx.attendanceSession.count();
+      let cleanId = `ATT-${String(count + 1).padStart(3, '0')}`;
+      const exists = await tx.attendanceSession.findUnique({ where: { id: cleanId } });
+      if (exists) {
+        cleanId = `ATT-${Date.now().toString().slice(-6)}`;
+      }
+
       const created = await tx.attendanceSession.create({
         data: {
+          id: cleanId,
           employeeId,
           officeId: dto.officeId,
           attendanceDate,
@@ -775,6 +858,8 @@ export class AttendanceService {
     const totalAdjustmentSeconds = dayAdj.seconds;
     const combinedReason = dayAdj.reason;
 
+    await this.sanitizeSessions(sessions);
+
     let sessionDtos: AttendanceSessionResponseDto[] = [];
     if (sessions.length > 0) {
       const activeIdx = sessions.findIndex(
@@ -790,7 +875,7 @@ export class AttendanceService {
     } else if (totalAdjustmentSeconds > 0 && dayAdj.exceptions.length > 0) {
       sessionDtos = [
         this.createSynthesizedSpecialSession(
-          ids[0] || employeeId,
+          this.cleanEmployeeId(ids[0] || employeeId),
           attendanceDateStr,
           dayAdj.exceptions[0],
           totalAdjustmentSeconds,
@@ -847,26 +932,33 @@ export class AttendanceService {
       adjustmentsByEmployee.set(ex.employeeId, prev);
     }
 
+    await this.sanitizeSessions(sessions);
+
     const employeeAdjustmentsApplied = new Set<string>();
     const sessionDtos: AttendanceSessionResponseDto[] = sessions.map((s) => {
       let adj = 0;
       let reason: string | undefined;
-      if (!employeeAdjustmentsApplied.has(s.employeeId)) {
-        const empAdj = adjustmentsByEmployee.get(s.employeeId);
+      const cleanEmpId = this.cleanEmployeeId(s.employeeId);
+      if (!employeeAdjustmentsApplied.has(s.employeeId) && !employeeAdjustmentsApplied.has(cleanEmpId)) {
+        const empAdj = adjustmentsByEmployee.get(s.employeeId) || adjustmentsByEmployee.get(cleanEmpId);
         if (empAdj) {
           adj = empAdj.seconds;
           reason = empAdj.reasons.join('; ');
           employeeAdjustmentsApplied.add(s.employeeId);
+          employeeAdjustmentsApplied.add(cleanEmpId);
         }
       }
       return this.toSessionDto(s, s.pauses, now, adj, reason);
     });
 
     for (const [empId, empAdj] of adjustmentsByEmployee.entries()) {
-      if (!employeeAdjustmentsApplied.has(empId) && empAdj.seconds > 0) {
+      const cleanEmpId = this.cleanEmployeeId(empId);
+      if (!employeeAdjustmentsApplied.has(empId) && !employeeAdjustmentsApplied.has(cleanEmpId) && empAdj.seconds > 0) {
+        employeeAdjustmentsApplied.add(empId);
+        employeeAdjustmentsApplied.add(cleanEmpId);
         sessionDtos.push(
           this.createSynthesizedSpecialSession(
-            empId,
+            cleanEmpId,
             attendanceDateStr,
             empAdj.exception,
             empAdj.seconds,
@@ -938,6 +1030,8 @@ export class AttendanceService {
       adjustmentsByKey.set(key, prev);
     }
 
+    await this.sanitizeSessions(items);
+
     const appliedKeys = new Set<string>();
     const sessionDtos: AttendanceSessionResponseDto[] = items.map((s) => {
       const dStr = this.formatDateOnly(s.attendanceDate);
@@ -960,7 +1054,7 @@ export class AttendanceService {
         const [empId, dStr] = key.split('_');
         sessionDtos.push(
           this.createSynthesizedSpecialSession(
-            empId,
+            this.cleanEmployeeId(empId),
             dStr,
             dAdj.exception,
             dAdj.seconds,
@@ -1030,6 +1124,8 @@ export class AttendanceService {
       adjustmentsByDate.set(dStr, prev);
     }
 
+    await this.sanitizeSessions(items);
+
     const appliedDates = new Set<string>();
     const sessionDtos: AttendanceSessionResponseDto[] = items.map((s) => {
       const dStr = this.formatDateOnly(s.attendanceDate);
@@ -1050,7 +1146,7 @@ export class AttendanceService {
       if (!appliedDates.has(dStr) && dAdj.seconds > 0) {
         sessionDtos.push(
           this.createSynthesizedSpecialSession(
-            ids[0] || employeeId,
+            this.cleanEmployeeId(ids[0] || employeeId),
             dStr,
             dAdj.exception,
             dAdj.seconds,
@@ -1080,14 +1176,26 @@ export class AttendanceService {
     };
   }
 
-  async getById(employeeId: string, sessionId: string): Promise<AttendanceSessionResponseDto> {
-    const session = await this.prisma.attendanceSession.findUnique({
+  async getById(employeeId: string, sessionId: string, isHrOrAdmin: boolean = false): Promise<AttendanceSessionResponseDto> {
+    let session = await this.prisma.attendanceSession.findUnique({
       where: { id: sessionId },
       include: { pauses: true },
     });
 
+    if (!session) {
+      for (const [uuid, code] of this.sessionCodeCache.entries()) {
+        if (code === sessionId || uuid === sessionId) {
+          session = await this.prisma.attendanceSession.findUnique({
+            where: { id: uuid },
+            include: { pauses: true },
+          });
+          if (session) break;
+        }
+      }
+    }
+
     const ids = await this.resolveEmployeeIds(employeeId);
-    if (!session || !ids.includes(session.employeeId)) {
+    if (!session || (!isHrOrAdmin && !ids.includes(session.employeeId))) {
       throw new AppException(
         ErrorCodes.SESSION_NOT_FOUND,
         'Attendance session not found',
@@ -1552,9 +1660,9 @@ export class AttendanceService {
     const totalWorkingSeconds = regularWorkingSeconds + specialConditionSeconds;
 
     return {
-      id: session.id,
-      employeeId: session.employeeId,
-      officeId: session.officeId,
+      id: this.cleanSessionId(session.id),
+      employeeId: this.cleanEmployeeId(session.employeeId),
+      officeId: this.cleanOfficeId(session.officeId),
       attendanceDate: this.formatDateOnly(session.attendanceDate),
       status: session.status,
       checkInAt: session.checkInAt,

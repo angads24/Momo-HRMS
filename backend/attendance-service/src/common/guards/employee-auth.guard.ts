@@ -39,9 +39,16 @@ export class EmployeeAuthGuard implements CanActivate {
         this.hasWarnedDevAuth = true;
       }
 
-      const employeeId =
-        (request.headers[gatewayAuth.employeeIdHeader] as string) ?? devAuth.defaultEmployeeId;
-      const userId = (request.headers[gatewayAuth.userIdHeader] as string) ?? employeeId;
+      const isFromGateway = request.headers[gatewayAuth.sharedSecretHeader] === gatewayAuth.sharedSecret;
+      const headerEmpId = request.headers[gatewayAuth.employeeIdHeader] as string | undefined;
+      const headerUserId = request.headers[gatewayAuth.userIdHeader] as string | undefined;
+
+      if (isFromGateway && !headerEmpId && !headerUserId) {
+        throw new UnauthorizedException('Missing authenticated employee identity');
+      }
+
+      const employeeId = headerEmpId || headerUserId || devAuth.defaultEmployeeId;
+      const userId = headerUserId || employeeId;
       const rolesHeader = request.headers[gatewayAuth.rolesHeader] as string | undefined;
 
       const parseRolesHeader = (header?: string, fallback: string[] = []): string[] => {
@@ -89,8 +96,10 @@ export class EmployeeAuthGuard implements CanActivate {
       }
     }
 
-    const employeeId = request.headers[gatewayAuth.employeeIdHeader] as string | undefined;
-    const userId = request.headers[gatewayAuth.userIdHeader] as string | undefined;
+    const rawEmployeeId = request.headers[gatewayAuth.employeeIdHeader] as string | undefined;
+    const rawUserId = request.headers[gatewayAuth.userIdHeader] as string | undefined;
+    const employeeId = rawEmployeeId || rawUserId;
+    const userId = rawUserId || rawEmployeeId;
     const rolesHeader = request.headers[gatewayAuth.rolesHeader] as string | undefined;
 
     if (!employeeId || !userId) {

@@ -13,23 +13,40 @@ export const BACKEND_ROLES = {
  * SUPER_ADMIN -> ADMIN, HR_ADMIN -> HR, EMPLOYEE -> EMPLOYEE.
  * Custom roles created later (unknown names) return null = no module access.
  */
-export function resolveAppRole(roles: readonly string[]): AppRole | null {
+export function resolveAppRole(roles?: readonly string[] | null): AppRole | null {
+  if (!roles || !Array.isArray(roles)) return null;
   if (roles.includes(BACKEND_ROLES.SUPER_ADMIN)) return 'ADMIN';
   if (roles.includes(BACKEND_ROLES.HR_ADMIN)) return 'HR';
   if (roles.includes(BACKEND_ROLES.EMPLOYEE)) return 'EMPLOYEE';
   return null;
 }
 
-export function toAuthUser(user: BackendUser): AuthUser {
+export function toAuthUser(user?: BackendUser | null): AuthUser {
+  if (!user || typeof user !== 'object') {
+    return {
+      id: '',
+      email: '',
+      username: '',
+      fullName: '',
+      roles: [],
+      permissions: [],
+      mustChangePassword: false,
+      appRole: null,
+    };
+  }
+
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  const permissions = Array.isArray(user.permissions) ? user.permissions : [];
+
   return {
-    id: user.id,
-    email: user.email,
-    username: user.username,
-    fullName: user.fullName,
-    roles: user.roles,
-    permissions: user.permissions,
-    mustChangePassword: user.mustChangePassword,
-    appRole: resolveAppRole(user.roles),
+    id: user.id || '',
+    email: user.email || '',
+    username: user.username || '',
+    fullName: user.fullName || '',
+    roles,
+    permissions,
+    mustChangePassword: Boolean(user.mustChangePassword),
+    appRole: resolveAppRole(roles),
   };
 }
 

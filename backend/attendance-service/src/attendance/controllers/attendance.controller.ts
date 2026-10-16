@@ -116,8 +116,13 @@ export class AttendanceController {
   @Get(':sessionId')
   async getById(
     @CurrentEmployee() employee: EmployeeAuthContext,
-    @Param('sessionId', ParseUUIDPipe) sessionId: string,
+    @Param('sessionId') sessionId: string,
   ) {
-    return this.attendanceService.getById(employee.employeeId, sessionId);
+    const isHrOrAdmin =
+      employee.roles.includes('HR') ||
+      employee.roles.includes('ADMIN') ||
+      employee.roles.includes('HR_ADMIN') ||
+      employee.roles.includes('SUPER_ADMIN');
+    return this.attendanceService.getById(employee.employeeId, sessionId, isHrOrAdmin);
   }
 }

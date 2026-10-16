@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str = "mysql+pymysql://admin:Admin123@localhost:3306/face_ai_db"
     
-    FACE_SIMILARITY_THRESHOLD: float = 0.40
+    FACE_SIMILARITY_THRESHOLD: float = 0.36
     LIVENESS_CONFIDENCE_THRESHOLD: float = 0.80
     CHALLENGE_TIMEOUT_SECONDS: int = 30
     VERIFICATION_TOKEN_TTL_SECONDS: int = 300

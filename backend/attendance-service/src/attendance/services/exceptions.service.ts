@@ -75,8 +75,16 @@ export class ExceptionsService {
       dateStr: dto.attendanceDate,
     };
 
+    const count = await this.prisma.attendanceException.count();
+    let cleanId = `EXC-${String(count + 1).padStart(3, '0')}`;
+    const exists = await this.prisma.attendanceException.findUnique({ where: { id: cleanId } });
+    if (exists) {
+      cleanId = `EXC-${Date.now().toString().slice(-6)}`;
+    }
+
     const exception = await this.prisma.attendanceException.create({
       data: {
+        id: cleanId,
         employeeId: dto.employeeId,
         attendanceDate,
         type: dto.type as unknown as ExceptionType,
@@ -218,6 +226,7 @@ export class ExceptionsService {
     this.logger.log(`Exception ${id} was ${dto.status} by user ${approverUserId}`);
 
     // Notify employee of exception decision
+    const empName = meta.employeeName || exception.employeeId;
     if (isApproved) {
       void this.notificationClient.sendNotification({
         recipientId: exception.employeeId,
@@ -230,6 +239,33 @@ export class ExceptionsService {
           status: updated.status,
           additionalHours,
           attendanceDate: dateFormatted,
+          to: empName,
+          from: approverName,
+        },
+      });
+
+      // Also notify HR so HR receives the approval notification in their notification panel
+      const targetHr = meta.hrEmail || 'HR';
+      void this.notificationClient.sendNotification({
+        recipientId: targetHr,
+        recipientType: 'HR',
+        type: 'SPECIAL_CONDITION_APPROVED',
+        title: 'Special Condition Request Approved',
+        body: `${approverName} approved the special request for ${empName} (+${additionalHours}h on ${dateFormatted}).`,
+        metadata: {
+          exceptionId: exception.id,
+          type: exception.type,
+          status: updated.status,
+          additionalHours,
+          attendanceDate: dateFormatted,
+          employeeId: exception.employeeId,
+          employeeName: empName,
+          approvedBy: approverName,
+          approvedByUserId: approverUserId,
+          comment: dto.comment,
+          hrEmail: meta.hrEmail || 'hr@company.com',
+          to: 'Human Resources',
+          from: approverName,
         },
       });
     } else {
@@ -243,6 +279,32 @@ export class ExceptionsService {
           type: exception.type,
           status: updated.status,
           attendanceDate: dateFormatted,
+          to: empName,
+          from: approverName,
+        },
+      });
+
+      // Also notify HR of exception rejection
+      const targetHr = meta.hrEmail || 'HR';
+      void this.notificationClient.sendNotification({
+        recipientId: targetHr,
+        recipientType: 'HR',
+        type: 'SPECIAL_CONDITION_REJECTED',
+        title: 'Special Condition Request Rejected',
+        body: `${approverName} rejected the special request for ${empName} on ${dateFormatted}.`,
+        metadata: {
+          exceptionId: exception.id,
+          type: exception.type,
+          status: updated.status,
+          attendanceDate: dateFormatted,
+          employeeId: exception.employeeId,
+          employeeName: empName,
+          approvedBy: approverName,
+          approvedByUserId: approverUserId,
+          comment: dto.comment,
+          hrEmail: meta.hrEmail || 'hr@company.com',
+          to: 'Human Resources',
+          from: approverName,
         },
       });
     }

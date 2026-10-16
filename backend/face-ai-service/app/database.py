@@ -1,10 +1,18 @@
+import pymysql
+pymysql.install_as_MySQLdb()
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
 
+# Force pymysql driver for MySQL connections to avoid missing MySQLdb (mysqlclient C driver)
+db_url = settings.DATABASE_URL
+if db_url.startswith("mysql://"):
+    db_url = "mysql+pymysql://" + db_url[len("mysql://"):]
+
 engine = create_engine(
-    settings.DATABASE_URL,
+    db_url,
     pool_pre_ping=True,
     pool_recycle=3600,
     pool_size=10,

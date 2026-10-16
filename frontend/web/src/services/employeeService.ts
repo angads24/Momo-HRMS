@@ -233,11 +233,27 @@ export async function fetchEmployeeProfile(id: string): Promise<EmployeeProfileR
 }
 
 /**
- * Retrieves employee record linked to an Auth User UUID.
+ * Retrieves the currently authenticated employee profile using clean JWT session headers.
+ * GET /api/v1/employees/me
+ */
+export async function fetchEmployeeMe(): Promise<Employee | null> {
+  try {
+    const response = await api.get<ApiResponse<Employee>>(`${EMPLOYEE_API_URL}/employees/me`);
+    return response.data?.data || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Retrieves employee record linked to an Auth User UUID or 'me'.
  * GET /api/v1/employees/by-user/:userId
  */
 export async function fetchEmployeeByUserId(userId: string): Promise<Employee | null> {
   try {
+    if (!userId || userId === 'me') {
+      return await fetchEmployeeMe();
+    }
     const response = await api.get<ApiResponse<Employee>>(`${EMPLOYEE_API_URL}/employees/by-user/${userId}`);
     return response.data?.data || null;
   } catch {

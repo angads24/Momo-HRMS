@@ -30,6 +30,24 @@ export class SseService {
 
     return this.eventStream$.asObservable().pipe(
       filter((event) => {
+        const notif = event.notification || {};
+        const notifType = notif.type || (event as any).type || '';
+        const isEntryLeave = [
+          'CHECKIN_CONFIRMATION',
+          'CHECKOUT_CONFIRMATION',
+          'GEOFENCE_EXIT_WARNING',
+          'GEOFENCE_RETURN',
+        ].includes(notifType);
+
+        const isManagementSubscriber =
+          cleanId === 'admin' ||
+          cleanId === 'hr' ||
+          (cleanEmail ? (cleanEmail.includes('admin') || cleanEmail.includes('hr')) : false);
+
+        if (isEntryLeave && isManagementSubscriber) {
+          return false;
+        }
+
         // Broadcasts, HR, or ADMIN
         if (
           event.recipientId === 'ALL' ||
@@ -39,10 +57,10 @@ export class SseService {
           event.recipientType === 'ADMIN' ||
           event.recipientId === 'ADMIN'
         ) {
+          if (isEntryLeave) return false;
           return true;
         }
 
-        const notif = event.notification || {};
         const meta = (notif.metadata || {}) as Record<string, any>;
 
         const eventRecipient = (event.recipientId || '').toLowerCase();

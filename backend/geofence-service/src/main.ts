@@ -21,6 +21,7 @@ async function bootstrap() {
   app.enableCors({
     origin: configService.get('corsOrigins', { infer: true }),
     credentials: true,
+    maxAge: 86400,
   });
 
   app.useGlobalPipes(

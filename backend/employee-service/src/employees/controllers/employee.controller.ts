@@ -207,8 +207,12 @@ export class EmployeeController {
   }
 
   @Get('by-user/:userId')
-  @ApiOperation({ summary: 'Get employee profile linked to an Auth User UUID' })
-  async getEmployeeByUserId(@Param('userId') userId: string) {
+  @ApiOperation({ summary: 'Get employee profile linked to an Auth User UUID, employee code, or me' })
+  async getEmployeeByUserId(@Param('userId') userId: string, @Req() req: Request) {
+    if (userId === 'me') {
+      const { userId: reqUserId, email, employeeId } = extractUserFromRequest(req);
+      return this.employeeService.getEmployeeMe(reqUserId, email, employeeId);
+    }
     return this.employeeService.getEmployeeByUserId(userId);
   }
 

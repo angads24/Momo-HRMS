@@ -42,7 +42,13 @@ export function NotificationBell() {
     if (!user) return;
     setLoading(true);
     try {
-      const data = await fetchNotifications();
+      const queryParams: Record<string, string> = {};
+      if (user?.email) queryParams.email = user.email;
+      if (user?.appRole) {
+        queryParams.role = user.appRole;
+        queryParams.recipientId = user.appRole === 'ADMIN' ? 'ADMIN' : user.appRole === 'HR' ? 'HR' : user.email;
+      }
+      const data = await fetchNotifications(queryParams);
       const items = data?.items ?? [];
       setNotifications(items.slice(0, 15));
       setUnreadCount(items.filter((n) => !n.isRead).length);

@@ -25,7 +25,7 @@ export class ExceptionsController {
   @ApiMessage('Attendance exception decision recorded')
   async approveException(
     @CurrentEmployee() auth: EmployeeAuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: ApproveExceptionDto,
   ) {
     const approverUserId = auth?.userId || auth?.employeeId || 'HR_ADMIN';
@@ -35,12 +35,12 @@ export class ExceptionsController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiMessage('Attendance exception cancelled')
-  async deleteException(@Param('id', ParseUUIDPipe) id: string) {
+  async deleteException(@Param('id') id: string) {
     return this.exceptionsService.cancelException(id);
   }
 
   @Get(':id')
-  async getExceptionById(@Param('id', ParseUUIDPipe) id: string) {
+  async getExceptionById(@Param('id') id: string) {
     return this.exceptionsService.getExceptionById(id);
   }
 

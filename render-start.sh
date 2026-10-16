@@ -1,6 +1,7 @@
 #!/bin/bash
 # Force Node.js runtime to use IPv4 DNS resolution first to prevent ENETUNREACH in Render cloud containers
-export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first --max-old-space-size=60"
+
 
 echo "=== Starting Momo HRMS Backend Services ==="
 
@@ -87,30 +88,14 @@ DATABASE_URL="${EMPLOYEE_DATABASE_URL:-$DATABASE_URL}" PORT=3004 node backend/em
 echo "--> Launching notification-service (:3005)..."
 DATABASE_URL="${NOTIFICATION_DATABASE_URL:-$DATABASE_URL}" PORT=3005 node backend/notification-service/dist/src/main.js &
 
-# 4. Launch Face AI service (:3006)
-FACE_AI_DB="${FACE_AI_DATABASE_URL:-$DATABASE_URL}"
-PYTHON_DATABASE_URL=$(echo "$FACE_AI_DB" | sed 's|^mysql://|mysql+pymysql://|')
-
+# 4. Launch Python Face AI service (:3006)
+echo "--> Launching Python Face AI service (:3006)..."
 if [ -f "backend/face-ai-service/venv/bin/uvicorn" ]; then
-  echo "--> Launching Python Face AI service (:3006) via venv uvicorn..."
-  (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 3006) &
-elif [ -f "backend/face-ai-service/venv/bin/python3" ]; then
-  echo "--> Launching Python Face AI service (:3006) via venv python..."
-  (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" ./venv/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+  (cd backend/face-ai-service && DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 elif command -v uvicorn >/dev/null 2>&1; then
-  echo "--> Launching Python Face AI service (:3006) via system uvicorn..."
-  (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" uvicorn app.main:app --host 0.0.0.0 --port 3006) &
-elif command -v python3 >/dev/null 2>&1 && python3 -m uvicorn --version >/dev/null 2>&1; then
-  echo "--> Launching Python Face AI service (:3006) via system python..."
-  (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+  (cd backend/face-ai-service && DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 else
-  echo "--> Setting up and launching Python Face AI service (:3006)..."
-  (
-    cd backend/face-ai-service
-    python3 -m venv venv || true
-    ./venv/bin/pip install --no-cache-dir -r requirements.txt || true
-    DATABASE_URL="$PYTHON_DATABASE_URL" ./venv/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3006
-  ) &
+  (cd backend/face-ai-service && DATABASE_URL="${FACE_AI_DATABASE_URL:-$DATABASE_URL}" python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 fi
 
 # Wait 4 seconds for all services to bind

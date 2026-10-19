@@ -148,7 +148,7 @@ export default function EditEmployeePage() {
     personalEmail: employee.personalEmail ?? '',
     phone: employee.phone,
     jobTitle: employee.jobTitle,
-    departmentId: employee.department?.code || employee.department?.id || '',
+    departmentId: (employee as any).departmentId || employee.department?.id || '',
     roleId: employee.role?.id ?? '',
     officeLocationId:
       employee.officeLocationId ??

@@ -25,6 +25,7 @@ import { NOTIFICATION_TYPES, type NotificationType } from '../types/notification
 import { sendNotification } from '../services/notificationService';
 import { fetchEmployees } from '../../../services/employeeService';
 import { api } from '../../../api/client';
+import { useAuth } from '../../../context/AuthContext';
 
 export type TargetDeliveryMode = 'BROADCAST' | 'HR' | 'ADMIN' | 'SPECIFIC';
 
@@ -47,6 +48,7 @@ interface Props {
 }
 
 export function SendNotificationDialog({ open, onClose, onNotificationSent }: Props) {
+  const { user: currentUser } = useAuth();
   const [targetMode, setTargetMode] = useState<TargetDeliveryMode>('BROADCAST');
   const [directory, setDirectory] = useState<DirectoryRecipient[]>([]);
   const [loadingDirectory, setLoadingDirectory] = useState(false);
@@ -216,6 +218,17 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
     setError(null);
 
     try {
+      const senderDisplayName =
+        currentUser?.fullName ||
+        currentUser?.username ||
+        (currentUser?.appRole === 'HR' ? 'HR Manager' : 'System Administrator');
+      const senderFrom =
+        currentUser?.appRole === 'HR'
+          ? `${senderDisplayName} (HR)`
+          : currentUser?.appRole === 'ADMIN'
+          ? `${senderDisplayName} (Admin)`
+          : senderDisplayName;
+
       const recipientDisplayName =
         targetMode === 'BROADCAST'
           ? 'All Staff'
@@ -228,15 +241,21 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
       const enrichedMeta: Record<string, unknown> = {
         ...parsedMeta,
         targetMode,
-        senderName: 'System Administrator',
-        from: 'System Administrator',
+        senderName: senderDisplayName,
+        from: senderFrom,
+        senderUserId: currentUser?.id,
+        senderEmail: currentUser?.email,
+        senderRole: currentUser?.appRole || 'HR',
         recipientName: recipientDisplayName,
         to: recipientDisplayName,
         ...(matchedRecipient
           ? {
               recipientId: finalRecipientId,
+              recipientUserId: matchedRecipient.userId,
+              recipientEmployeeId: matchedRecipient.employeeId || matchedRecipient.id,
               employeeCode: matchedRecipient.code,
               email: matchedRecipient.email,
+              recipientEmail: matchedRecipient.email,
               name: matchedRecipient.name,
               department: matchedRecipient.department,
               jobTitle: matchedRecipient.jobTitle,

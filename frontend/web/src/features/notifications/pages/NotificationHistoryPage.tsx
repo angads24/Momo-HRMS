@@ -15,9 +15,11 @@ import type { AppNotification } from '../types/notification';
 import { NotificationTable } from '../components/NotificationTable';
 import { NotificationPreviewDialog } from '../components/NotificationPreviewDialog';
 import { useNotifications } from '../../../context/NotificationContext';
+import { useAuth } from '../../../context/AuthContext';
 
 export default function NotificationHistoryPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { refreshUnreadCount } = useNotifications();
 
   const [allNotifications, setAllNotifications] = useState<AppNotification[]>([]);
@@ -33,7 +35,13 @@ export default function NotificationHistoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchNotifications();
+      const queryParams: Record<string, string> = {};
+      if (user?.email) queryParams.email = user.email;
+      if (user?.appRole) {
+        queryParams.role = user.appRole;
+        queryParams.recipientId = user.appRole === 'ADMIN' ? 'ADMIN' : user.appRole === 'HR' ? 'HR' : user.email;
+      }
+      const res = await fetchNotifications(queryParams);
       setAllNotifications(res.items ?? []);
     } catch (err: unknown) {
       const msg =
@@ -44,7 +52,7 @@ export default function NotificationHistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     void loadAllHistory();

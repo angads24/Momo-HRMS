@@ -25,22 +25,25 @@ from app.services.liveness_detector import liveness_detector
 from app.services.challenge_service import challenge_service
 from app.services.token_service import create_verification_token, verify_token
 from app.services.crypto_service import biometric_crypto
+from app.services.employee_resolver import get_employee_identifiers, get_canonical_employee_code
 from app.config import settings
 
 router = APIRouter(prefix="/face", tags=["Face AI"])
 
 @router.get("/status/{employee_id}", response_model=FaceStatusResponse)
 def get_face_status(employee_id: str, db: Session = Depends(get_db)):
-    profile = db.query(FaceProfile).filter(FaceProfile.employee_id == employee_id, FaceProfile.is_active == True).first()
+    ids = get_employee_identifiers(employee_id)
+    canonical_id = get_canonical_employee_code(employee_id)
+    profile = db.query(FaceProfile).filter(FaceProfile.employee_id.in_(ids), FaceProfile.is_active == True).first()
     if not profile:
         return FaceStatusResponse(
-            employee_id=employee_id,
+            employee_id=canonical_id,
             is_enrolled=False,
             enrolled_at=None,
             last_verified_at=None,
         )
     return FaceStatusResponse(
-        employee_id=employee_id,
+        employee_id=canonical_id,
         is_enrolled=True,
         enrolled_at=profile.enrolled_at,
         last_verified_at=profile.last_verified_at,
@@ -66,7 +69,7 @@ def enroll_face(payload: FaceEnrollRequest, db: Session = Depends(get_db)):
                 detail=f"Enrollment rejected: {liveness_msg}"
             )
 
-        # 2. Extract 512-D face embedding
+        # 2. Extract 128-D face embedding
         embedding = face_engine.extract_embedding(image)
         if not embedding:
             raise HTTPException(
@@ -74,17 +77,21 @@ def enroll_face(payload: FaceEnrollRequest, db: Session = Depends(get_db)):
                 detail="No clear face detected in the provided image. Please submit a well-lit frontal face photo."
             )
 
-        # 3. Save or update face profile in database (AES-256-GCM encrypted at rest)
+        # 3. Resolve canonical employee ID and save/update profile
+        ids = get_employee_identifiers(payload.employee_id)
+        canonical_id = get_canonical_employee_code(payload.employee_id)
+
         encrypted_embedding = biometric_crypto.encrypt_embedding(embedding)
-        existing_profile = db.query(FaceProfile).filter(FaceProfile.employee_id == payload.employee_id).first()
+        existing_profile = db.query(FaceProfile).filter(FaceProfile.employee_id.in_(ids)).first()
         if existing_profile:
+            existing_profile.employee_id = canonical_id
             existing_profile.embedding = encrypted_embedding
             existing_profile.model_version = "SFace-128"
             existing_profile.enrolled_at = datetime.utcnow()
             existing_profile.is_active = True
         else:
             new_profile = FaceProfile(
-                employee_id=payload.employee_id,
+                employee_id=canonical_id,
                 embedding=encrypted_embedding,
                 model_version="SFace-128",
                 is_active=True,
@@ -94,7 +101,7 @@ def enroll_face(payload: FaceEnrollRequest, db: Session = Depends(get_db)):
         db.commit()
         return FaceEnrollResponse(
             success=True,
-            employee_id=payload.employee_id,
+            employee_id=canonical_id,
             message="Face successfully enrolled and verified."
         )
     finally:
@@ -105,21 +112,26 @@ def enroll_face(payload: FaceEnrollRequest, db: Session = Depends(get_db)):
 def get_challenge(employee_id: str):
     if not employee_id:
         raise HTTPException(status_code=400, detail="employee_id query parameter is required")
-    challenge_data = challenge_service.create_challenge(employee_id)
+    ids = get_employee_identifiers(employee_id)
+    canonical_id = get_canonical_employee_code(employee_id)
+    challenge_data = challenge_service.create_challenge(canonical_id, aliases=ids)
     return ChallengeResponse(**challenge_data)
 
 @router.post("/verify", response_model=FaceVerifyResponse)
 def verify_face(payload: FaceVerifyRequest, db: Session = Depends(get_db)):
-    # 1. Check if employee is enrolled
+    ids = get_employee_identifiers(payload.employee_id)
+    canonical_id = get_canonical_employee_code(payload.employee_id)
+
+    # 1. Check if employee is enrolled (across all identifiers)
     profile = db.query(FaceProfile).filter(
-        FaceProfile.employee_id == payload.employee_id,
+        FaceProfile.employee_id.in_(ids),
         FaceProfile.is_active == True
     ).first()
     
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Employee {payload.employee_id} has not enrolled their face. Face enrollment is mandatory."
+            detail=f"Employee {canonical_id} has not enrolled their face. Face enrollment is mandatory."
         )
 
     # 2. Validate and consume active challenge
@@ -213,10 +225,12 @@ def verify_face(payload: FaceVerifyRequest, db: Session = Depends(get_db)):
 
         if is_match:
             profile.last_verified_at = datetime.utcnow()
+            if profile.employee_id != canonical_id and canonical_id.startswith("EMP-"):
+                profile.employee_id = canonical_id
             db.commit()
             
-            # Issue cryptographically signed verification token
-            token = create_verification_token(payload.employee_id, similarity)
+            # Issue cryptographically signed verification token with canonical clean ID
+            token = create_verification_token(canonical_id, similarity)
             return FaceVerifyResponse(
                 verified=True,
                 confidence=round(similarity, 4),

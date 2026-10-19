@@ -36,7 +36,7 @@ export default function NotificationsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const recipientId = employeeProfile?.id || user?.id || '';
+  const recipientId = employeeProfile?.employeeCode || employeeProfile?.id || user?.id || '';
 
   // 1. Load Notifications
   const loadNotifications = useCallback(async () => {

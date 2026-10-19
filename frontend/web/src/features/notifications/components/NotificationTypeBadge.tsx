@@ -21,6 +21,12 @@ export function NotificationTypeBadge({ type }: Props) {
       return <Chip label="Exception Approved" color="success" size="small" variant="outlined" sx={{ fontWeight: 600 }} />;
     case 'EXCEPTION_REJECTED':
       return <Chip label="Exception Rejected" color="error" size="small" variant="outlined" sx={{ fontWeight: 600 }} />;
+    case 'SPECIAL_WORKING_HOURS_REQUEST':
+      return <Chip label="Special Hours Request" color="warning" size="small" variant="filled" sx={{ fontWeight: 700 }} />;
+    case 'SPECIAL_CONDITION_APPROVED':
+      return <Chip label="Special Hours Approved" color="success" size="small" variant="filled" sx={{ fontWeight: 700 }} />;
+    case 'SPECIAL_CONDITION_REJECTED':
+      return <Chip label="Special Hours Rejected" color="error" size="small" variant="filled" sx={{ fontWeight: 700 }} />;
     case 'SYSTEM_ALERT':
     default:
       return <Chip label={type.replace(/_/g, ' ')} color="primary" size="small" variant="outlined" sx={{ fontWeight: 600 }} />;

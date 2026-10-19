@@ -19,8 +19,16 @@ class FaceEngine:
         # Initialize SFace deep face recognizer (MobileFaceNet trained with ArcFace loss)
         self.recognizer = cv2.FaceRecognizerSF.create(self.sface_path, "")
 
-        # Haar cascade fallback
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        # Haar cascade fallback (safely initialized)
+        self.face_cascade = None
+        try:
+            if hasattr(cv2, 'CascadeClassifier') and hasattr(cv2, 'data') and hasattr(cv2.data, 'haarcascades'):
+                cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+                if os.path.exists(cascade_path):
+                    self.face_cascade = cv2.CascadeClassifier(cascade_path)
+        except Exception:
+            self.face_cascade = None
+
         self.embedding_dim = 128
 
     def detect_face(self, image: np.ndarray) -> Optional[np.ndarray]:
@@ -36,21 +44,25 @@ class FaceEngine:
             best_face = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[0]
             return best_face
 
-        # Fallback to Haar cascade if YuNet doesn't trigger
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        h_faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=4, minSize=(60, 60))
-        if len(h_faces) > 0:
-            (x, y, fw, fh) = sorted(h_faces, key=lambda f: f[2] * f[3], reverse=True)[0]
-            synth_face = np.array([
-                float(x), float(y), float(fw), float(fh),
-                float(x + fw * 0.30), float(y + fh * 0.35), # right eye
-                float(x + fw * 0.70), float(y + fh * 0.35), # left eye
-                float(x + fw * 0.50), float(y + fh * 0.55), # nose tip
-                float(x + fw * 0.35), float(y + fh * 0.75), # right mouth corner
-                float(x + fw * 0.65), float(y + fh * 0.75), # left mouth corner
-                0.90 # confidence
-            ], dtype=np.float32)
-            return synth_face
+        # Fallback to Haar cascade if YuNet doesn't trigger and cascade is available
+        if self.face_cascade is not None:
+            try:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                h_faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=4, minSize=(60, 60))
+                if len(h_faces) > 0:
+                    (x, y, fw, fh) = sorted(h_faces, key=lambda f: f[2] * f[3], reverse=True)[0]
+                    synth_face = np.array([
+                        float(x), float(y), float(fw), float(fh),
+                        float(x + fw * 0.30), float(y + fh * 0.35), # right eye
+                        float(x + fw * 0.70), float(y + fh * 0.35), # left eye
+                        float(x + fw * 0.50), float(y + fh * 0.55), # nose tip
+                        float(x + fw * 0.35), float(y + fh * 0.75), # right mouth corner
+                        float(x + fw * 0.65), float(y + fh * 0.75), # left mouth corner
+                        0.90 # confidence
+                    ], dtype=np.float32)
+                    return synth_face
+            except Exception:
+                pass
 
         return None
 

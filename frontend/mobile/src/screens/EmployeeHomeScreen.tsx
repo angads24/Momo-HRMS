@@ -306,7 +306,7 @@ export default function EmployeeHomeScreen() {
 
   // 1. Fetch unread notification count
   const loadUnreadCount = useCallback(async () => {
-    const recipientId = employeeProfile?.id || user?.id;
+    const recipientId = employeeProfile?.employeeCode || employeeProfile?.id || user?.id;
     if (!recipientId) return;
     try {
       const count = await getUnreadNotificationCount(recipientId);
@@ -314,7 +314,7 @@ export default function EmployeeHomeScreen() {
     } catch {
       // non-fatal
     }
-  }, [employeeProfile?.id, user?.id]);
+  }, [employeeProfile?.employeeCode, employeeProfile?.id, user?.id]);
 
   // 2. Load today's attendance records from server
   const loadAttendance = useCallback(async () => {
@@ -853,10 +853,14 @@ export default function EmployeeHomeScreen() {
 
     try {
       const officeId =
+        (geofenceResult?.isInside && geofenceResult.officeId) ||
         assignedOffice?.code ||
-        employeeProfile?.officeLocationId ||
-        employeeProfile?.assignedOffice?.code ||
         assignedOffice?.id ||
+        employeeProfile?.officeLocationId ||
+        employeeProfile?.primaryOfficeId ||
+        employeeProfile?.assignedOffice?.code ||
+        employeeProfile?.assignedOffice?.id ||
+        (Array.isArray(employeeProfile?.officeIds) && employeeProfile.officeIds[0]) ||
         geofenceResult?.officeId ||
         'OFFICE-001';
 
@@ -940,10 +944,14 @@ export default function EmployeeHomeScreen() {
       const checkInFormatted = formatTime(activeSession?.checkInAt);
       const officeId =
         activeSession?.officeId ||
+        (geofenceResult?.isInside && geofenceResult.officeId) ||
         assignedOffice?.code ||
-        employeeProfile?.officeLocationId ||
-        employeeProfile?.assignedOffice?.code ||
         assignedOffice?.id ||
+        employeeProfile?.officeLocationId ||
+        employeeProfile?.primaryOfficeId ||
+        employeeProfile?.assignedOffice?.code ||
+        employeeProfile?.assignedOffice?.id ||
+        (Array.isArray(employeeProfile?.officeIds) && employeeProfile.officeIds[0]) ||
         'OFFICE-001';
 
       const safeAccuracy = Math.min(Math.round(location?.accuracy ?? 10), 30);

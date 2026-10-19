@@ -225,6 +225,8 @@ export function FaceCameraModal({
     if (!challengeRef.current) return;
 
     setCurrentStep('VERIFYING');
+    currentStepRef.current = 'VERIFYING';
+    isAnalyzingRef.current = true;
     setErrorMessage(null);
 
     try {

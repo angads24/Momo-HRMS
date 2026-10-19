@@ -1,3 +1,4 @@
+import os
 import cv2
 import numpy as np
 from typing import List, Tuple
@@ -5,8 +6,19 @@ from app.services.face_engine import face_engine
 
 class LivenessDetector:
     def __init__(self):
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-        self.smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_smile.xml')
+        self.face_cascade = None
+        self.smile_cascade = None
+        try:
+            if hasattr(cv2, 'CascadeClassifier') and hasattr(cv2, 'data') and hasattr(cv2.data, 'haarcascades'):
+                fc_path = os.path.join(cv2.data.haarcascades, 'haarcascade_frontalface_default.xml')
+                sm_path = os.path.join(cv2.data.haarcascades, 'haarcascade_smile.xml')
+                if os.path.exists(fc_path):
+                    self.face_cascade = cv2.CascadeClassifier(fc_path)
+                if os.path.exists(sm_path):
+                    self.smile_cascade = cv2.CascadeClassifier(sm_path)
+        except Exception:
+            self.face_cascade = None
+            self.smile_cascade = None
 
     def check_passive_liveness(self, image: np.ndarray) -> Tuple[bool, float, str]:
         """
@@ -16,10 +28,10 @@ class LivenessDetector:
         """
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         
-        # 1. Blur check
+        # 1. Blur check (adjusted for mobile camera compression)
         laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-        if laplacian_var < 25.0:
-            return False, 0.20, "Image is too blurry or out of focus"
+        if laplacian_var < 14.0:
+            return False, 0.20, "Image is too blurry or out of focus. Please hold camera steady."
 
         # 2. Color saturation distribution
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -36,11 +48,11 @@ class LivenessDetector:
         high_freq_peak = float(np.max(magnitude_spectrum))
 
         liveness_score = 0.95
-        # Screen artifact detection
-        if high_freq_peak > 235.0 and sat_std < 12.0:
+        # Screen artifact detection (avoid false positives on indoor front cameras)
+        if high_freq_peak > 255.0 and sat_std < 8.0:
             liveness_score -= 0.50
 
-        if liveness_score < 0.65:
+        if liveness_score < 0.60:
             return False, liveness_score, "Screen artifact or spoof display detected"
 
         return True, liveness_score, "Passive liveness verified"
@@ -117,8 +129,15 @@ class LivenessDetector:
             roi1 = gray1[int(max(0, y1)):int(min(gray1.shape[0], y1+h1)), int(max(0, x1)):int(min(gray1.shape[1], x1+w1))]
             roi2 = gray2[int(max(0, y2)):int(min(gray2.shape[0], y2+h2)), int(max(0, x2)):int(min(gray2.shape[1], x2+w2))]
 
-            smiles1 = len(self.smile_cascade.detectMultiScale(roi1, 1.3, 10)) if roi1.size > 0 else 0
-            smiles2 = len(self.smile_cascade.detectMultiScale(roi2, 1.3, 10)) if roi2.size > 0 else 0
+            smiles1 = 0
+            smiles2 = 0
+            if self.smile_cascade is not None:
+                try:
+                    smiles1 = len(self.smile_cascade.detectMultiScale(roi1, 1.3, 10)) if roi1.size > 0 else 0
+                    smiles2 = len(self.smile_cascade.detectMultiScale(roi2, 1.3, 10)) if roi2.size > 0 else 0
+                except Exception:
+                    smiles1 = 0
+                    smiles2 = 0
 
             # Real smiles require noticeable mouth widening (>= 7%) or verified classifier change with >= 4.5% expansion
             if smile_expansion >= 0.07 or (smiles2 > smiles1 and smile_expansion >= 0.045):

@@ -16,8 +16,16 @@ export class NotificationsService {
   ) {}
 
   async create(dto: CreateNotificationDto) {
+    const count = await this.prisma.notification.count();
+    let cleanId = `NOTIF-${String(count + 1).padStart(3, '0')}`;
+    const exists = await this.prisma.notification.findUnique({ where: { id: cleanId } });
+    if (exists) {
+      cleanId = `NOTIF-${Date.now().toString().slice(-6)}`;
+    }
+
     const notification = await this.prisma.notification.create({
       data: {
+        id: cleanId,
         recipientId: dto.recipientId,
         recipientType: dto.recipientType || 'EMPLOYEE',
         type: dto.type,
@@ -70,49 +78,130 @@ export class NotificationsService {
     return notification;
   }
 
-  private buildRecipientWhere(recipientId?: string, email?: string, role?: string): any {
-    const isManagement =
-      (role && ['HR', 'ADMIN', 'HR_ADMIN', 'SUPER_ADMIN'].includes(role.toUpperCase())) ||
-      recipientId === 'HR' ||
-      recipientId === 'ADMIN' ||
-      (email && (email.toLowerCase().includes('hr') || email.toLowerCase().includes('admin')));
+  private buildRecipientWhere(recipientId?: string, email?: string, role?: string, callerUserId?: string): any {
+    const rolesArray = (role || '')
+      .split(',')
+      .map((r) => r.trim().toUpperCase())
+      .filter(Boolean);
+
+    const isRoleAdmin = rolesArray.some((r) => ['ADMIN', 'SUPER_ADMIN'].includes(r));
+    const isRoleHr = rolesArray.some((r) => ['HR', 'HR_ADMIN'].includes(r));
+
+    const cleanEmail = email ? email.trim().toLowerCase() : '';
+    const cleanRecipientId = recipientId ? recipientId.trim().toUpperCase() : '';
 
     const isAdmin =
-      (role && ['ADMIN', 'SUPER_ADMIN'].includes(role.toUpperCase())) ||
-      recipientId === 'ADMIN' ||
-      (email && email.toLowerCase().includes('admin'));
+      isRoleAdmin ||
+      cleanRecipientId === 'ADMIN' ||
+      cleanEmail.includes('admin');
+
+    const isHr =
+      isRoleHr ||
+      cleanRecipientId === 'HR' ||
+      cleanEmail.includes('hr') ||
+      cleanEmail.includes('angad');
+
+    const entryLeaveTypes = [
+      'CHECKIN_CONFIRMATION',
+      'CHECKOUT_CONFIRMATION',
+      'GEOFENCE_EXIT_WARNING',
+      'GEOFENCE_RETURN',
+    ];
 
     if (isAdmin) {
-      // Administrators have organization-wide visibility across all broadcasts,
-      // group announcements, and employee-specific alerts
-      return {};
+      // Administrators should NOT get notifications of which employee entered or left the system
+      return {
+        type: {
+          notIn: entryLeaveTypes,
+        },
+      };
     }
 
-    const orConditions: any[] = [
+    if (isHr) {
+      // HR staff: Include broadcasts, HR team alerts, special requests, approvals, and notifications dispatched by HR staff,
+      // but EXCLUDE irrelevant notifications/mails about employees entering or leaving the geofence/system.
+      const hrOrConditions: any[] = [
+        { recipientId: 'ALL' },
+        { recipientType: 'BROADCAST' },
+        { recipientType: 'HR' },
+        { recipientId: 'HR' },
+        { type: 'SPECIAL_WORKING_HOURS_REQUEST' },
+        { type: 'SPECIAL_CONDITION_APPROVED' },
+        { type: 'SPECIAL_CONDITION_REJECTED' },
+        { type: 'EXCEPTION_REQUESTED' },
+        { type: 'EXCEPTION_APPROVED' },
+        { type: 'EXCEPTION_REJECTED' },
+        { metadata: { path: '$.senderRole', equals: 'HR' } },
+        { metadata: { path: '$.senderRole', equals: 'HR_ADMIN' } },
+      ];
+
+      if (recipientId && recipientId !== 'ALL' && recipientId !== 'HR' && recipientId !== 'ADMIN') {
+        hrOrConditions.push({ recipientId });
+        hrOrConditions.push({ metadata: { path: '$.employeeCode', equals: recipientId } });
+        hrOrConditions.push({ metadata: { path: '$.userId', equals: recipientId } });
+        hrOrConditions.push({ metadata: { path: '$.recipientUserId', equals: recipientId } });
+        hrOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: recipientId } });
+        hrOrConditions.push({ metadata: { path: '$.recipientId', equals: recipientId } });
+      }
+
+      if (callerUserId && callerUserId !== recipientId && callerUserId !== 'ALL' && callerUserId !== 'HR' && callerUserId !== 'ADMIN') {
+        hrOrConditions.push({ recipientId: callerUserId });
+        hrOrConditions.push({ metadata: { path: '$.userId', equals: callerUserId } });
+        hrOrConditions.push({ metadata: { path: '$.recipientUserId', equals: callerUserId } });
+        hrOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: callerUserId } });
+        hrOrConditions.push({ metadata: { path: '$.senderUserId', equals: callerUserId } });
+      }
+
+      if (email) {
+        hrOrConditions.push({ recipientId: email });
+        hrOrConditions.push({ metadata: { path: '$.email', equals: email } });
+        hrOrConditions.push({ metadata: { path: '$.recipientEmail', equals: email } });
+        hrOrConditions.push({ metadata: { path: '$.senderEmail', equals: email } });
+        hrOrConditions.push({ metadata: { path: '$.hrEmail', equals: email } });
+      }
+
+      return {
+        AND: [
+          {
+            type: {
+              notIn: entryLeaveTypes,
+            },
+          },
+          {
+            OR: hrOrConditions,
+          },
+        ],
+      };
+    }
+
+    const employeeOrConditions: any[] = [
       { recipientId: 'ALL' },
       { recipientType: 'BROADCAST' },
     ];
 
     if (recipientId && recipientId !== 'ALL' && recipientId !== 'HR' && recipientId !== 'ADMIN') {
-      orConditions.push({ recipientId });
-      orConditions.push({ metadata: { path: '$.employeeCode', equals: recipientId } });
-      orConditions.push({ metadata: { path: '$.userId', equals: recipientId } });
-      orConditions.push({ metadata: { path: '$.recipientId', equals: recipientId } });
+      employeeOrConditions.push({ recipientId });
+      employeeOrConditions.push({ metadata: { path: '$.employeeCode', equals: recipientId } });
+      employeeOrConditions.push({ metadata: { path: '$.userId', equals: recipientId } });
+      employeeOrConditions.push({ metadata: { path: '$.recipientUserId', equals: recipientId } });
+      employeeOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: recipientId } });
+      employeeOrConditions.push({ metadata: { path: '$.recipientId', equals: recipientId } });
+    }
+
+    if (callerUserId && callerUserId !== recipientId && callerUserId !== 'ALL' && callerUserId !== 'HR' && callerUserId !== 'ADMIN') {
+      employeeOrConditions.push({ recipientId: callerUserId });
+      employeeOrConditions.push({ metadata: { path: '$.userId', equals: callerUserId } });
+      employeeOrConditions.push({ metadata: { path: '$.recipientUserId', equals: callerUserId } });
+      employeeOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: callerUserId } });
     }
 
     if (email) {
-      orConditions.push({ recipientId: email });
-      orConditions.push({ metadata: { path: '$.email', equals: email } });
+      employeeOrConditions.push({ recipientId: email });
+      employeeOrConditions.push({ metadata: { path: '$.email', equals: email } });
+      employeeOrConditions.push({ metadata: { path: '$.recipientEmail', equals: email } });
     }
 
-    // HR and management staff can view all notifications addressed to HR and special hours requests
-    if (isManagement) {
-      orConditions.push({ recipientType: 'HR' });
-      orConditions.push({ recipientId: 'HR' });
-      orConditions.push({ type: 'SPECIAL_WORKING_HOURS_REQUEST' });
-    }
-
-    return { OR: orConditions };
+    return { OR: employeeOrConditions };
   }
 
   async getDismissedIds(userId?: string): Promise<string[]> {
@@ -134,7 +223,7 @@ export class NotificationsService {
     const skip = isPaginated ? (page - 1) * limit : undefined;
     const take = isPaginated ? limit : undefined;
 
-    const baseWhere = this.buildRecipientWhere(recipientId, email, role);
+    const baseWhere = this.buildRecipientWhere(recipientId, email, role, callerUserId);
     const effectiveUserId = callerUserId || recipientId;
     const dismissedIds = await this.getDismissedIds(effectiveUserId);
 
@@ -169,7 +258,11 @@ export class NotificationsService {
       let recipientName = 'All Staff';
       let to = 'All Staff';
 
-      if (item.recipientType === 'BROADCAST' || item.recipientId === 'ALL') {
+      if (meta.to) {
+        to = String(meta.to);
+        recipientDisplay = to;
+        recipientName = to;
+      } else if (item.recipientType === 'BROADCAST' || item.recipientId === 'ALL') {
         recipientDisplay = 'All Staff';
         recipientName = 'All Staff';
         to = 'All Staff';
@@ -183,10 +276,10 @@ export class NotificationsService {
         to = 'Administrators';
       } else {
         // Individual person: Prominently use the person's actual Name!
-        if (meta.name) {
-          recipientName = meta.name;
-          to = meta.employeeCode ? `${meta.name} (${meta.employeeCode})` : meta.name;
-          recipientDisplay = meta.name;
+        if (meta.recipientName || meta.name) {
+          recipientName = meta.recipientName || meta.name;
+          to = meta.employeeCode ? `${recipientName} (${meta.employeeCode})` : recipientName;
+          recipientDisplay = recipientName;
         } else if (meta.employeeCode) {
           recipientName = meta.employeeCode;
           to = meta.employeeCode;
@@ -202,12 +295,30 @@ export class NotificationsService {
         }
       }
 
-      const from = meta.senderName || 'System Administrator';
+      let from = meta.from || meta.senderName;
+      if (!from) {
+        if (item.type === 'SPECIAL_WORKING_HOURS_REQUEST') {
+          from = meta.employeeName ? `${meta.employeeName} (Employee)` : 'Employee';
+        } else if (item.type === 'SPECIAL_CONDITION_APPROVED' || item.type === 'SPECIAL_CONDITION_REJECTED') {
+          from = meta.approvedByName || meta.approvedBy || 'HR Management';
+        } else {
+          from = 'HR Management';
+        }
+      }
 
       // Clean up sensitive internal DB keys from metadata so they are NOT exposed in DevTools inspect
       delete meta.userId;
       delete meta.recipientId;
+      delete meta.recipientUserId;
+      delete meta.recipientEmployeeId;
       delete meta.employeeId;
+      delete meta.senderUserId;
+      delete meta.senderEmail;
+      delete meta.sessionId;
+
+      if (meta.exceptionId && typeof meta.exceptionId === 'string' && meta.exceptionId.length === 36 && meta.exceptionId.includes('-')) {
+        meta.exceptionId = `EXC-${meta.exceptionId.slice(-6).toUpperCase()}`;
+      }
 
       // Clean up top-level recipientId so raw 36-char internal UUID is never exposed
       const cleanRecipientId =
@@ -240,7 +351,7 @@ export class NotificationsService {
     const effectiveUserId = callerUserId || recipientId;
     const dismissedIds = await this.getDismissedIds(effectiveUserId);
     const where: any = {
-      ...this.buildRecipientWhere(recipientId, email, role),
+      ...this.buildRecipientWhere(recipientId, email, role, effectiveUserId),
       isRead: false,
     };
     if (dismissedIds.length > 0) {

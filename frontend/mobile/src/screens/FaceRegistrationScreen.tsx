@@ -141,7 +141,7 @@ export default function FaceRegistrationScreen() {
     setErrorMessage(null);
 
     try {
-      const downsampledB64 = await downsampleFaceImage(capturedPhoto.base64, 480, 0.65);
+      const downsampledB64 = await downsampleFaceImage(capturedPhoto.base64, 640, 0.80);
       const response = await enrollFace(empId, downsampledB64);
 
       if (response && response.success) {

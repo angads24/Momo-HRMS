@@ -135,14 +135,27 @@ export function EmployeeForm({
     if (!validate()) return;
 
     const selectedOffices = offices.filter((o) =>
-      (formData.officeIds || []).includes(o.id) || (formData.officeIds || []).includes(o.code)
+      (formData.officeIds || []).some((idOrCode) => {
+        const clean = idOrCode.replace(/\s*\(Primary\)$/i, '').trim().toLowerCase();
+        return (
+          o.id.toLowerCase() === clean ||
+          o.code?.toLowerCase() === clean ||
+          o.name?.toLowerCase() === clean
+        );
+      })
     );
     const primaryOffice = selectedOffices[0];
-    const officeIds = selectedOffices.flatMap((o) => [o.id, o.code]).filter(Boolean) as string[];
+    const officeIds = selectedOffices.map((o) => o.id);
     const officeLocationName = selectedOffices.map((o) => (o.name ? `${o.name} (${o.code})` : o.code)).join(', ');
+
+    const selectedDept = departments.find(
+      (d) => d.id === formData.departmentId || d.code === formData.departmentId || d.name === formData.departmentId
+    );
+    const resolvedDeptId = selectedDept ? selectedDept.id : formData.departmentId;
 
     await onSubmit({
       ...formData,
+      departmentId: resolvedDeptId,
       employeeCode: formData.employeeCode.trim().toUpperCase(),
       firstName: formData.firstName.trim(),
       lastName: formData.lastName.trim(),
@@ -278,8 +291,12 @@ export function EmployeeForm({
               value={
                 (formData.officeIds || [])
                   .map((idOrCode) => {
+                    const clean = idOrCode.replace(/\s*\(Primary\)$/i, '').trim().toLowerCase();
                     const matched = offices.find(
-                      (o) => o.id === idOrCode || o.code?.toLowerCase() === idOrCode.toLowerCase()
+                      (o) =>
+                        o.id.toLowerCase() === clean ||
+                        o.code?.toLowerCase() === clean ||
+                        o.name?.toLowerCase() === clean
                     );
                     return matched ? matched.id : idOrCode;
                   })
@@ -312,8 +329,12 @@ export function EmployeeForm({
             >
               {offices.map((office) => {
                 const currentIds = (formData.officeIds || []).map((idOrCode) => {
+                  const clean = idOrCode.replace(/\s*\(Primary\)$/i, '').trim().toLowerCase();
                   const matched = offices.find(
-                    (o) => o.id === idOrCode || o.code?.toLowerCase() === idOrCode.toLowerCase()
+                    (o) =>
+                      o.id.toLowerCase() === clean ||
+                      o.code?.toLowerCase() === clean ||
+                      o.name?.toLowerCase() === clean
                   );
                   return matched ? matched.id : idOrCode;
                 });

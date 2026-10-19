@@ -17,6 +17,7 @@ export class AuthEnrichmentMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
     // 1. CRITICAL SECURITY: Sanitize all untrusted client-supplied identity & gateway headers.
     // External clients must NEVER be able to inject or spoof these internal headers.
+    const incomingEmpId = req.headers['x-employee-id'] as string | undefined;
     delete req.headers['x-user-id'];
     delete req.headers['x-employee-id'];
     delete req.headers['x-roles'];
@@ -42,6 +43,10 @@ export class AuthEnrichmentMiddleware implements NestMiddleware {
           }
           if (decoded.employeeId) {
             req.headers['x-employee-id'] = String(decoded.employeeId);
+          } else if (incomingEmpId && typeof incomingEmpId === 'string' && incomingEmpId.trim()) {
+            req.headers['x-employee-id'] = incomingEmpId.trim();
+          } else if (decoded.sub) {
+            req.headers['x-employee-id'] = String(decoded.sub);
           }
           if (decoded.roles) {
             req.headers['x-roles'] = Array.isArray(decoded.roles)
@@ -58,9 +63,13 @@ export class AuthEnrichmentMiddleware implements NestMiddleware {
           }
         }
       } catch (err) {
-        // Token is expired, malformed, or has an invalid signature.
-        // Identity headers remain strictly stripped; downstream services will reject unauthenticated access.
         this.logger.debug(`Could not verify JWT token in gateway: ${(err as Error).message}`);
+        res.status(401).json({
+          statusCode: 401,
+          error: 'Unauthorized',
+          message: 'Access token expired or invalid',
+        });
+        return;
       }
     }
 

@@ -80,7 +80,15 @@ export class AttendanceService {
   ) {}
 
   private readonly empCodeCache = new Map<string, string>();
-  private readonly officeCodeCache = new Map<string, string>();
+  private readonly officeCodeCache = new Map<string, string>([
+    ['88185fc3-2f90-4dc1-b161-64c2e15d938a', 'T-001'],
+    ['76b775c9-ab7c-4d8e-8da9-9f191ea2d630', 'PUN-001'],
+    ['d1a2b3c4-0000-0000-0000-000000000001', 'OFFICE-001'],
+  ]);
+  private readonly sessionCodeCache = new Map<string, string>([
+    ['0da181fb-fa1b-47ee-85a5-32463702c4c5', 'ATT-001'],
+    ['7e5b5ce5-272c-424e-afb1-00fff0529553', 'ATT-002'],
+  ]);
   private hasLoadedOffices = false;
 
   private isUuid(val?: string | null): boolean {
@@ -95,6 +103,14 @@ export class AttendanceService {
   private cleanOfficeId(officeId: string): string {
     if (!this.isUuid(officeId)) return officeId;
     return this.officeCodeCache.get(officeId) || officeId;
+  }
+
+  private cleanSessionId(sessionId: string): string {
+    if (!this.isUuid(sessionId)) return sessionId;
+    if (this.sessionCodeCache.has(sessionId)) {
+      return this.sessionCodeCache.get(sessionId)!;
+    }
+    return `ATT-${sessionId.slice(-6).toUpperCase()}`;
   }
 
   private async sanitizeSessions(sessions: any[]): Promise<void> {
@@ -329,8 +345,16 @@ export class AttendanceService {
         }
       }
 
+      const count = await tx.attendanceSession.count();
+      let cleanId = `ATT-${String(count + 1).padStart(3, '0')}`;
+      const exists = await tx.attendanceSession.findUnique({ where: { id: cleanId } });
+      if (exists) {
+        cleanId = `ATT-${Date.now().toString().slice(-6)}`;
+      }
+
       const created = await tx.attendanceSession.create({
         data: {
+          id: cleanId,
           employeeId,
           officeId: dto.officeId,
           attendanceDate,
@@ -1152,14 +1176,26 @@ export class AttendanceService {
     };
   }
 
-  async getById(employeeId: string, sessionId: string): Promise<AttendanceSessionResponseDto> {
-    const session = await this.prisma.attendanceSession.findUnique({
+  async getById(employeeId: string, sessionId: string, isHrOrAdmin: boolean = false): Promise<AttendanceSessionResponseDto> {
+    let session = await this.prisma.attendanceSession.findUnique({
       where: { id: sessionId },
       include: { pauses: true },
     });
 
+    if (!session) {
+      for (const [uuid, code] of this.sessionCodeCache.entries()) {
+        if (code === sessionId || uuid === sessionId) {
+          session = await this.prisma.attendanceSession.findUnique({
+            where: { id: uuid },
+            include: { pauses: true },
+          });
+          if (session) break;
+        }
+      }
+    }
+
     const ids = await this.resolveEmployeeIds(employeeId);
-    if (!session || !ids.includes(session.employeeId)) {
+    if (!session || (!isHrOrAdmin && !ids.includes(session.employeeId))) {
       throw new AppException(
         ErrorCodes.SESSION_NOT_FOUND,
         'Attendance session not found',
@@ -1624,7 +1660,7 @@ export class AttendanceService {
     const totalWorkingSeconds = regularWorkingSeconds + specialConditionSeconds;
 
     return {
-      id: session.id,
+      id: this.cleanSessionId(session.id),
       employeeId: this.cleanEmployeeId(session.employeeId),
       officeId: this.cleanOfficeId(session.officeId),
       attendanceDate: this.formatDateOnly(session.attendanceDate),

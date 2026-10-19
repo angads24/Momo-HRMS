@@ -49,8 +49,14 @@ export default function NotificationListPage() {
     setLoading(true);
     setError(null);
     try {
-      // Transfer complete notification dataset from server with 0 limit/page params
-      const res = await fetchNotifications();
+      const queryParams: Record<string, string> = {};
+      if (user?.email) queryParams.email = user.email;
+      if (user?.appRole) {
+        queryParams.role = user.appRole;
+        queryParams.recipientId = user.appRole === 'ADMIN' ? 'ADMIN' : user.appRole === 'HR' ? 'HR' : user.email;
+      }
+      // Transfer complete notification dataset for current user/role
+      const res = await fetchNotifications(queryParams);
       const items = res.items ?? [];
       setAllNotifications(items);
       const unread = items.filter((n) => !n.isRead).length;
@@ -64,7 +70,7 @@ export default function NotificationListPage() {
     } finally {
       setLoading(false);
     }
-  }, [setUnreadCount]);
+  }, [user, setUnreadCount]);
 
   useEffect(() => {
     void loadNotifications();

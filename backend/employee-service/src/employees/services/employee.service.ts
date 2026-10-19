@@ -57,31 +57,36 @@ export class EmployeeService implements OnModuleInit {
     }
   }
 
-  private getOfficeDetails(offId?: string | null): { id: string; code: string; name: string } | null {
+  private getOfficeDetails(offId?: string | null): { id: string; code: string; name: string; uuid?: string } | null {
     if (!offId) return null;
-    const trimmed = offId.trim().toLowerCase();
-    // 1. Direct match on id or code
+    const cleanStr = offId.replace(/\s*\(Primary\)$/i, '').trim().toLowerCase();
+    // 1. Direct match on id, code, or uuid
     let found = this.officesCache.find(
-      (o) => (o.id && o.id.toLowerCase() === trimmed) || (o.code && o.code.toLowerCase() === trimmed),
+      (o: any) =>
+        (o.id && o.id.toLowerCase() === cleanStr) ||
+        (o.code && o.code.toLowerCase() === cleanStr) ||
+        (o.uuid && o.uuid.toLowerCase() === cleanStr),
     );
     // 2. Exact match on name
     if (!found) {
       found = this.officesCache.find(
-        (o) => o.name && o.name.toLowerCase() === trimmed,
+        (o: any) => o.name && o.name.toLowerCase() === cleanStr,
       );
     }
     // 3. Substring match on name (e.g. "Wakad" for "Wakad_Office" or "Pune HQ" for "Pune Headquarters")
     if (!found) {
       found = this.officesCache.find(
-        (o) => o.name && (o.name.toLowerCase().includes(trimmed) || trimmed.includes(o.name.toLowerCase())),
+        (o: any) => o.name && (o.name.toLowerCase().includes(cleanStr) || cleanStr.includes(o.name.toLowerCase())),
       );
     }
     // 4. Legacy database UUID fallbacks
     if (!found) {
-      if (trimmed === 'd1a2b3c4-0000-0000-0000-000000000001') {
+      if (cleanStr === 'd1a2b3c4-0000-0000-0000-000000000001') {
         found = this.officesCache.find((o) => o.code === 'OFFICE-001') || { id: 'OFFICE-001', code: 'OFFICE-001', name: 'Pune Headquarters' };
-      } else if (trimmed === '76b775c9-ab7c-4d8e-8da9-9f191ea2d630') {
+      } else if (cleanStr === '76b775c9-ab7c-4d8e-8da9-9f191ea2d630') {
         found = this.officesCache.find((o) => o.code === 'PUN-001') || { id: 'PUN-001', code: 'PUN-001', name: 'Wakad_office' };
+      } else if (cleanStr === '88185fc3-2f90-4dc1-b161-64c2e15d938a') {
+        found = this.officesCache.find((o) => o.code === 'T-001') || { id: 'T-001', code: 'T-001', name: 'TESTING_ANGAD' };
       }
     }
     return found || null;
@@ -163,6 +168,24 @@ export class EmployeeService implements OnModuleInit {
         }
       }
 
+      let resolvedDepartmentId: string | null = null;
+      if (dto.departmentId && dto.departmentId.trim()) {
+        const dVal = dto.departmentId.trim();
+        const dept = await tx.department.findFirst({
+          where: { OR: [{ id: dVal }, { code: dVal }, { name: dVal }] },
+        });
+        resolvedDepartmentId = dept ? dept.id : dVal;
+      }
+
+      let resolvedDesignationId: string | null = designationId || null;
+      if (!resolvedDesignationId && dto.designationId && dto.designationId.trim()) {
+        const dVal = dto.designationId.trim();
+        const desig = await tx.designation.findFirst({
+          where: { OR: [{ id: dVal }, { code: dVal }, { title: dVal }] },
+        });
+        resolvedDesignationId = desig ? desig.id : dVal;
+      }
+
       const employee = await tx.employee.create({
         data: {
           employeeCode: dto.employeeCode,
@@ -172,8 +195,8 @@ export class EmployeeService implements OnModuleInit {
           email: dto.email,
           personalEmail: dto.personalEmail?.trim()?.toLowerCase() || null,
           phone: dto.phone || null,
-          departmentId: dto.departmentId || null,
-          designationId,
+          departmentId: resolvedDepartmentId,
+          designationId: resolvedDesignationId,
           employmentStatus: dto.employmentStatus ?? EmploymentStatus.ACTIVE,
           dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : new Date(),
         },
@@ -405,8 +428,12 @@ export class EmployeeService implements OnModuleInit {
 
       const addOffice = (val?: string | null) => {
         if (!val || !val.trim()) return;
-        const resolved = this.getOfficeDetails(val.trim());
-        const officeCode = resolved?.code || resolved?.id || val.trim();
+        const cleanVal = val.replace(/\s*\(Primary\)$/i, '').trim();
+        let resolved = this.getOfficeDetails(cleanVal);
+        if (!resolved) {
+          resolved = this.officesCache.find((o) => o.name && o.name.toLowerCase() === cleanVal.toLowerCase()) || null;
+        }
+        const officeCode = resolved?.code || resolved?.id || cleanVal;
         officesToSet.add(officeCode);
       };
 
@@ -456,6 +483,34 @@ export class EmployeeService implements OnModuleInit {
       }
     }
 
+    // Resolve departmentId: handle database UUID, code, or name
+    let resolvedDepartmentId: string | null | undefined = undefined;
+    if (dto.departmentId !== undefined) {
+      if (dto.departmentId && dto.departmentId.trim()) {
+        const dVal = dto.departmentId.trim();
+        const dept = await this.prisma.department.findFirst({
+          where: { OR: [{ id: dVal }, { code: dVal }, { name: dVal }] },
+        });
+        resolvedDepartmentId = dept ? dept.id : dVal;
+      } else {
+        resolvedDepartmentId = null;
+      }
+    }
+
+    // Resolve designationId: handle database UUID, code, or title
+    let resolvedDesignationId: string | null | undefined = designationId;
+    if (!resolvedDesignationId && dto.designationId !== undefined) {
+      if (dto.designationId && dto.designationId.trim()) {
+        const dVal = dto.designationId.trim();
+        const desig = await this.prisma.designation.findFirst({
+          where: { OR: [{ id: dVal }, { code: dVal }, { title: dVal }] },
+        });
+        resolvedDesignationId = desig ? desig.id : dVal;
+      } else if (dto.designationId === null) {
+        resolvedDesignationId = null;
+      }
+    }
+
     const updated = await this.prisma.employee.update({
       where: { id: employee.id },
       data: {
@@ -474,8 +529,8 @@ export class EmployeeService implements OnModuleInit {
         emergencyContactPhone: dto.emergencyContactPhone !== undefined ? dto.emergencyContactPhone : undefined,
         profilePhotoUrl: dto.profilePhotoUrl !== undefined ? dto.profilePhotoUrl : undefined,
         isOnboarded: dto.isOnboarded !== undefined ? dto.isOnboarded : undefined,
-        departmentId: dto.departmentId !== undefined ? dto.departmentId : undefined,
-        designationId: designationId !== undefined ? designationId : undefined,
+        departmentId: resolvedDepartmentId !== undefined ? resolvedDepartmentId : undefined,
+        designationId: resolvedDesignationId !== undefined ? resolvedDesignationId : undefined,
         employmentStatus: dto.employmentStatus !== undefined ? dto.employmentStatus : undefined,
         dateOfJoining: dto.dateOfJoining ? new Date(dto.dateOfJoining) : undefined,
         userId: dto.userId !== undefined ? dto.userId : undefined,
@@ -1080,21 +1135,23 @@ export class EmployeeService implements OnModuleInit {
 
     const cleanId = emp.employeeCode || emp.id;
 
-    // Sanitize child department
+    // Sanitize child department while preserving clean code ID
+    const cleanDeptCode = emp.department?.code || 'HR';
     const cleanDepartment = emp.department
       ? {
-          id: emp.department.code || emp.department.name || 'DEPT',
-          code: emp.department.code || 'DEPT',
+          id: cleanDeptCode,
+          code: cleanDeptCode,
           name: emp.department.name,
           description: emp.department.description ?? null,
         }
       : null;
 
-    // Sanitize child designation
+    // Sanitize child designation while preserving clean code ID
+    const cleanDesigCode = emp.designation?.code || 'ASSOCIATE';
     const cleanDesignation = emp.designation
       ? {
-          id: emp.designation.code || emp.designation.title || 'DESIG',
-          code: emp.designation.code || 'DESIG',
+          id: cleanDesigCode,
+          code: cleanDesigCode,
           title: emp.designation.title,
           description: emp.designation.description ?? null,
         }
@@ -1130,9 +1187,9 @@ export class EmployeeService implements OnModuleInit {
       hasUserAccount,
       assignments: sanitizedAssignments,
       department: cleanDepartment,
-      departmentId: cleanDepartment?.code || cleanDepartment?.id || null,
+      departmentId: cleanDeptCode,
       designation: cleanDesignation,
-      designationId: cleanDesignation?.code || cleanDesignation?.id || null,
+      designationId: cleanDesigCode,
       status: emp.employmentStatus,
       jobTitle: displayJobTitle,
       isHr: isHrMember,
@@ -1238,37 +1295,56 @@ export class EmployeeService implements OnModuleInit {
       return false;
     }
 
-    // 1. Direct match on officeId
-    let assignment = await this.prisma.employeeOfficeAssignment.findFirst({
+    const activeAssignments = await this.prisma.employeeOfficeAssignment.findMany({
       where: {
         employeeId: employee.id,
-        officeId,
         isActive: true,
         effectiveFrom: { lte: new Date() },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }],
       },
     });
 
-    // 2. Alternative match from office cache (id vs code vs name)
-    if (!assignment) {
-      const office = this.getOfficeDetails(officeId);
-      if (office) {
-        const altIds = [office.id, office.code].filter(Boolean);
-        assignment = await this.prisma.employeeOfficeAssignment.findFirst({
-          where: {
-            employeeId: employee.id,
-            officeId: { in: altIds },
-            isActive: true,
-            effectiveFrom: { lte: new Date() },
-            OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }],
-          },
-        });
+    if (activeAssignments.length === 0) {
+      this.logger.warn(`isAssignedToOffice: Employee ${employee.employeeCode} has no active office assignments.`);
+      return false;
+    }
+
+    const cleanTarget = officeId.replace(/\s*\(Primary\)$/i, '').trim().toLowerCase();
+    let targetOffice = this.getOfficeDetails(cleanTarget);
+    if (!targetOffice) {
+      await this.refreshOfficesCache();
+      targetOffice = this.getOfficeDetails(cleanTarget);
+    }
+
+    const targetCandidates = new Set<string>();
+    targetCandidates.add(cleanTarget);
+    if (targetOffice) {
+      if (targetOffice.id) targetCandidates.add(targetOffice.id.trim().toLowerCase());
+      if (targetOffice.code) targetCandidates.add(targetOffice.code.trim().toLowerCase());
+      if (targetOffice.name) targetCandidates.add(targetOffice.name.trim().toLowerCase());
+      if ((targetOffice as any).uuid) targetCandidates.add((targetOffice as any).uuid.trim().toLowerCase());
+    }
+
+    for (const assign of activeAssignments) {
+      const assignId = assign.officeId.replace(/\s*\(Primary\)$/i, '').trim().toLowerCase();
+      if (targetCandidates.has(assignId)) {
+        this.logger.log(`Assignment check matched direct: employee=${employee.employeeCode} office=${officeId}`);
+        return true;
+      }
+      let assignOffice = this.getOfficeDetails(assign.officeId);
+      if (!assignOffice) {
+        assignOffice = this.officesCache.find((o: any) => o.name && o.name.toLowerCase() === assignId) || null;
+      }
+      if (assignOffice) {
+        if (assignOffice.id && targetCandidates.has(assignOffice.id.trim().toLowerCase())) return true;
+        if (assignOffice.code && targetCandidates.has(assignOffice.code.trim().toLowerCase())) return true;
+        if (assignOffice.name && targetCandidates.has(assignOffice.name.trim().toLowerCase())) return true;
+        if ((assignOffice as any).uuid && targetCandidates.has((assignOffice as any).uuid.trim().toLowerCase())) return true;
       }
     }
 
-    const isAssigned = !!assignment;
-    this.logger.log(`Assignment check for employee=${employee.employeeCode} office=${officeId} -> ${isAssigned}`);
-    return isAssigned;
+    this.logger.warn(`Assignment check failed for employee=${employee.employeeCode} office=${officeId}. Active assignments: ${activeAssignments.map(a => a.officeId).join(', ')}`);
+    return false;
   }
 
   getImportTemplateCsv(): string {

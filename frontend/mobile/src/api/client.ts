@@ -159,3 +159,6 @@ attachInterceptors(employeeClient);
 attachInterceptors(attendanceClient);
 attachInterceptors(geofenceClient);
 attachInterceptors(notificationClient);
+// FIX: faceClient was missing auth interceptors — caused silent 401 failures
+// during face verification when access tokens expired mid-flow.
+attachInterceptors(faceClient);

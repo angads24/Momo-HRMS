@@ -137,9 +137,9 @@ export function createNotificationEventSource(
   }
   const eventSource = new EventSource(sseUrl);
 
-  eventSource.onmessage = (event) => {
+  const handleNotificationData = (raw: string | object) => {
     try {
-      const data = JSON.parse(event.data);
+      const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (data && data.notification) {
         onNotification(data.notification);
       } else if (data && data.id) {
@@ -149,6 +149,14 @@ export function createNotificationEventSource(
       console.warn('Could not parse SSE notification payload:', err);
     }
   };
+
+  eventSource.onmessage = (event) => {
+    handleNotificationData(event.data);
+  };
+
+  eventSource.addEventListener('notification', (event: any) => {
+    handleNotificationData(event.data);
+  });
 
   if (onError) {
     eventSource.onerror = onError;

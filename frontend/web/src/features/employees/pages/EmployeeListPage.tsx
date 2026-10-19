@@ -99,7 +99,7 @@ export default function EmployeeListPage() {
   // Load dropdown options & resolve HR scope once
   useEffect(() => {
     let mounted = true;
-    Promise.all([fetchActiveDepartments(), fetchRoles(), fetchOffices()])
+    Promise.all([fetchActiveDepartments(), fetchRoles(), fetchOffices({ summary: true })])
       .then(async ([deptsData, rolesData, officesData]) => {
         if (!mounted) return;
         setDepartments(deptsData);

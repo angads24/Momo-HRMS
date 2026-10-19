@@ -84,7 +84,7 @@ export class GeofenceService {
 
     return {
       isInside,
-      officeId: office.id,
+      officeId: office.code || office.id,
       officeName: office.name,
       distanceToBoundaryMeters: distanceToBoundary,
       altitudeValid,
@@ -101,22 +101,24 @@ export class GeofenceService {
   /**
    * List all registered offices.
    */
-  async listOffices() {
+  async listOffices(summaryOnly = false) {
     const offices = await this.prisma.office.findMany({
-      include: {
-        polygons: {
-          where: { isActive: true },
-          orderBy: { version: 'desc' },
-          include: {
-            vertices: { orderBy: { sequence: 'asc' } },
+      include: summaryOnly
+        ? undefined
+        : {
+            polygons: {
+              where: { isActive: true },
+              orderBy: { version: 'desc' },
+              include: {
+                vertices: { orderBy: { sequence: 'asc' } },
+              },
+              take: 1,
+            },
           },
-          take: 1,
-        },
-      },
       orderBy: { name: 'asc' },
     });
 
-    return offices.map((o) => ({
+    return offices.map((o: any) => ({
       id: o.code || o.id,
       code: o.code,
       name: o.name,
@@ -126,13 +128,13 @@ export class GeofenceService {
       isActive: o.isActive,
       minAltitudeMeters: o.minAltitudeMeters,
       maxAltitudeMeters: o.maxAltitudeMeters,
-      activePolygon: o.polygons[0]
+      activePolygon: !summaryOnly && o.polygons && o.polygons[0]
         ? {
             id: `${o.code}-POLY-01`,
             name: o.polygons[0].name,
             version: o.polygons[0].version,
             isActive: o.polygons[0].isActive,
-            vertices: o.polygons[0].vertices.map((v) => ({
+            vertices: o.polygons[0].vertices.map((v: any) => ({
               sequence: v.sequence,
               latitude: v.latitude,
               longitude: v.longitude,
@@ -208,7 +210,7 @@ export class GeofenceService {
       );
     }
 
-    return this.prisma.office.create({
+    const office = await this.prisma.office.create({
       data: {
         code: dto.code,
         name: dto.name,
@@ -220,6 +222,11 @@ export class GeofenceService {
         isActive: dto.isActive ?? true,
       },
     });
+
+    return {
+      ...office,
+      id: office.code || office.id,
+    };
   }
 
   /**
@@ -275,7 +282,20 @@ export class GeofenceService {
         },
       });
 
-      return newPolygon;
+      return {
+        id: `${office.code}-POLY-01`,
+        officeId: office.code,
+        name: newPolygon.name,
+        version: newPolygon.version,
+        isActive: newPolygon.isActive,
+        minAltitudeMeters: newPolygon.minAltitudeMeters,
+        maxAltitudeMeters: newPolygon.maxAltitudeMeters,
+        vertices: newPolygon.vertices.map((v, index) => ({
+          sequence: v.sequence ?? index,
+          latitude: v.latitude,
+          longitude: v.longitude,
+        })),
+      };
     });
   }
 
@@ -298,7 +318,7 @@ export class GeofenceService {
       });
       this.logger.log(`Hard deleted ${count} geofence polygons for office ${office.code}`);
       return {
-        officeId: office.id,
+        officeId: office.code || office.id,
         officeCode: office.code,
         deletedPolygonsCount: count,
         message: 'Office geofence polygon(s) deleted successfully',
@@ -311,7 +331,7 @@ export class GeofenceService {
       });
       this.logger.log(`Deactivated ${count} geofence polygons for office ${office.code}`);
       return {
-        officeId: office.id,
+        officeId: office.code || office.id,
         officeCode: office.code,
         deactivatedPolygonsCount: count,
         message: 'Office geofence polygon(s) deactivated successfully',
@@ -323,9 +343,20 @@ export class GeofenceService {
    * Delete a single geofence polygon by ID.
    */
   async deletePolygonById(polygonId: string) {
-    const existing = await this.prisma.geofencePolygon.findUnique({
+    let existing = await this.prisma.geofencePolygon.findUnique({
       where: { id: polygonId },
     });
+
+    if (!existing && polygonId.includes('-POLY-')) {
+      const officeCode = polygonId.split('-POLY-')[0];
+      const office = await this.prisma.office.findFirst({
+        where: { code: officeCode },
+        include: { polygons: { where: { isActive: true }, take: 1 } },
+      });
+      if (office && office.polygons.length > 0) {
+        existing = office.polygons[0];
+      }
+    }
 
     if (!existing) {
       throw new AppException(
@@ -336,7 +367,7 @@ export class GeofenceService {
     }
 
     await this.prisma.geofencePolygon.delete({
-      where: { id: polygonId },
+      where: { id: existing.id },
     });
 
     this.logger.log(`Deleted geofence polygon ${polygonId}`);
@@ -364,7 +395,7 @@ export class GeofenceService {
       });
       this.logger.log(`Deleted office ${office.code} and all associated geofence polygons`);
       return {
-        officeId: office.id,
+        officeId: office.code || office.id,
         officeCode: office.code,
         message: 'Office and all associated geofence data deleted successfully',
       };
@@ -381,7 +412,7 @@ export class GeofenceService {
       ]);
       this.logger.log(`Deactivated office ${office.code}`);
       return {
-        officeId: office.id,
+        officeId: office.code || office.id,
         officeCode: office.code,
         message: 'Office and geofence deactivated successfully',
       };

@@ -55,6 +55,10 @@ export class NotificationsController {
     const effectiveEmail = query.email || headerEmail;
     const effectiveRole = query.role || headerRole;
 
+    const userCandidates = Array.from(
+      new Set([headerEmpId, headerUserId, effectiveEmail, query.recipientId].filter(Boolean)),
+    ) as string[];
+
     return this.notificationsService.findAll(
       {
         ...query,
@@ -62,7 +66,7 @@ export class NotificationsController {
         email: effectiveEmail,
         role: effectiveRole,
       },
-      headerUserId || headerEmpId || query.recipientId,
+      userCandidates,
     );
   }
 
@@ -85,9 +89,11 @@ export class NotificationsController {
     const effectiveRecipientId = recipientId || headerEmpId || headerUserId;
     const effectiveEmail = email || headerEmail;
     const effectiveRole = role || headerRole;
-    const callerId = headerUserId || headerEmpId || recipientId;
+    const userCandidates = Array.from(
+      new Set([headerEmpId, headerUserId, effectiveEmail, recipientId].filter(Boolean)),
+    ) as string[];
 
-    return this.notificationsService.getUnreadCount(effectiveRecipientId, effectiveEmail, effectiveRole, callerId);
+    return this.notificationsService.getUnreadCount(effectiveRecipientId, effectiveEmail, effectiveRole, userCandidates);
   }
 
   @Sse('stream')
@@ -109,10 +115,22 @@ export class NotificationsController {
     return this.sseService.getRecipientStream(effectiveId, effectiveEmail);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Get single notification details' })
+  async findOne(@Param('id') id: string) {
+    return this.notificationsService.findOne(id);
+  }
+
   @Patch(':id/read')
   @ApiOperation({ summary: 'Mark a notification as read' })
-  async markAsRead(@Param('id') id: string) {
-    return this.notificationsService.markAsRead(id);
+  async markAsRead(@Param('id') id: string, @Req() req?: Request) {
+    const headerUserId = req?.headers['x-user-id'] as string;
+    const headerEmpId = req?.headers['x-employee-id'] as string;
+    const headerEmail = req?.headers['x-email'] as string;
+    const userCandidates = Array.from(
+      new Set([headerEmpId, headerUserId, headerEmail].filter(Boolean)),
+    ) as string[];
+    return this.notificationsService.markAsRead(id, userCandidates);
   }
 
   @Post('read-all')
@@ -135,7 +153,10 @@ export class NotificationsController {
     const effectiveRecipientId = recipientId || body?.recipientId || headerEmpId || headerUserId;
     const effectiveEmail = email || body?.email || headerEmail;
     const effectiveRole = role || body?.role || headerRole;
-    return this.notificationsService.markAllAsRead(effectiveRecipientId, effectiveEmail, effectiveRole);
+    const userCandidates = Array.from(
+      new Set([headerEmpId, headerUserId, effectiveEmail, effectiveRecipientId].filter(Boolean)),
+    ) as string[];
+    return this.notificationsService.markAllAsRead(effectiveRecipientId, effectiveEmail, effectiveRole, userCandidates);
   }
 
   @Delete(':id')

@@ -1,4 +1,5 @@
 import { api } from '../api/client';
+import axios from 'axios';
 import { EMPLOYEE_API_URL, COMPANY_DOMAIN, INTERN_DOMAIN } from '../config/env';
 import type {
   ChangeEmployeeStatusPayload,
@@ -42,6 +43,7 @@ export async function fetchEmployees(query: EmployeeListQuery = {}): Promise<Pag
   if (query.roleId) params.roleId = query.roleId;
   if (query.status) params.status = query.status;
   if (query.officeId) params.officeId = query.officeId;
+  if (query.all) params.all = true;
 
   const response = await api.get<any>(`${EMPLOYEE_API_URL}/employees`, { params });
   
@@ -78,8 +80,6 @@ export async function fetchEmployees(query: EmployeeListQuery = {}): Promise<Pag
     meta,
   };
 }
-
-import axios from 'axios';
 
 /**
  * Checks whether an official company email is already taken by querying both the employee directory
@@ -128,26 +128,30 @@ export async function generateUniqueEmail(
   const baseName = l ? `${f}.${l}` : f;
   const domain = options.isIntern ? INTERN_DOMAIN : COMPANY_DOMAIN;
 
-  let candidate: string = '';
+  const buildCandidate = (n: number): string => {
+    const suffix = n === 0 ? '' : String(n);
+    return options.isHr
+      ? `${baseName}.hr${suffix}@${domain}`
+      : `${baseName}${suffix}@${domain}`;
+  };
+
+  // FIX: Check 5 candidates in parallel instead of 1-by-1 sequentially.
+  // Old approach: up to 50 iterations × 2 API calls each = 100 sequential requests.
+  // New approach: batches of 5 checked in parallel = max ~20 concurrent calls total.
+  const BATCH_SIZE = 5;
   let counter = 0;
 
   while (counter <= 50) {
-    if (options.isHr) {
-      const suffix = counter === 0 ? '' : String(counter);
-      candidate = `${baseName}.hr${suffix}@${domain}`;
-    } else {
-      const suffix = counter === 0 ? '' : String(counter);
-      candidate = `${baseName}${suffix}@${domain}`;
+    const batch = Array.from({ length: BATCH_SIZE }, (_, i) => buildCandidate(counter + i));
+    const results = await Promise.all(batch.map((c) => checkEmailAvailability(c)));
+    const firstAvailableIdx = results.findIndex((r) => r);
+    if (firstAvailableIdx !== -1) {
+      return batch[firstAvailableIdx];
     }
-
-    const available = await checkEmailAvailability(candidate);
-    if (available) {
-      return candidate;
-    }
-    counter++;
+    counter += BATCH_SIZE;
   }
 
-  return candidate;
+  return buildCandidate(counter);
 }
 
 /**

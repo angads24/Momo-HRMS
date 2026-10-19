@@ -48,13 +48,19 @@ export class AuthService {
 
     await this.usersService.updateLastLogin(user.id);
 
-    const { accessToken, refreshToken } = await this.issueTokenPair(user.id, roles, metadata);
+    const { accessToken, refreshToken } = await this.issueTokenPair(
+      user.id,
+      roles,
+      metadata,
+      user.email,
+      user.username,
+    );
 
     return {
       accessToken,
       refreshToken,
       user: {
-        id: user.id,
+        id: user.username || user.email || user.id,
         email: user.email,
         username: user.username,
         fullName: user.fullName,
@@ -105,13 +111,19 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
 
-    const { accessToken, refreshToken } = await this.issueTokenPair(user.id, user.roles, metadata);
+    const { accessToken, refreshToken } = await this.issueTokenPair(
+      user.id,
+      user.roles,
+      metadata,
+      user.email,
+      user.username,
+    );
 
     return {
       accessToken,
       refreshToken,
       user: {
-        id: user.id,
+        id: user.username || user.email || user.id,
         email: user.email,
         username: user.username,
         fullName: user.fullName,
@@ -185,8 +197,15 @@ export class AuthService {
     userId: string,
     roles: string[],
     metadata: RequestMetadata,
+    email?: string,
+    username?: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const accessToken = this.tokenService.signAccessToken({ sub: userId, roles });
+    const accessToken = this.tokenService.signAccessToken({
+      sub: userId,
+      roles,
+      email,
+      username,
+    });
     const { token: refreshToken } = this.tokenService.signRefreshToken(userId);
 
     await this.prisma.refreshTokenSession.create({

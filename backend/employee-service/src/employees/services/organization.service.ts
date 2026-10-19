@@ -47,15 +47,45 @@ export class OrganizationService {
       );
     }
 
-    return this.prisma.department.create({ data: dto });
+    const created = await this.prisma.department.create({ data: dto });
+    return {
+      id: created.code || created.id,
+      code: created.code,
+      name: created.name,
+      description: created.description,
+    };
   }
 
   async listDesignations(departmentId?: string) {
-    return this.prisma.designation.findMany({
-      where: departmentId ? { departmentId } : {},
+    let whereClause: any = {};
+    if (departmentId) {
+      const dept = await this.prisma.department.findFirst({
+        where: { OR: [{ id: departmentId }, { code: departmentId }] },
+      });
+      whereClause = dept ? { departmentId: dept.id } : { departmentId };
+    }
+
+    const designations = await this.prisma.designation.findMany({
+      where: whereClause,
       include: { department: true },
       orderBy: { title: 'asc' },
     });
+
+    return designations.map((des: any) => ({
+      id: des.code || des.id,
+      code: des.code,
+      title: des.title,
+      description: des.description,
+      departmentId: des.department?.code || des.departmentId,
+      department: des.department
+        ? {
+            id: des.department.code || des.department.id,
+            code: des.department.code,
+            name: des.department.name,
+            description: des.department.description,
+          }
+        : null,
+    }));
   }
 
   async createDesignation(dto: CreateDesignationDto) {
@@ -70,7 +100,36 @@ export class OrganizationService {
       );
     }
 
-    return this.prisma.designation.create({ data: dto });
+    let resolvedDeptId = dto.departmentId;
+    const dept = await this.prisma.department.findFirst({
+      where: { OR: [{ id: dto.departmentId }, { code: dto.departmentId }] },
+    });
+    if (dept) {
+      resolvedDeptId = dept.id;
+    }
+
+    const created = await this.prisma.designation.create({
+      data: {
+        ...dto,
+        departmentId: resolvedDeptId,
+      },
+      include: { department: true },
+    });
+
+    return {
+      id: created.code || created.id,
+      code: created.code,
+      title: created.title,
+      departmentId: created.department?.code || created.departmentId,
+      department: created.department
+        ? {
+            id: created.department.code || created.department.id,
+            code: created.department.code,
+            name: created.department.name,
+            description: created.department.description,
+          }
+        : null,
+    };
   }
 
   async listRoles() {

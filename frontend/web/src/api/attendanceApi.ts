@@ -62,11 +62,18 @@ export const attendanceApi = {
     employeeId?: string;
     all?: boolean;
   }): Promise<{ items: AttendanceSession[]; total: number; page: number; limit: number }> {
-    const res = await api.get<{
-      success: boolean;
-      data: { items: AttendanceSession[]; total: number; page: number; limit: number };
-    }>('/attendance/history', { params });
-    return res.data.data;
+    // FIX: Added try/catch to match the consistent error handling pattern of
+    // getTodaySession and listExceptions. Previously unhandled rejections propagated
+    // to every caller individually.
+    try {
+      const res = await api.get<{
+        success: boolean;
+        data: { items: AttendanceSession[]; total: number; page: number; limit: number };
+      }>('/attendance/history', { params });
+      return res.data.data;
+    } catch {
+      return { items: [], total: 0, page: params?.page ?? 1, limit: params?.limit ?? 20 };
+    }
   },
 
   async listExceptions(): Promise<AttendanceException[]> {

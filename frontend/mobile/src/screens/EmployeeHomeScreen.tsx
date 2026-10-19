@@ -157,6 +157,8 @@ async function resolveEmployeeOffices(
 
   // 1. Check profile.assignedOffices array
   if (Array.isArray(profile.assignedOffices) && profile.assignedOffices.length > 0) {
+    const missingIds: string[] = [];
+
     for (const assignment of profile.assignedOffices) {
       if (!assignment) continue;
       if (assignment.isActive === false) continue;
@@ -178,18 +180,23 @@ async function resolveEmployeeOffices(
       if (matched) {
         addOffice(matched);
       } else if (assignment.id) {
-        try {
-          const direct = await getOfficeById(assignment.id);
-          addOffice(direct);
-        } catch {
-          // ignore
-        }
+        missingIds.push(assignment.id);
       }
+    }
+
+    // FIX: Fetch all uncached offices in parallel instead of sequentially
+    if (missingIds.length > 0) {
+      const results = await Promise.all(
+        missingIds.map((id) => getOfficeById(id).catch(() => null)),
+      );
+      results.forEach(addOffice);
     }
   }
 
   // 2. Check profile.officeIds array
   if (Array.isArray(profile.officeIds) && profile.officeIds.length > 0) {
+    const missingIds: string[] = [];
+
     for (const officeId of profile.officeIds) {
       const idLower = officeId.trim().toLowerCase();
       const matched = officeList.find(
@@ -198,13 +205,16 @@ async function resolveEmployeeOffices(
       if (matched) {
         addOffice(matched);
       } else {
-        try {
-          const direct = await getOfficeById(officeId);
-          addOffice(direct);
-        } catch {
-          // ignore
-        }
+        missingIds.push(officeId);
       }
+    }
+
+    // FIX: Fetch all uncached office IDs in parallel
+    if (missingIds.length > 0) {
+      const results = await Promise.all(
+        missingIds.map((id) => getOfficeById(id).catch(() => null)),
+      );
+      results.forEach(addOffice);
     }
   }
 
@@ -278,6 +288,7 @@ export default function EmployeeHomeScreen() {
   const isTransitioningRef = useRef(false);
   const activeSessionRef = useRef<AttendanceSession | null>(null);
   const locationRef = useRef<Location.LocationObjectCoords | null>(null);
+  const consecutiveOutsideCountRef = useRef(0);
   const [sessionStatusBanner, setSessionStatusBanner] = useState<{
     type: 'PAUSED' | 'RESUMED';
     message: string;
@@ -285,6 +296,9 @@ export default function EmployeeHomeScreen() {
 
   useEffect(() => {
     activeSessionRef.current = activeSession;
+    if (!activeSession || activeSession.status !== 'WORKING') {
+      consecutiveOutsideCountRef.current = 0;
+    }
   }, [activeSession]);
 
   // Helper for avatar initials
@@ -562,41 +576,54 @@ export default function EmployeeHomeScreen() {
           setApiError(false);
 
           // Automated Geofence Transition:
-          // Outside boundary -> Auto-pause WORKING session
-          // Return inside boundary -> Auto-resume PAUSED session
+          // Outside boundary -> Auto-pause WORKING session (with debounce tolerance)
+          // Return inside boundary -> Auto-resume PAUSED session (immediate)
           const activeSessionForTransition = activeSessionRef.current;
           if (activeSessionForTransition && !isTransitioningRef.current) {
             const empId = employeeProfile?.employeeCode || employeeProfile?.id;
             const officeTarget = targetOffice.code || targetOffice.id;
 
             if (activeSessionForTransition.status === 'WORKING' && !result.isInside) {
-              isTransitioningRef.current = true;
-              try {
-                const updated = await recordGeofenceExit(
-                  {
-                    officeId: officeTarget,
-                    clientEventId: generateUUID(),
-                    location: {
-                      latitude: pos.coords.latitude,
-                      longitude: pos.coords.longitude,
-                      accuracyMeters: safeAccuracy,
-                      timestamp: new Date().toISOString(),
+              // Tolerance: Filter momentary GPS indoor drift.
+              // Require 2 consecutive checks outside (~60s) before auto-pausing,
+              // unless employee is clearly far outside (>100m).
+              consecutiveOutsideCountRef.current += 1;
+              const isFarOutside =
+                typeof result.distanceToBoundaryMeters === 'number' &&
+                result.distanceToBoundaryMeters > 100;
+
+              if (consecutiveOutsideCountRef.current >= 2 || isFarOutside) {
+                consecutiveOutsideCountRef.current = 0;
+                isTransitioningRef.current = true;
+                try {
+                  const updated = await recordGeofenceExit(
+                    {
+                      officeId: officeTarget,
+                      clientEventId: generateUUID(),
+                      location: {
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        accuracyMeters: safeAccuracy,
+                        timestamp: new Date().toISOString(),
+                      },
                     },
-                  },
-                  empId,
-                );
-                updateSessionAndWorkingSeconds(updated);
-                void loadAttendance();
-                setSessionStatusBanner({
-                  type: 'PAUSED',
-                  message: 'Outside office boundary: Working timer paused automatically.',
-                });
-              } catch (exitErr) {
-                console.warn('Auto geofence-exit error:', exitErr);
-              } finally {
-                isTransitioningRef.current = false;
+                    empId,
+                  );
+                  updateSessionAndWorkingSeconds(updated);
+                  void loadAttendance();
+                  setSessionStatusBanner({
+                    type: 'PAUSED',
+                    message: 'Outside office boundary: Working timer paused automatically.',
+                  });
+                } catch (exitErr) {
+                  console.warn('Auto geofence-exit error:', exitErr);
+                } finally {
+                  isTransitioningRef.current = false;
+                }
               }
             } else if (activeSessionForTransition.status === 'PAUSED' && result.isInside) {
+              // Reset outside counter and immediately resume
+              consecutiveOutsideCountRef.current = 0;
               isTransitioningRef.current = true;
               try {
                 const updated = await recordGeofenceReturn(
@@ -623,6 +650,9 @@ export default function EmployeeHomeScreen() {
               } finally {
                 isTransitioningRef.current = false;
               }
+            } else if (result.isInside) {
+              // Inside and working normally — reset tolerance counter
+              consecutiveOutsideCountRef.current = 0;
             }
           }
         } catch (geoErr) {
@@ -735,10 +765,10 @@ export default function EmployeeHomeScreen() {
     let isMounted = true;
     let locationSub: Location.LocationSubscription | null = null;
 
-    // Heartbeat check every 8 seconds ensures turning off location or exiting is detected immediately
+    // Heartbeat check every 30 seconds ensures battery-efficient location tracking with tolerance for indoor GPS drift
     const heartbeatTimer = setInterval(() => {
       void checkLocationAndGeofence();
-    }, 8000);
+    }, 30000);
 
     void (async () => {
       try {
@@ -747,8 +777,8 @@ export default function EmployeeHomeScreen() {
           locationSub = await Location.watchPositionAsync(
             {
               accuracy: Location.Accuracy.Balanced,
-              distanceInterval: 8,
-              timeInterval: 8000,
+              distanceInterval: 15,
+              timeInterval: 30000,
             },
             () => {
               void checkLocationAndGeofence();

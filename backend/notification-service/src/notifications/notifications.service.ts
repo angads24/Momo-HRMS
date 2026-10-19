@@ -35,11 +35,13 @@ export class NotificationsService {
       },
     });
 
+    const sanitized = this.sanitizeNotification(notification);
+
     // Stream in real-time to active in-app connections
     this.sseService.emitNotification({
       recipientId: notification.recipientId,
       recipientType: notification.recipientType,
-      notification,
+      notification: sanitized,
     });
 
     // Dispatch email notifications via EmailService (SMTP)
@@ -75,7 +77,111 @@ export class NotificationsService {
     }
 
     this.logger.log(`Created notification ${notification.id} for ${notification.recipientId} (${notification.type})`);
-    return notification;
+    return sanitized;
+  }
+
+  /**
+   * Sanitizes notification records so internal raw database UUIDs (senderUserId,
+   * recipientUserId, internal primary keys, session IDs) are never leaked in API responses,
+   * while ensuring clean, functional recipient and sender fields for the UI.
+   */
+  private sanitizeNotification(item: any) {
+    if (!item) return item;
+    const meta = (item.metadata ? { ...(item.metadata as Record<string, any>) } : {}) as Record<string, any>;
+
+    // Determine clean human-readable audience and name
+    let recipientDisplay = 'All Staff';
+    let recipientName = 'All Staff';
+    let to = 'All Staff';
+
+    if (meta.to) {
+      to = String(meta.to);
+      recipientDisplay = to;
+      recipientName = to;
+    } else if (item.recipientType === 'BROADCAST' || item.recipientId === 'ALL') {
+      recipientDisplay = 'All Staff';
+      recipientName = 'All Staff';
+      to = 'All Staff';
+    } else if (item.recipientType === 'HR' || item.recipientId === 'HR') {
+      recipientDisplay = 'Human Resources';
+      recipientName = 'Human Resources Team';
+      to = 'Human Resources';
+    } else if (item.recipientType === 'ADMIN' || item.recipientId === 'ADMIN') {
+      recipientDisplay = 'Administrators';
+      recipientName = 'System Administrators';
+      to = 'Administrators';
+    } else {
+      // Individual person: Prominently use the person's actual Name!
+      if (meta.recipientName || meta.name) {
+        recipientName = meta.recipientName || meta.name;
+        to = meta.employeeCode ? `${recipientName} (${meta.employeeCode})` : recipientName;
+        recipientDisplay = recipientName;
+      } else if (meta.employeeCode) {
+        recipientName = meta.employeeCode;
+        to = meta.employeeCode;
+        recipientDisplay = meta.employeeCode;
+      } else if (meta.email) {
+        recipientName = meta.email;
+        to = meta.email;
+        recipientDisplay = meta.email;
+      } else {
+        recipientName = item.recipientId && item.recipientId.startsWith('EMP-') ? item.recipientId : 'Staff Member';
+        to = recipientName;
+        recipientDisplay = recipientName;
+      }
+    }
+
+    let from = meta.from || meta.senderName;
+    if (!from) {
+      if (item.type === 'SPECIAL_WORKING_HOURS_REQUEST') {
+        from = meta.employeeName ? `${meta.employeeName} (Employee)` : 'Employee';
+      } else if (item.type === 'SPECIAL_CONDITION_APPROVED' || item.type === 'SPECIAL_CONDITION_REJECTED') {
+        from = meta.approvedByName || meta.approvedBy || 'HR Management';
+      } else {
+        from = meta.senderRole === 'ADMIN' ? 'System Administrator' : 'HR Management';
+      }
+    }
+
+    // Clean up sensitive internal DB keys/UUIDs from metadata so they are NOT exposed in DevTools inspect
+    delete meta.userId;
+    delete meta.recipientId;
+    delete meta.recipientUserId;
+    delete meta.recipientEmployeeId;
+    delete meta.employeeId;
+    delete meta.sessionId;
+    delete meta.approvedByUserId;
+
+    if (meta.senderUserId && typeof meta.senderUserId === 'string' && meta.senderUserId.length === 36 && meta.senderUserId.includes('-')) {
+      delete meta.senderUserId;
+    }
+
+    if (meta.senderId && typeof meta.senderId === 'string' && (meta.senderId.length === 36 || meta.senderId.includes('-'))) {
+      delete meta.senderId;
+    }
+
+    if (meta.exceptionId && typeof meta.exceptionId === 'string' && meta.exceptionId.length === 36 && meta.exceptionId.includes('-')) {
+      meta.exceptionId = `EXC-${meta.exceptionId.slice(-6).toUpperCase()}`;
+    }
+
+    // Clean up top-level recipientId so raw 36-char internal UUID is never exposed
+    const cleanRecipientId =
+      item.recipientId && item.recipientId.length === 36 && item.recipientId.includes('-')
+        ? meta.employeeCode || item.recipientType || 'STAFF'
+        : item.recipientId;
+
+    return {
+      ...item,
+      recipientId: cleanRecipientId,
+      recipientDisplay,
+      recipientName,
+      from,
+      to,
+      senderEmail: meta.senderEmail || meta.email || '',
+      senderRole: meta.senderRole || '',
+      targetMode: meta.targetMode || '',
+      recipientEmail: meta.recipientEmail || meta.email || '',
+      metadata: meta,
+    };
   }
 
   private buildRecipientWhere(recipientId?: string, email?: string, role?: string, callerUserId?: string): any {
@@ -84,22 +190,20 @@ export class NotificationsService {
       .map((r) => r.trim().toUpperCase())
       .filter(Boolean);
 
-    const isRoleAdmin = rolesArray.some((r) => ['ADMIN', 'SUPER_ADMIN'].includes(r));
-    const isRoleHr = rolesArray.some((r) => ['HR', 'HR_ADMIN'].includes(r));
-
     const cleanEmail = email ? email.trim().toLowerCase() : '';
     const cleanRecipientId = recipientId ? recipientId.trim().toUpperCase() : '';
+    const cleanCallerUserId = callerUserId ? callerUserId.trim().toLowerCase() : '';
 
     const isAdmin =
-      isRoleAdmin ||
+      rolesArray.some((r) => ['ADMIN', 'SUPER_ADMIN'].includes(r)) ||
       cleanRecipientId === 'ADMIN' ||
       cleanEmail.includes('admin');
 
     const isHr =
-      isRoleHr ||
+      rolesArray.some((r) => ['HR', 'HR_ADMIN'].includes(r)) ||
       cleanRecipientId === 'HR' ||
-      cleanEmail.includes('hr') ||
-      cleanEmail.includes('angad');
+      cleanEmail.includes('.hr@') ||
+      cleanEmail.includes('hr@');
 
     const entryLeaveTypes = [
       'CHECKIN_CONFIRMATION',
@@ -108,107 +212,98 @@ export class NotificationsService {
       'GEOFENCE_RETURN',
     ];
 
-    if (isAdmin) {
-      // Administrators should NOT get notifications of which employee entered or left the system
-      return {
-        type: {
-          notIn: entryLeaveTypes,
-        },
-      };
-    }
-
-    if (isHr) {
-      // HR staff: Include broadcasts, HR team alerts, special requests, approvals, and notifications dispatched by HR staff,
-      // but EXCLUDE irrelevant notifications/mails about employees entering or leaving the geofence/system.
-      const hrOrConditions: any[] = [
-        { recipientId: 'ALL' },
-        { recipientType: 'BROADCAST' },
-        { recipientType: 'HR' },
-        { recipientId: 'HR' },
-        { type: 'SPECIAL_WORKING_HOURS_REQUEST' },
-        { type: 'SPECIAL_CONDITION_APPROVED' },
-        { type: 'SPECIAL_CONDITION_REJECTED' },
-        { type: 'EXCEPTION_REQUESTED' },
-        { type: 'EXCEPTION_APPROVED' },
-        { type: 'EXCEPTION_REJECTED' },
-        { metadata: { path: '$.senderRole', equals: 'HR' } },
-        { metadata: { path: '$.senderRole', equals: 'HR_ADMIN' } },
-      ];
-
-      if (recipientId && recipientId !== 'ALL' && recipientId !== 'HR' && recipientId !== 'ADMIN') {
-        hrOrConditions.push({ recipientId });
-        hrOrConditions.push({ metadata: { path: '$.employeeCode', equals: recipientId } });
-        hrOrConditions.push({ metadata: { path: '$.userId', equals: recipientId } });
-        hrOrConditions.push({ metadata: { path: '$.recipientUserId', equals: recipientId } });
-        hrOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: recipientId } });
-        hrOrConditions.push({ metadata: { path: '$.recipientId', equals: recipientId } });
-      }
-
-      if (callerUserId && callerUserId !== recipientId && callerUserId !== 'ALL' && callerUserId !== 'HR' && callerUserId !== 'ADMIN') {
-        hrOrConditions.push({ recipientId: callerUserId });
-        hrOrConditions.push({ metadata: { path: '$.userId', equals: callerUserId } });
-        hrOrConditions.push({ metadata: { path: '$.recipientUserId', equals: callerUserId } });
-        hrOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: callerUserId } });
-        hrOrConditions.push({ metadata: { path: '$.senderUserId', equals: callerUserId } });
-      }
-
-      if (email) {
-        hrOrConditions.push({ recipientId: email });
-        hrOrConditions.push({ metadata: { path: '$.email', equals: email } });
-        hrOrConditions.push({ metadata: { path: '$.recipientEmail', equals: email } });
-        hrOrConditions.push({ metadata: { path: '$.senderEmail', equals: email } });
-        hrOrConditions.push({ metadata: { path: '$.hrEmail', equals: email } });
-      }
-
-      return {
-        AND: [
-          {
-            type: {
-              notIn: entryLeaveTypes,
-            },
-          },
-          {
-            OR: hrOrConditions,
-          },
-        ],
-      };
-    }
-
-    const employeeOrConditions: any[] = [
+    const orConditions: any[] = [
       { recipientId: 'ALL' },
       { recipientType: 'BROADCAST' },
     ];
 
+    if (isAdmin) {
+      // Admin sees Admin announcements, notifications sent TO Admin, and notifications SENT BY Admin
+      orConditions.push({ recipientId: 'ADMIN' });
+      orConditions.push({ recipientType: 'ADMIN' });
+      orConditions.push({ metadata: { path: '$.senderRole', equals: 'ADMIN' } });
+      orConditions.push({ metadata: { path: '$.senderUserId', equals: 'admin' } });
+
+      if (cleanEmail) {
+        orConditions.push({ recipientId: cleanEmail });
+        orConditions.push({ metadata: { path: '$.recipientEmail', equals: cleanEmail } });
+        orConditions.push({ metadata: { path: '$.senderEmail', equals: cleanEmail } });
+      }
+      if (cleanCallerUserId) {
+        orConditions.push({ metadata: { path: '$.senderUserId', equals: cleanCallerUserId } });
+        orConditions.push({ metadata: { path: '$.recipientUserId', equals: cleanCallerUserId } });
+      }
+
+      return {
+        AND: [
+          { OR: orConditions },
+          { type: { notIn: entryLeaveTypes } },
+        ],
+      };
+    }
+
+    if (isHr) {
+      // HR sees HR announcements, notifications sent TO HR, notifications SENT BY HR, and employee workflow requests
+      orConditions.push({ recipientId: 'HR' });
+      orConditions.push({ recipientType: 'HR' });
+      orConditions.push({ type: 'SPECIAL_WORKING_HOURS_REQUEST' });
+      orConditions.push({ metadata: { path: '$.senderRole', equals: 'HR' } });
+
+      if (cleanRecipientId && cleanRecipientId !== 'HR') {
+        orConditions.push({ recipientId: cleanRecipientId });
+        orConditions.push({ metadata: { path: '$.employeeCode', equals: cleanRecipientId } });
+        orConditions.push({ metadata: { path: '$.recipientId', equals: cleanRecipientId } });
+        orConditions.push({ metadata: { path: '$.senderUserId', equals: cleanRecipientId } });
+      }
+      if (cleanEmail) {
+        orConditions.push({ recipientId: cleanEmail });
+        orConditions.push({ metadata: { path: '$.recipientEmail', equals: cleanEmail } });
+        orConditions.push({ metadata: { path: '$.senderEmail', equals: cleanEmail } });
+      }
+      if (cleanCallerUserId) {
+        orConditions.push({ metadata: { path: '$.senderUserId', equals: cleanCallerUserId } });
+        orConditions.push({ metadata: { path: '$.recipientUserId', equals: cleanCallerUserId } });
+      }
+
+      return {
+        AND: [
+          { OR: orConditions },
+          { type: { notIn: entryLeaveTypes } },
+        ],
+      };
+    }
+
+    // Direct Employee: sees personal communications, decisions, and messages sent by/to them
     if (recipientId && recipientId !== 'ALL' && recipientId !== 'HR' && recipientId !== 'ADMIN') {
-      employeeOrConditions.push({ recipientId });
-      employeeOrConditions.push({ metadata: { path: '$.employeeCode', equals: recipientId } });
-      employeeOrConditions.push({ metadata: { path: '$.userId', equals: recipientId } });
-      employeeOrConditions.push({ metadata: { path: '$.recipientUserId', equals: recipientId } });
-      employeeOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: recipientId } });
-      employeeOrConditions.push({ metadata: { path: '$.recipientId', equals: recipientId } });
+      orConditions.push({ recipientId });
+      orConditions.push({ metadata: { path: '$.employeeCode', equals: recipientId } });
+      orConditions.push({ metadata: { path: '$.recipientId', equals: recipientId } });
     }
 
-    if (callerUserId && callerUserId !== recipientId && callerUserId !== 'ALL' && callerUserId !== 'HR' && callerUserId !== 'ADMIN') {
-      employeeOrConditions.push({ recipientId: callerUserId });
-      employeeOrConditions.push({ metadata: { path: '$.userId', equals: callerUserId } });
-      employeeOrConditions.push({ metadata: { path: '$.recipientUserId', equals: callerUserId } });
-      employeeOrConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: callerUserId } });
+    if (cleanCallerUserId && cleanCallerUserId !== recipientId && cleanCallerUserId !== 'all') {
+      orConditions.push({ recipientId: cleanCallerUserId });
+      orConditions.push({ metadata: { path: '$.userId', equals: cleanCallerUserId } });
+      orConditions.push({ metadata: { path: '$.recipientUserId', equals: cleanCallerUserId } });
+      orConditions.push({ metadata: { path: '$.recipientEmployeeId', equals: cleanCallerUserId } });
+      orConditions.push({ metadata: { path: '$.senderUserId', equals: cleanCallerUserId } });
     }
 
-    if (email) {
-      employeeOrConditions.push({ recipientId: email });
-      employeeOrConditions.push({ metadata: { path: '$.email', equals: email } });
-      employeeOrConditions.push({ metadata: { path: '$.recipientEmail', equals: email } });
+    if (cleanEmail) {
+      orConditions.push({ recipientId: cleanEmail });
+      orConditions.push({ metadata: { path: '$.email', equals: cleanEmail } });
+      orConditions.push({ metadata: { path: '$.recipientEmail', equals: cleanEmail } });
+      orConditions.push({ metadata: { path: '$.senderEmail', equals: cleanEmail } });
     }
 
-    return { OR: employeeOrConditions };
+    return { OR: orConditions };
   }
 
-  async getDismissedIds(userId?: string): Promise<string[]> {
-    if (!userId) return [];
+  async getDismissedIds(userIds?: string | string[]): Promise<string[]> {
+    const list = (Array.isArray(userIds) ? userIds : [userIds]).filter(Boolean) as string[];
+    if (list.length === 0) return [];
     try {
       const dismissals = await this.prisma.notificationDismissal.findMany({
-        where: { userId },
+        where: { userId: { in: list } },
         select: { notificationId: true },
       });
       return dismissals.map((d) => d.notificationId);
@@ -217,129 +312,65 @@ export class NotificationsService {
     }
   }
 
-  async findAll(query: QueryNotificationsDto, callerUserId?: string) {
+  async getReadIds(userIds?: string | string[]): Promise<Set<string>> {
+    const list = (Array.isArray(userIds) ? userIds : [userIds]).filter(Boolean) as string[];
+    if (list.length === 0) return new Set();
+    try {
+      const reads = await this.prisma.notificationRead.findMany({
+        where: { userId: { in: list } },
+        select: { notificationId: true },
+      });
+      return new Set(reads.map((r) => r.notificationId));
+    } catch {
+      return new Set();
+    }
+  }
+
+  async findAll(query: QueryNotificationsDto, callerUserIds?: string | string[]) {
     const { recipientId, email, role, isRead, page, limit } = query;
     const isPaginated = typeof page === 'number' && typeof limit === 'number' && page > 0 && limit > 0;
     const skip = isPaginated ? (page - 1) * limit : undefined;
     const take = isPaginated ? limit : undefined;
 
-    const baseWhere = this.buildRecipientWhere(recipientId, email, role, callerUserId);
-    const effectiveUserId = callerUserId || recipientId;
-    const dismissedIds = await this.getDismissedIds(effectiveUserId);
+    const userList = (Array.isArray(callerUserIds) ? callerUserIds : [callerUserIds, recipientId, email]).filter(Boolean) as string[];
+    const primaryUserId = userList[0] || recipientId;
+
+    const baseWhere = this.buildRecipientWhere(recipientId, email, role, primaryUserId);
+    const dismissedIds = await this.getDismissedIds(userList);
+    const userReadIds = await this.getReadIds(userList);
 
     const where: any = { ...baseWhere };
     if (dismissedIds.length > 0) {
       where.id = { notIn: dismissedIds };
     }
-    if (typeof isRead === 'boolean') {
-      where.isRead = isRead;
-    }
 
-    const [items, total, unreadCount] = await Promise.all([
+    const [items, total] = await Promise.all([
       this.prisma.notification.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         ...(isPaginated ? { skip, take } : {}),
       }),
       this.prisma.notification.count({ where }),
-      this.prisma.notification.count({
-        where: {
-          ...where,
-          isRead: false,
-        },
-      }),
     ]);
 
     const enrichedItems = items.map((item) => {
-      const meta = (item.metadata ? { ...(item.metadata as Record<string, any>) } : {}) as Record<string, any>;
-
-      // Determine clean human-readable audience and name
-      let recipientDisplay = 'All Staff';
-      let recipientName = 'All Staff';
-      let to = 'All Staff';
-
-      if (meta.to) {
-        to = String(meta.to);
-        recipientDisplay = to;
-        recipientName = to;
-      } else if (item.recipientType === 'BROADCAST' || item.recipientId === 'ALL') {
-        recipientDisplay = 'All Staff';
-        recipientName = 'All Staff';
-        to = 'All Staff';
-      } else if (item.recipientType === 'HR' || item.recipientId === 'HR') {
-        recipientDisplay = 'Human Resources';
-        recipientName = 'Human Resources Team';
-        to = 'Human Resources';
-      } else if (item.recipientType === 'ADMIN' || item.recipientId === 'ADMIN') {
-        recipientDisplay = 'Administrators';
-        recipientName = 'System Administrators';
-        to = 'Administrators';
-      } else {
-        // Individual person: Prominently use the person's actual Name!
-        if (meta.recipientName || meta.name) {
-          recipientName = meta.recipientName || meta.name;
-          to = meta.employeeCode ? `${recipientName} (${meta.employeeCode})` : recipientName;
-          recipientDisplay = recipientName;
-        } else if (meta.employeeCode) {
-          recipientName = meta.employeeCode;
-          to = meta.employeeCode;
-          recipientDisplay = meta.employeeCode;
-        } else if (meta.email) {
-          recipientName = meta.email;
-          to = meta.email;
-          recipientDisplay = meta.email;
-        } else {
-          recipientName = item.recipientId.startsWith('EMP-') ? item.recipientId : 'Staff Member';
-          to = recipientName;
-          recipientDisplay = recipientName;
-        }
-      }
-
-      let from = meta.from || meta.senderName;
-      if (!from) {
-        if (item.type === 'SPECIAL_WORKING_HOURS_REQUEST') {
-          from = meta.employeeName ? `${meta.employeeName} (Employee)` : 'Employee';
-        } else if (item.type === 'SPECIAL_CONDITION_APPROVED' || item.type === 'SPECIAL_CONDITION_REJECTED') {
-          from = meta.approvedByName || meta.approvedBy || 'HR Management';
-        } else {
-          from = 'HR Management';
-        }
-      }
-
-      // Clean up sensitive internal DB keys from metadata so they are NOT exposed in DevTools inspect
-      delete meta.userId;
-      delete meta.recipientId;
-      delete meta.recipientUserId;
-      delete meta.recipientEmployeeId;
-      delete meta.employeeId;
-      delete meta.senderUserId;
-      delete meta.senderEmail;
-      delete meta.sessionId;
-
-      if (meta.exceptionId && typeof meta.exceptionId === 'string' && meta.exceptionId.length === 36 && meta.exceptionId.includes('-')) {
-        meta.exceptionId = `EXC-${meta.exceptionId.slice(-6).toUpperCase()}`;
-      }
-
-      // Clean up top-level recipientId so raw 36-char internal UUID is never exposed
-      const cleanRecipientId =
-        item.recipientId.length === 36 && item.recipientId.includes('-')
-          ? meta.employeeCode || item.recipientType || 'STAFF'
-          : item.recipientId;
-
+      const sanitized = this.sanitizeNotification(item);
+      const isReadForUser = Boolean(sanitized.isRead || userReadIds.has(item.id));
       return {
-        ...item,
-        recipientId: cleanRecipientId,
-        recipientDisplay,
-        recipientName,
-        from,
-        to,
-        metadata: meta,
+        ...sanitized,
+        isRead: isReadForUser,
       };
     });
 
+    const finalFiltered = typeof isRead === 'boolean'
+      ? enrichedItems.filter((i) => i.isRead === isRead)
+      : enrichedItems;
+
+    const unreadCount = enrichedItems.filter((i) => !i.isRead).length;
+
     return {
-      items: enrichedItems,
-      total,
+      items: finalFiltered,
+      total: typeof isRead === 'boolean' ? finalFiltered.length : total,
       unreadCount,
       page: page ?? 1,
       limit: limit ?? total,
@@ -347,21 +378,40 @@ export class NotificationsService {
     };
   }
 
-  async getUnreadCount(recipientId?: string, email?: string, role?: string, callerUserId?: string) {
-    const effectiveUserId = callerUserId || recipientId;
-    const dismissedIds = await this.getDismissedIds(effectiveUserId);
+  async findOne(id: string) {
+    const item = await this.prisma.notification.findUnique({
+      where: { id },
+    });
+    if (!item) {
+      throw new NotFoundException(`Notification with ID ${id} not found`);
+    }
+    return this.sanitizeNotification(item);
+  }
+
+  async getUnreadCount(recipientId?: string, email?: string, role?: string, callerUserIds?: string | string[]) {
+    const userList = (Array.isArray(callerUserIds) ? callerUserIds : [callerUserIds, recipientId, email]).filter(Boolean) as string[];
+    const primaryUserId = userList[0] || recipientId;
+
+    const dismissedIds = await this.getDismissedIds(userList);
+    const userReadIds = await this.getReadIds(userList);
+
     const where: any = {
-      ...this.buildRecipientWhere(recipientId, email, role, effectiveUserId),
-      isRead: false,
+      ...this.buildRecipientWhere(recipientId, email, role, primaryUserId),
     };
     if (dismissedIds.length > 0) {
       where.id = { notIn: dismissedIds };
     }
-    const count = await this.prisma.notification.count({ where });
+
+    const candidates = await this.prisma.notification.findMany({
+      where,
+      select: { id: true, isRead: true },
+    });
+
+    const count = candidates.filter((c) => !c.isRead && !userReadIds.has(c.id)).length;
     return { count };
   }
 
-  async markAsRead(id: string) {
+  async markAsRead(id: string, userIds?: string | string[]) {
     const existing = await this.prisma.notification.findUnique({
       where: { id },
     });
@@ -369,29 +419,96 @@ export class NotificationsService {
       throw new NotFoundException(`Notification with ID ${id} not found`);
     }
 
-    return this.prisma.notification.update({
-      where: { id },
-      data: {
-        isRead: true,
-        readAt: new Date(),
-      },
-    });
+    const isGroupOrBroadcast =
+      existing.recipientId === 'ALL' ||
+      existing.recipientId === 'HR' ||
+      existing.recipientId === 'ADMIN' ||
+      existing.recipientType === 'BROADCAST' ||
+      existing.recipientType === 'HR' ||
+      existing.recipientType === 'ADMIN';
+
+    const userList = (Array.isArray(userIds) ? userIds : [userIds]).filter(Boolean) as string[];
+    for (const uid of userList) {
+      await this.prisma.notificationRead.upsert({
+        where: {
+          notificationId_userId: { notificationId: id, userId: uid },
+        },
+        create: { notificationId: id, userId: uid },
+        update: { readAt: new Date() },
+      });
+    }
+
+    let updated = existing;
+    if (!isGroupOrBroadcast) {
+      updated = await this.prisma.notification.update({
+        where: { id },
+        data: {
+          isRead: true,
+          readAt: new Date(),
+        },
+      });
+    }
+
+    const sanitized = this.sanitizeNotification(updated);
+    return {
+      ...sanitized,
+      isRead: true,
+      readAt: new Date(),
+    };
   }
 
-  async markAllAsRead(recipientId?: string, email?: string, role?: string) {
-    const baseWhere = this.buildRecipientWhere(recipientId, email, role);
-    const result = await this.prisma.notification.updateMany({
-      where: {
-        ...baseWhere,
-        isRead: false,
-      },
-      data: {
-        isRead: true,
-        readAt: new Date(),
-      },
+  async markAllAsRead(recipientId?: string, email?: string, role?: string, callerUserIds?: string | string[]) {
+    const userList = (Array.isArray(callerUserIds) ? callerUserIds : [callerUserIds, recipientId, email]).filter(Boolean) as string[];
+    const primaryUserId = userList[0] || recipientId;
+
+    const baseWhere = this.buildRecipientWhere(recipientId, email, role, primaryUserId);
+    const dismissedIds = await this.getDismissedIds(userList);
+
+    const where: any = { ...baseWhere };
+    if (dismissedIds.length > 0) {
+      where.id = { notIn: dismissedIds };
+    }
+
+    const unreadItems = await this.prisma.notification.findMany({
+      where,
+      select: { id: true, recipientId: true, recipientType: true, isRead: true },
     });
 
-    return { updated: result.count };
+    const userReadIds = await this.getReadIds(userList);
+    const toMark = unreadItems.filter((item) => !item.isRead && !userReadIds.has(item.id));
+
+    let updatedCount = 0;
+
+    for (const item of toMark) {
+      const isGroupOrBroadcast =
+        item.recipientId === 'ALL' ||
+        item.recipientId === 'HR' ||
+        item.recipientId === 'ADMIN' ||
+        item.recipientType === 'BROADCAST' ||
+        item.recipientType === 'HR' ||
+        item.recipientType === 'ADMIN';
+
+      for (const uid of userList) {
+        await this.prisma.notificationRead.upsert({
+          where: {
+            notificationId_userId: { notificationId: item.id, userId: uid },
+          },
+          create: { notificationId: item.id, userId: uid },
+          update: { readAt: new Date() },
+        });
+      }
+
+      if (!isGroupOrBroadcast) {
+        await this.prisma.notification.update({
+          where: { id: item.id },
+          data: { isRead: true, readAt: new Date() },
+        });
+      }
+
+      updatedCount++;
+    }
+
+    return { updated: updatedCount };
   }
 
   async remove(id: string, userId?: string, hardDelete: boolean = false) {

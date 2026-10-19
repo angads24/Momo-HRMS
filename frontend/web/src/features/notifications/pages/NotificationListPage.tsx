@@ -45,21 +45,69 @@ export default function NotificationListPage() {
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [previewItem, setPreviewItem] = useState<AppNotification | null>(null);
 
+  const isNotificationVisibleToUser = useCallback((item: AppNotification) => {
+    if (!user) return false;
+    const meta = (item.metadata || {}) as Record<string, any>;
+    const userEmail = (user.email || '').trim().toLowerCase();
+    const itemRecipEmail = (meta.recipientEmail || meta.email || (item as any).recipientEmail || '').trim().toLowerCase();
+    const itemSenderEmail = (meta.senderEmail || (item as any).senderEmail || '').trim().toLowerCase();
+    const senderRole = (meta.senderRole || (item as any).senderRole || '').trim().toUpperCase();
+    const targetMode = (meta.targetMode || (item as any).targetMode || '').trim().toUpperCase();
+    const recipType = (item.recipientType || '').trim().toUpperCase();
+    const recipId = (item.recipientId || '').trim();
+
+    // 1. Broadcasts to All Staff
+    if (recipId === 'ALL' || recipType === 'BROADCAST' || targetMode === 'BROADCAST') {
+      return true;
+    }
+
+    // 2. Direct message to current user (Current user is the RECIPIENT)
+    if (
+      (userEmail && itemRecipEmail === userEmail) ||
+      (userEmail && recipId.toLowerCase() === userEmail) ||
+      (user.username && recipId.toLowerCase() === user.username.toLowerCase()) ||
+      (user.id && recipId === user.id)
+    ) {
+      return true;
+    }
+
+    // 3. Direct message sent BY current user (Current user is the SENDER)
+    if (
+      (userEmail && itemSenderEmail === userEmail) ||
+      (user.username && meta.senderUserId && String(meta.senderUserId).toLowerCase() === user.username.toLowerCase()) ||
+      (user.fullName && item.from && item.from.toLowerCase().includes(user.fullName.toLowerCase())) ||
+      (user.username && item.from && item.from.toLowerCase().includes(user.username.toLowerCase()))
+    ) {
+      return true;
+    }
+
+    // 4. Role-based rules:
+    if (user.appRole === 'ADMIN') {
+      if (recipId === 'ADMIN' || recipType === 'ADMIN' || targetMode === 'ADMIN') return true;
+      if (senderRole === 'ADMIN') return true;
+      return false;
+    }
+
+    if (user.appRole === 'HR') {
+      if (recipId === 'HR' || recipType === 'HR' || targetMode === 'HR') return true;
+      if (item.type === 'SPECIAL_WORKING_HOURS_REQUEST') return true;
+      if (senderRole === 'HR') return true;
+      return false;
+    }
+
+    return false;
+  }, [user]);
+
   const loadNotifications = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const queryParams: Record<string, string> = {};
-      if (user?.email) queryParams.email = user.email;
-      if (user?.appRole) {
-        queryParams.role = user.appRole;
-        queryParams.recipientId = user.appRole === 'ADMIN' ? 'ADMIN' : user.appRole === 'HR' ? 'HR' : user.email;
-      }
-      // Transfer complete notification dataset for current user/role
-      const res = await fetchNotifications(queryParams);
-      const items = res.items ?? [];
-      setAllNotifications(items);
-      const unread = items.filter((n) => !n.isRead).length;
+      // Clean request: /api/v1/notifications without query parameters in URL
+      const res = await fetchNotifications();
+      const rawItems = res.items ?? [];
+      const visibleItems = rawItems.filter(isNotificationVisibleToUser);
+      setAllNotifications(visibleItems);
+      const unread = visibleItems.filter((n) => !n.isRead).length;
       setUnreadCount(unread);
     } catch (err: unknown) {
       const msg =
@@ -70,7 +118,7 @@ export default function NotificationListPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, setUnreadCount]);
+  }, [isNotificationVisibleToUser, setUnreadCount]);
 
   useEffect(() => {
     void loadNotifications();

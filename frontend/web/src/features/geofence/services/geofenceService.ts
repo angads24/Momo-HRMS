@@ -27,8 +27,10 @@ function unwrapResponse<T>(resData: T | BackendEnvelope<T>): T {
  * Lists all registered offices with their active geofence polygons.
  * GET /api/v1/offices
  */
-export async function fetchOffices(): Promise<Office[]> {
-  const response = await api.get<Office[] | BackendEnvelope<Office[]>>(`${GEOFENCE_API_URL}/offices`);
+export async function fetchOffices(options: { summary?: boolean } = {}): Promise<Office[]> {
+  const params: Record<string, boolean> = {};
+  if (options.summary) params.summary = true;
+  const response = await api.get<Office[] | BackendEnvelope<Office[]>>(`${GEOFENCE_API_URL}/offices`, { params });
   return unwrapResponse(response.data);
 }
 

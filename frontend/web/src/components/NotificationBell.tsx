@@ -42,16 +42,41 @@ export function NotificationBell() {
     if (!user) return;
     setLoading(true);
     try {
-      const queryParams: Record<string, string> = {};
-      if (user?.email) queryParams.email = user.email;
-      if (user?.appRole) {
-        queryParams.role = user.appRole;
-        queryParams.recipientId = user.appRole === 'ADMIN' ? 'ADMIN' : user.appRole === 'HR' ? 'HR' : user.email;
-      }
-      const data = await fetchNotifications(queryParams);
+      const data = await fetchNotifications();
       const items = data?.items ?? [];
-      setNotifications(items.slice(0, 15));
-      setUnreadCount(items.filter((n) => !n.isRead).length);
+      const userEmail = (user.email || '').trim().toLowerCase();
+      const visible = items.filter((item) => {
+        const meta = (item.metadata || {}) as Record<string, any>;
+        const itemRecipEmail = (meta.recipientEmail || meta.email || (item as any).recipientEmail || '').trim().toLowerCase();
+        const itemSenderEmail = (meta.senderEmail || (item as any).senderEmail || '').trim().toLowerCase();
+        const senderRole = (meta.senderRole || (item as any).senderRole || '').trim().toUpperCase();
+        const targetMode = (meta.targetMode || (item as any).targetMode || '').trim().toUpperCase();
+        const recipType = (item.recipientType || '').trim().toUpperCase();
+        const recipId = (item.recipientId || '').trim();
+
+        if (recipId === 'ALL' || recipType === 'BROADCAST' || targetMode === 'BROADCAST') return true;
+        if (
+          (userEmail && itemRecipEmail === userEmail) ||
+          (userEmail && recipId.toLowerCase() === userEmail) ||
+          (user.username && recipId.toLowerCase() === user.username.toLowerCase()) ||
+          (user.id && recipId === user.id)
+        ) return true;
+        if (
+          (userEmail && itemSenderEmail === userEmail) ||
+          (user.username && meta.senderUserId && String(meta.senderUserId).toLowerCase() === user.username.toLowerCase()) ||
+          (user.fullName && item.from && item.from.toLowerCase().includes(user.fullName.toLowerCase())) ||
+          (user.username && item.from && item.from.toLowerCase().includes(user.username.toLowerCase()))
+        ) return true;
+        if (user.appRole === 'ADMIN') {
+          return recipId === 'ADMIN' || recipType === 'ADMIN' || targetMode === 'ADMIN' || senderRole === 'ADMIN';
+        }
+        if (user.appRole === 'HR') {
+          return recipId === 'HR' || recipType === 'HR' || targetMode === 'HR' || senderRole === 'HR' || item.type === 'SPECIAL_WORKING_HOURS_REQUEST';
+        }
+        return false;
+      });
+      setNotifications(visible.slice(0, 15));
+      setUnreadCount(visible.filter((n) => !n.isRead).length);
     } finally {
       setLoading(false);
     }

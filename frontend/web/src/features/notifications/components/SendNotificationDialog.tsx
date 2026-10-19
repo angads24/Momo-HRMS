@@ -98,15 +98,15 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
             }
 
             options.push({
-              id: emp.id,
+              id: emp.employeeCode || emp.id,
               name: `${emp.firstName} ${emp.lastName}`.trim(),
               code: emp.employeeCode,
               email: emp.email,
               role: isHr ? 'HR' : 'EMPLOYEE',
               department: isHr ? 'Human Resources' : (emp.department?.name || 'General'),
               jobTitle: cleanTitle || (isHr ? 'HR Specialist' : 'Staff Associate'),
-              userId: emp.userId || undefined,
-              employeeId: emp.id,
+              userId: emp.employeeCode,
+              employeeId: emp.employeeCode || emp.id,
             });
           }
         }
@@ -115,14 +115,14 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
         const hasAdminEmail = options.some((o) => o.email.toLowerCase() === 'admin@company.com');
         if (!hasAdminEmail) {
           options.unshift({
-            id: 'admin-primary',
+            id: 'admin',
             name: 'System Administrator',
             code: 'ADMIN',
             email: 'admin@company.com',
             role: 'ADMIN',
             department: 'IT & System Administration',
             jobTitle: 'Super Administrator',
-            userId: 'admin-primary',
+            userId: 'admin',
           });
         }
 
@@ -135,16 +135,17 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
               const isAdmin = emailLower.includes('admin') || (u.roles && u.roles.some((r) => r.includes('ADMIN')));
               const isHr = emailLower.includes('hr');
               const role: 'ADMIN' | 'HR' | 'EMPLOYEE' = isAdmin ? 'ADMIN' : isHr ? 'HR' : 'EMPLOYEE';
+              const cleanCode = isAdmin ? 'ADMIN' : isHr ? 'HR-PORTAL' : (u.username || 'AUTH-USER');
 
               options.push({
-                id: u.id,
+                id: u.username || cleanCode,
                 name: u.fullName || u.username || (isAdmin ? 'System Administrator' : 'HR Manager'),
-                code: isAdmin ? 'ADMIN' : isHr ? 'HR-PORTAL' : 'AUTH-USER',
+                code: cleanCode,
                 email: u.email,
                 role,
                 department: isAdmin ? 'IT & Security' : isHr ? 'Human Resources' : 'General',
                 jobTitle: isAdmin ? 'Administrator' : isHr ? 'HR Portal Account' : 'User Account',
-                userId: u.id,
+                userId: u.username || cleanCode,
               });
             }
           }
@@ -238,12 +239,14 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
           ? 'Administrators'
           : matchedRecipient?.name || finalRecipientId;
 
+      const cleanSenderUserId = currentUser?.username || (currentUser?.id && currentUser.id.length < 32 ? currentUser.id : undefined);
+
       const enrichedMeta: Record<string, unknown> = {
         ...parsedMeta,
         targetMode,
         senderName: senderDisplayName,
         from: senderFrom,
-        senderUserId: currentUser?.id,
+        senderUserId: cleanSenderUserId,
         senderEmail: currentUser?.email,
         senderRole: currentUser?.appRole || 'HR',
         recipientName: recipientDisplayName,
@@ -251,8 +254,8 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
         ...(matchedRecipient
           ? {
               recipientId: finalRecipientId,
-              recipientUserId: matchedRecipient.userId,
-              recipientEmployeeId: matchedRecipient.employeeId || matchedRecipient.id,
+              recipientUserId: matchedRecipient.code || matchedRecipient.userId,
+              recipientEmployeeId: matchedRecipient.code || matchedRecipient.employeeId,
               employeeCode: matchedRecipient.code,
               email: matchedRecipient.email,
               recipientEmail: matchedRecipient.email,

@@ -45,6 +45,8 @@ export class AuthEnrichmentMiddleware implements NestMiddleware {
             req.headers['x-employee-id'] = String(decoded.employeeId);
           } else if (incomingEmpId && typeof incomingEmpId === 'string' && incomingEmpId.trim()) {
             req.headers['x-employee-id'] = incomingEmpId.trim();
+          } else if (decoded.username) {
+            req.headers['x-employee-id'] = String(decoded.username);
           } else if (decoded.sub) {
             req.headers['x-employee-id'] = String(decoded.sub);
           }

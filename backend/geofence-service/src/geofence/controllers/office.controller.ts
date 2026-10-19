@@ -27,8 +27,8 @@ export class OfficeController {
   @Public()
   @ApiOperation({ summary: 'List all offices with their active geofence polygons' })
   @ApiResponse({ status: 200, type: [OfficeResponseDto] })
-  async listOffices() {
-    return this.geofenceService.listOffices();
+  async listOffices(@Query('summary') summary?: string) {
+    return this.geofenceService.listOffices(summary === 'true' || summary === '1');
   }
 
   @Get('count')

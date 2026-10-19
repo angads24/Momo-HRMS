@@ -174,16 +174,16 @@ export class EmployeeService implements OnModuleInit {
         const dept = await tx.department.findFirst({
           where: { OR: [{ id: dVal }, { code: dVal }, { name: dVal }] },
         });
-        resolvedDepartmentId = dept ? dept.id : dVal;
+        resolvedDepartmentId = dept ? dept.id : null;
       }
 
-      let resolvedDesignationId: string | null = designationId || null;
-      if (!resolvedDesignationId && dto.designationId && dto.designationId.trim()) {
-        const dVal = dto.designationId.trim();
+      let resolvedDesignationId: string | null = null;
+      const desigCandidate = (dto.designationId || designationId)?.trim();
+      if (desigCandidate) {
         const desig = await tx.designation.findFirst({
-          where: { OR: [{ id: dVal }, { code: dVal }, { title: dVal }] },
+          where: { OR: [{ id: desigCandidate }, { code: desigCandidate }, { title: desigCandidate }] },
         });
-        resolvedDesignationId = desig ? desig.id : dVal;
+        resolvedDesignationId = desig ? desig.id : null;
       }
 
       const employee = await tx.employee.create({
@@ -285,10 +285,10 @@ export class EmployeeService implements OnModuleInit {
 
     if (authUserId && !result.userId) {
       await this.prisma.employee.update({
-        where: { id: result.id },
+        where: { employeeCode: result.employeeCode },
         data: { userId: authUserId },
       });
-      result.userId = authUserId;
+      result.userId = result.employeeCode;
     }
 
     result.temporaryPassword = tempPass;
@@ -312,7 +312,7 @@ export class EmployeeService implements OnModuleInit {
         email: cleanHrEmail,
         temporaryPassword: hrTempPass,
         role: 'HR_ADMIN',
-        userId: hrAuthUserId || undefined,
+        userId: hrUsername || cleanHrEmail,
       };
       (result as any).hrPortalCredentials = hrPortalCredentials;
       this.logger.log(
@@ -491,22 +491,22 @@ export class EmployeeService implements OnModuleInit {
         const dept = await this.prisma.department.findFirst({
           where: { OR: [{ id: dVal }, { code: dVal }, { name: dVal }] },
         });
-        resolvedDepartmentId = dept ? dept.id : dVal;
+        resolvedDepartmentId = dept ? dept.id : null;
       } else {
         resolvedDepartmentId = null;
       }
     }
 
     // Resolve designationId: handle database UUID, code, or title
-    let resolvedDesignationId: string | null | undefined = designationId;
-    if (!resolvedDesignationId && dto.designationId !== undefined) {
-      if (dto.designationId && dto.designationId.trim()) {
-        const dVal = dto.designationId.trim();
+    let resolvedDesignationId: string | null | undefined = undefined;
+    if (dto.designationId !== undefined || designationId !== undefined) {
+      const desigCandidate = (dto.designationId ?? designationId)?.trim();
+      if (desigCandidate) {
         const desig = await this.prisma.designation.findFirst({
-          where: { OR: [{ id: dVal }, { code: dVal }, { title: dVal }] },
+          where: { OR: [{ id: desigCandidate }, { code: desigCandidate }, { title: desigCandidate }] },
         });
-        resolvedDesignationId = desig ? desig.id : dVal;
-      } else if (dto.designationId === null) {
+        resolvedDesignationId = desig ? desig.id : null;
+      } else {
         resolvedDesignationId = null;
       }
     }
@@ -728,7 +728,7 @@ export class EmployeeService implements OnModuleInit {
     ]);
 
     return {
-      items: items.map((e) => this.formatEmployee(e)),
+      items: items.map((e) => this.formatEmployeeSummary(e)),
       page: isAll ? 1 : page,
       limit: isAll ? total : limit,
       total,
@@ -1219,11 +1219,67 @@ export class EmployeeService implements OnModuleInit {
     };
   }
 
+  private formatEmployeeSummary(emp: any) {
+    if (!emp) return emp;
+    const formatted = this.formatEmployee(emp);
+    return {
+      id: formatted.id,
+      employeeCode: formatted.employeeCode,
+      firstName: formatted.firstName,
+      lastName: formatted.lastName,
+      email: formatted.email,
+      phone: formatted.phone,
+      personalEmail: formatted.personalEmail || null,
+      department: formatted.department
+        ? {
+            id: formatted.department.id,
+            code: formatted.department.code,
+            name: formatted.department.name,
+          }
+        : null,
+      departmentId: formatted.departmentId,
+      designation: formatted.designation
+        ? {
+            id: formatted.designation.id,
+            code: formatted.designation.code,
+            title: formatted.designation.title,
+          }
+        : null,
+      designationId: formatted.designationId,
+      jobTitle: formatted.jobTitle,
+      assignedOffices: (formatted.assignedOffices || []).map((o: any) => ({
+        id: o.id,
+        code: o.code,
+        name: o.name,
+        isPrimary: o.isPrimary,
+      })),
+      officeLocationName: formatted.officeLocationName || null,
+      officeLocationId: formatted.officeLocationId || null,
+      primaryOfficeId: formatted.primaryOfficeId || null,
+      role: formatted.role,
+      roleId: formatted.roleId,
+      status: formatted.status,
+      employmentStatus: formatted.employmentStatus,
+      hasAccount: formatted.hasAccount,
+      hasUserAccount: formatted.hasUserAccount,
+      isHr: formatted.isHr,
+      profilePhotoUrl: formatted.profilePhotoUrl || null,
+    };
+  }
+
   /**
    * Assign an employee to an office.
    */
   async assignOffice(employeeIdOrCode: string, dto: AssignOfficeDto) {
-    const employee = await this.getEmployeeById(employeeIdOrCode);
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        OR: [{ id: employeeIdOrCode }, { employeeCode: employeeIdOrCode }],
+      },
+    });
+
+    if (!employee) {
+      throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', HttpStatus.NOT_FOUND);
+    }
 
     const existing = await this.prisma.employeeOfficeAssignment.findFirst({
       where: {
@@ -1250,7 +1306,7 @@ export class EmployeeService implements OnModuleInit {
         });
       }
 
-      return tx.employeeOfficeAssignment.create({
+      const created = await tx.employeeOfficeAssignment.create({
         data: {
           employeeId: employee.id,
           officeId: dto.officeId,
@@ -1260,6 +1316,11 @@ export class EmployeeService implements OnModuleInit {
           isActive: true,
         },
       });
+
+      return {
+        ...created,
+        employeeId: employee.employeeCode,
+      };
     });
   }
 
@@ -1735,6 +1796,7 @@ export class EmployeeService implements OnModuleInit {
       },
       select: {
         id: true,
+        employeeCode: true,
         firstName: true,
         lastName: true,
         email: true,
@@ -1742,7 +1804,7 @@ export class EmployeeService implements OnModuleInit {
     });
 
     const staffList: Array<{ id: string; name: string; email: string; role?: string }> = hrEmployees.map((e) => ({
-      id: e.id,
+      id: e.employeeCode || e.id,
       name: `${e.firstName} ${e.lastName}`.trim(),
       email: e.email,
       role: 'HR_ADMIN',

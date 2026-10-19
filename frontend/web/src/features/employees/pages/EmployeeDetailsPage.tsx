@@ -118,18 +118,39 @@ export default function EmployeeDetailsPage() {
       const targetCode = codeOverride || empCodeRef.current || id;
 
       const [todayRes, historyRes] = await Promise.all([
-        api.get(`${ATTENDANCE_API_URL}/today?employeeId=${encodeURIComponent(targetCode)}`).catch(() => null),
-        api.get(`${ATTENDANCE_API_URL}/history?employeeId=${encodeURIComponent(targetCode)}&all=true`).catch(() => null),
+        api.get(`${ATTENDANCE_API_URL}/today`).catch(() => null),
+        api.get(`${ATTENDANCE_API_URL}/history`).catch(() => null),
       ]);
       const todayData = todayRes?.data?.data || todayRes?.data;
       const historyData = historyRes?.data?.data || historyRes?.data;
       const histItems = historyData?.items || (Array.isArray(historyData) ? historyData : []);
 
       if (todayData) {
-        setTodayAttendance(todayData);
+        const rawSessions = Array.isArray(todayData.sessions)
+          ? todayData.sessions
+          : Array.isArray(todayData)
+          ? todayData
+          : [];
+        const filteredSessions = rawSessions.filter(
+          (s: any) => s.employeeId === targetCode || s.employeeCode === targetCode,
+        );
+        const totalSecs = filteredSessions.reduce(
+          (acc: number, s: any) => acc + (Number(s.totalWorkingSeconds) || 0),
+          0,
+        );
+        const hasActive = filteredSessions.some((s: any) => s.status === 'CHECKED_IN');
+        setTodayAttendance({
+          attendanceDate: todayData.attendanceDate || new Date().toISOString().split('T')[0],
+          sessions: filteredSessions,
+          totalWorkingSecondsToday: totalSecs,
+          hasActiveSession: hasActive,
+        });
       }
       if (histItems) {
-        setAttendanceHistory(histItems);
+        const filteredHistory = histItems.filter(
+          (s: any) => s.employeeId === targetCode || s.employeeCode === targetCode,
+        );
+        setAttendanceHistory(filteredHistory);
       }
     } catch {
       // Attendance query failure should not break profile view

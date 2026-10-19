@@ -37,11 +37,14 @@ export class RolesService {
     return this.toRoleResponse(role);
   }
 
-  async update(id: string, dto: UpdateRoleDto) {
-    const existing = await this.prisma.role.findUnique({ where: { id } });
+  async update(idOrName: string, dto: UpdateRoleDto) {
+    const existing = await this.prisma.role.findFirst({
+      where: { OR: [{ id: idOrName }, { name: idOrName }] },
+    });
     if (!existing) {
       throw new NotFoundException('Role not found');
     }
+    const id = existing.id;
 
     const data: { description?: string } = {};
     if (dto.description !== undefined) {
@@ -92,7 +95,7 @@ export class RolesService {
     rolePermissions: { permission: { name: string } }[];
   }) {
     return {
-      id: role.id,
+      id: role.name,
       name: role.name,
       description: role.description,
       permissions: role.rolePermissions.map((rp) => rp.permission.name),

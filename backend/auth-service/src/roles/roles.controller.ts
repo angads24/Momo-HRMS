@@ -31,7 +31,7 @@ export class RolesController {
   @Patch(':id')
   @Roles(ROLE_NAMES.SUPER_ADMIN)
   @Permissions('role.manage')
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateRoleDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
     return this.rolesService.update(id, dto);
   }
 }

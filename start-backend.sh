@@ -8,22 +8,6 @@ export NODE_ENV=development
 export GATEWAY_SHARED_SECRET="dev-gateway-secret"
 export JWT_ACCESS_SECRET="PQFkhhuqw2koPRwe3O4mogz5Hy8wk24WGvu2LvHDq3f"
 export JWT_REFRESH_SECRET="|j2Q{A4xLhw)a7vUXP>ds-|kBVnyJ7/Nn&-/HEt_S9b"
-# Ensure all TypeScript microservices are built
-ensure_build() {
-  local service_name="$1"
-  local target_entry="$2"
-  if [ ! -f "backend/$service_name/$target_entry" ]; then
-    echo "--> Building $service_name (compiled files missing)..."
-    (cd "backend/$service_name" && npm run build)
-  fi
-}
-
-ensure_build "auth-service" "dist/src/main.js"
-ensure_build "attendance-service" "dist/src/main.js"
-ensure_build "geofence-service" "dist/src/main.js"
-ensure_build "employee-service" "dist/src/main.js"
-ensure_build "notification-service" "dist/src/main.js"
-ensure_build "api-gateway" "dist/main.js"
 
 echo "--> Launching auth-service (:3001)..."
 (cd backend/auth-service && PORT=3001 node dist/src/main.js) &

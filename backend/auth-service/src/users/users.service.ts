@@ -127,11 +127,21 @@ export class UsersService {
     return users.map((user) => this.toUserResponse(user));
   }
 
-  async getUserOrThrow(userId: string): Promise<UserResponseDto> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
+  private async findUserByIdentifier(identifier: string) {
+    return this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: identifier },
+          { username: identifier },
+          { email: identifier },
+        ],
+      },
       include: { userRoles: { include: { role: true } } },
     });
+  }
+
+  async getUserOrThrow(identifier: string): Promise<UserResponseDto> {
+    const user = await this.findUserByIdentifier(identifier);
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -140,14 +150,14 @@ export class UsersService {
     return this.toUserResponse(user);
   }
 
-  async setActiveStatus(userId: string, isActive: boolean): Promise<UserResponseDto> {
-    const existing = await this.prisma.user.findUnique({ where: { id: userId } });
+  async setActiveStatus(identifier: string, isActive: boolean): Promise<UserResponseDto> {
+    const existing = await this.findUserByIdentifier(identifier);
     if (!existing) {
       throw new NotFoundException('User not found');
     }
 
     const user = await this.prisma.user.update({
-      where: { id: userId },
+      where: { id: existing.id },
       data: { isActive },
       include: { userRoles: { include: { role: true } } },
     });
@@ -160,11 +170,12 @@ export class UsersService {
    * Username is intentionally not editable here — treat it as a stable
    * identifier; changing it is a separate, rarer operation if ever needed.
    */
-  async updateUser(userId: string, dto: UpdateUserDto): Promise<UserResponseDto> {
-    const existing = await this.prisma.user.findUnique({ where: { id: userId } });
+  async updateUser(identifier: string, dto: UpdateUserDto): Promise<UserResponseDto> {
+    const existing = await this.findUserByIdentifier(identifier);
     if (!existing) {
       throw new NotFoundException('User not found');
     }
+    const userId = existing.id;
 
     const data: { fullName?: string; email?: string } = {};
 
@@ -216,11 +227,12 @@ export class UsersService {
    * session so a possibly-compromised old password can't keep a session
    * alive.
    */
-  async adminResetPassword(userId: string, temporaryPassword: string): Promise<void> {
-    const existing = await this.prisma.user.findUnique({ where: { id: userId } });
+  async adminResetPassword(identifier: string, temporaryPassword: string): Promise<void> {
+    const existing = await this.findUserByIdentifier(identifier);
     if (!existing) {
       throw new NotFoundException('User not found');
     }
+    const userId = existing.id;
 
     const passwordHash = await argon2.hash(temporaryPassword);
 
@@ -285,12 +297,12 @@ export class UsersService {
     };
   }
 
-  async deleteUser(id: string): Promise<void> {
-    const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+  async deleteUser(identifier: string): Promise<void> {
+    const existing = await this.findUserByIdentifier(identifier);
+    if (!existing) {
+      throw new NotFoundException(`User with ID ${identifier} not found`);
     }
-    await this.prisma.user.delete({ where: { id } });
+    await this.prisma.user.delete({ where: { id: existing.id } });
   }
 
   private toUserResponse(user: {
@@ -306,7 +318,7 @@ export class UsersService {
     userRoles: { role: { name: string } }[];
   }): UserResponseDto {
     return {
-      id: user.id,
+      id: user.username || user.email || user.id,
       username: user.username,
       fullName: user.fullName,
       email: user.email,

@@ -6,6 +6,11 @@ export class PermissionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
-    return this.prisma.permission.findMany({ orderBy: { name: 'asc' } });
+    const list = await this.prisma.permission.findMany({ orderBy: { name: 'asc' } });
+    return list.map((p) => ({
+      id: p.name,
+      name: p.name,
+      description: p.description,
+    }));
   }
 }

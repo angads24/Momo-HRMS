@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ROLE_NAMES } from '../common/constants/rbac.constants';
@@ -37,14 +37,14 @@ export class UsersController {
 
   @Get(':id')
   @Roles(ROLE_NAMES.SUPER_ADMIN, ROLE_NAMES.HR_ADMIN)
-  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<UserResponseDto> {
+  findOne(@Param('id') id: string): Promise<UserResponseDto> {
     return this.usersService.getUserOrThrow(id);
   }
 
   @Patch(':id/status')
   @Roles(ROLE_NAMES.SUPER_ADMIN, ROLE_NAMES.HR_ADMIN)
   updateStatus(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: UpdateUserStatusDto,
   ): Promise<UserResponseDto> {
     return this.usersService.setActiveStatus(id, dto.isActive);
@@ -53,7 +53,7 @@ export class UsersController {
   @Patch(':id')
   @Roles(ROLE_NAMES.SUPER_ADMIN, ROLE_NAMES.HR_ADMIN)
   update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: UpdateUserDto,
   ): Promise<UserResponseDto> {
     return this.usersService.updateUser(id, dto);
@@ -69,7 +69,7 @@ export class UsersController {
   @Roles(ROLE_NAMES.SUPER_ADMIN, ROLE_NAMES.HR_ADMIN)
   @HttpCode(HttpStatus.OK)
   async resetPassword(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: ResetPasswordDto,
   ): Promise<{ success: true }> {
     await this.usersService.adminResetPassword(id, dto.temporaryPassword);
@@ -83,7 +83,7 @@ export class UsersController {
   @Delete(':id')
   @Roles(ROLE_NAMES.SUPER_ADMIN)
   @HttpCode(HttpStatus.OK)
-  async deleteUser(@Param('id', ParseUUIDPipe) id: string): Promise<{ success: true }> {
+  async deleteUser(@Param('id') id: string): Promise<{ success: true }> {
     await this.usersService.deleteUser(id);
     return { success: true };
   }

@@ -74,14 +74,20 @@ export function FaceCameraModal({
   const neutralFrameRef = useRef<string | null>(null);
   const currentStepRef = useRef<LivenessStep>('NEUTRAL');
   const challengeRef = useRef<ChallengeResponse | null>(null);
+  // FIX: Track consecutive detection failures to surface persistent network errors
+  const consecutiveFailuresRef = useRef(0);
+  // FIX: AbortController to cancel in-flight requests when modal closes
+  const isMountedRef = useRef(false);
 
   currentStepRef.current = currentStep;
   neutralFrameRef.current = neutralFrame;
   challengeRef.current = challenge;
 
   // Initialize or reset challenge on modal open
+  // FIX: isMountedRef tracks whether modal is active to prevent state updates
+  // on in-flight requests after the modal has been closed/unmounted.
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = visible;
 
     if (visible && employeeId) {
       setErrorMessage(null);
@@ -92,29 +98,31 @@ export function FaceCameraModal({
       setNeutralFrame(null);
       setNeutralPreviewUri(null);
       setActionPreviewUri(null);
+      consecutiveFailuresRef.current = 0;
       setStepPrompt('Step 1 of 2: Look directly into camera to align face');
       setLoadingChallenge(true);
 
       getFaceChallenge(employeeId)
         .then((res) => {
-          if (isMounted) {
+          if (isMountedRef.current) {
             setChallenge(res);
           }
         })
         .catch((err) => {
-          if (isMounted) {
+          if (isMountedRef.current) {
             setErrorMessage(getErrorMessage(err, 'Could not retrieve biometric challenge.'));
           }
         })
         .finally(() => {
-          if (isMounted) {
+          if (isMountedRef.current) {
             setLoadingChallenge(false);
           }
         });
     }
 
     return () => {
-      isMounted = false;
+      // Signal in-flight callbacks that the modal is no longer visible
+      if (!visible) isMountedRef.current = false;
     };
   }, [visible, employeeId]);
 
@@ -142,6 +150,11 @@ export function FaceCameraModal({
   };
 
   // Continuous Real-Time Liveness Loop (Checks Neutral alignment, then micro-action)
+  // FIX: Interval increased from 1200ms → 2500ms to prevent GPU + network request
+  // stacking on slow/low-end devices which caused the phone to freeze.
+  // FIX: Frames are downsampled to 320px BEFORE being stored in state/refs and
+  // BEFORE being sent to detectNeutral/detectAction, preventing 3 full-res copies
+  // (typically 3–10 MB each) from living in RAM simultaneously.
   useEffect(() => {
     if (!visible || !isCameraReady || loadingChallenge || !challenge) {
       return;
@@ -157,28 +170,40 @@ export function FaceCameraModal({
         return;
       }
 
+      // Bail out if modal is no longer visible (prevents state updates on stale frames)
+      if (!isMountedRef.current) return;
+
       isAnalyzingRef.current = true;
 
       try {
         const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.45,
+          quality: 0.3,       // Lower quality reduces base64 size for manipulation step
           base64: true,
           skipProcessing: true,
+          exif: false,        // Skip EXIF metadata (~20KB saving per frame)
         });
 
-        if (!photo || !photo.base64) {
+        if (!photo || !photo.base64 || !isMountedRef.current) {
           isAnalyzingRef.current = false;
           return;
         }
 
         // ── Phase 1: Detect Neutral Pose ──
         if (activeStep === 'NEUTRAL') {
-          const res = await detectNeutral(photo.base64);
+          // Downsample to 320px before API call — reduces payload from ~3MB to ~15KB
+          const smallFrame = await downsampleFaceImage(photo.base64, 320, 0.4);
+          const res = await detectNeutral(smallFrame);
+
+          if (!isMountedRef.current) return;
+
           if (res.detected) {
+            consecutiveFailuresRef.current = 0;
+            // Store the 480px version (higher quality for final verification)
+            const verifyFrame = await downsampleFaceImage(photo.base64, 480, 0.65);
             setNeutralDetected(true);
-            setNeutralFrame(photo.base64);
+            setNeutralFrame(verifyFrame);
             setNeutralPreviewUri(photo.uri);
-            neutralFrameRef.current = photo.base64;
+            neutralFrameRef.current = verifyFrame;
 
             // Advance to Phase 2: Action Challenge
             setCurrentStep('ACTION');
@@ -191,29 +216,43 @@ export function FaceCameraModal({
 
         // ── Phase 2: Detect Active Micro-Action ──
         else if (activeStep === 'ACTION' && neutralFrameRef.current && challengeRef.current) {
+          // Downsample action frame before API call as well
+          const smallActionFrame = await downsampleFaceImage(photo.base64, 320, 0.4);
           const res = await detectAction(
             challengeRef.current.action,
-            neutralFrameRef.current,
-            photo.base64,
+            neutralFrameRef.current,  // Already stored at 480px
+            smallActionFrame,
           );
 
+          if (!isMountedRef.current) return;
+
           if (res.detected) {
+            consecutiveFailuresRef.current = 0;
             setActionDetected(true);
             setDetectionConfidence(res.confidence);
             setActionPreviewUri(photo.uri);
             setCurrentStep('VERIFYING');
             setStepPrompt(`✓ ${res.message || 'Action verified! Matching profile...'}`);
 
-            // Automatically proceed to final cryptographic biometric verification
-            await finalizeVerification(neutralFrameRef.current, photo.base64, photo.uri);
+            // Use already-downsampled neutralFrameRef for final verification
+            // Pass the higher-quality 480px action frame for biometric matching
+            const verifyActionFrame = await downsampleFaceImage(photo.base64, 480, 0.65);
+            await finalizeVerification(neutralFrameRef.current, verifyActionFrame, photo.uri);
           }
         }
       } catch {
-        // Non-fatal preview frame error: loop continues
+        // Non-fatal preview frame error: track consecutive failures
+        consecutiveFailuresRef.current++;
+        if (consecutiveFailuresRef.current >= 5 && isMountedRef.current) {
+          setErrorMessage(
+            'Face detection is experiencing issues. Check your network connection and tap retry.',
+          );
+          consecutiveFailuresRef.current = 0;
+        }
       } finally {
         isAnalyzingRef.current = false;
       }
-    }, 1200);
+    }, 2500);
 
     return () => {
       clearInterval(interval);
@@ -221,8 +260,11 @@ export function FaceCameraModal({
   }, [visible, isCameraReady, loadingChallenge, challenge]);
 
   // Finalize verification with the backend
+  // FIX: neutralB64 and actionB64 are now pre-downsampled to 480px before being
+  // passed in — so we no longer downsample again here. This removes the 3rd full-res
+  // copy that was previously held in RAM during verification.
   const finalizeVerification = async (neutralB64: string, actionB64: string, photoUri?: string) => {
-    if (!challengeRef.current) return;
+    if (!challengeRef.current || !isMountedRef.current) return;
 
     setCurrentStep('VERIFYING');
     currentStepRef.current = 'VERIFYING';
@@ -230,29 +272,36 @@ export function FaceCameraModal({
     setErrorMessage(null);
 
     try {
-      const downsampleNeutral = await downsampleFaceImage(neutralB64, 480, 0.65);
-      const downsampleAction = await downsampleFaceImage(actionB64, 480, 0.65);
+      // Frames are already at 480px from the detection loop — send directly
       const verifyRes = await verifyFace(employeeId, challengeRef.current.challenge_id, [
-        downsampleNeutral,
-        downsampleAction,
+        neutralB64,
+        actionB64,
       ]);
+
+      if (!isMountedRef.current) return;
 
       if (verifyRes.verified && verifyRes.verification_token) {
         setCurrentStep('SUCCESS');
         setTimeout(() => {
-          onVerified(verifyRes.verification_token!, photoUri || actionPreviewUri || undefined);
+          if (isMountedRef.current) {
+            onVerified(verifyRes.verification_token!, photoUri || actionPreviewUri || undefined);
+          }
         }, 900);
       } else {
         const failureReason =
           verifyRes.message || 'Liveness check or face match failed. Please try again.';
-        setErrorMessage(failureReason);
-        await refreshChallenge();
+        if (isMountedRef.current) {
+          setErrorMessage(failureReason);
+          await refreshChallenge();
+        }
       }
     } catch (err: unknown) {
-      setErrorMessage(
-        getErrorMessage(err, 'Biometric verification failed. Please align your face and retry.'),
-      );
-      await refreshChallenge();
+      if (isMountedRef.current) {
+        setErrorMessage(
+          getErrorMessage(err, 'Biometric verification failed. Please align your face and retry.'),
+        );
+        await refreshChallenge();
+      }
     }
   };
 

@@ -23,6 +23,7 @@ model Notification {
   @@index([recipientId])
   @@index([isRead])
   dismissals    NotificationDismissal[]
+  reads         NotificationRead[]
 
   @@index([createdAt])
   @@map("notifications")
@@ -40,3 +41,17 @@ model NotificationDismissal {
   @@index([userId])
   @@map("notification_dismissals")
 }
+
+model NotificationRead {
+  id             String       @id @default(uuid())
+  notificationId String       @map("notification_id")
+  userId         String       @map("user_id")
+  readAt         DateTime     @default(now()) @map("read_at")
+
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([userId])
+  @@map("notification_reads")
+}
+

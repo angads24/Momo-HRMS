@@ -142,7 +142,41 @@ export function NotificationTable({
                     const type = item.recipientType || 'EMPLOYEE';
                     const targetId = item.recipientId;
                     const meta = item.metadata as Record<string, any> | undefined;
+                    const targetMode = meta?.targetMode || (item as any).targetMode;
 
+                    // 1. Direct message to a Specific Person
+                    if (targetMode === 'SPECIFIC' || (targetId !== 'ALL' && targetId !== 'HR' && targetId !== 'ADMIN')) {
+                      const displayName =
+                        item.to ||
+                        item.recipientName ||
+                        (meta?.name ? String(meta.name) : undefined) ||
+                        item.recipientDisplay ||
+                        (meta?.employeeCode ? String(meta.employeeCode) : undefined) ||
+                        (targetId && targetId.startsWith('EMP-') ? targetId : 'Direct Recipient');
+
+                      return (
+                        <Chip
+                          icon={<PersonIcon sx={{ fontSize: '0.85rem !important', color: '#475569 !important' }} />}
+                          label={displayName}
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            height: 24,
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            bgcolor: '#f8fafc',
+                            color: '#1e293b',
+                            borderColor: '#cbd5e1',
+                            '& .MuiChip-icon': {
+                              ml: '6px',
+                              mr: '-2px',
+                            },
+                          }}
+                        />
+                      );
+                    }
+
+                    // 2. Broadcast to All Staff
                     if (type === 'BROADCAST' || targetId === 'ALL') {
                       return (
                         <Chip
@@ -160,6 +194,7 @@ export function NotificationTable({
                       );
                     }
 
+                    // 3. Department / Role announcements
                     if (type === 'HR' || targetId === 'HR') {
                       return (
                         <Chip
@@ -194,33 +229,7 @@ export function NotificationTable({
                       );
                     }
 
-                    const displayName =
-                      item.recipientName ||
-                      (meta?.name ? String(meta.name) : undefined) ||
-                      item.recipientDisplay ||
-                      (meta?.employeeCode ? String(meta.employeeCode) : undefined) ||
-                      (targetId && targetId.startsWith('EMP-') ? targetId : 'Direct Recipient');
-
-                    return (
-                      <Chip
-                        icon={<PersonIcon sx={{ fontSize: '0.85rem !important', color: '#475569 !important' }} />}
-                        label={displayName}
-                        size="small"
-                        variant="outlined"
-                        sx={{
-                          height: 24,
-                          fontSize: '0.74rem',
-                          fontWeight: 700,
-                          bgcolor: '#f8fafc',
-                          color: '#1e293b',
-                          borderColor: '#cbd5e1',
-                          '& .MuiChip-icon': {
-                            ml: '6px',
-                            mr: '-2px',
-                          },
-                        }}
-                      />
-                    );
+                    return null;
                   })()}
                 </TableCell>
                 <TableCell>

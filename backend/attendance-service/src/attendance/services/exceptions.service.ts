@@ -123,7 +123,7 @@ export class ExceptionsService {
       },
     });
 
-    return exception;
+    return this.sanitizeException(exception);
   }
 
   async approveException(id: string, approverUserId: string, dto: ApproveExceptionDto) {
@@ -309,7 +309,33 @@ export class ExceptionsService {
       });
     }
 
-    return updated;
+    return this.sanitizeException(updated);
+  }
+
+  private sanitizeException(ex: any) {
+    if (!ex) return ex;
+    const isUuid = (val?: string) =>
+      Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(val).trim()));
+
+    const meta = (ex.metadata ? { ...(ex.metadata as Record<string, any>) } : {}) as Record<string, any>;
+
+    let approvedBy = ex.approvedByUserId;
+    if (approvedBy && isUuid(approvedBy)) {
+      approvedBy = meta.approvedByName || meta.approvedBy || meta.approverName || meta.hrEmail || 'HR Management';
+    }
+
+    if (meta.approvedByUserId && isUuid(meta.approvedByUserId)) {
+      meta.approvedByUserId = approvedBy;
+    }
+    if (meta.approvedByName && isUuid(meta.approvedByName)) {
+      meta.approvedByName = meta.approvedByEmail || meta.hrEmail || 'HR Administrator';
+    }
+
+    return {
+      ...ex,
+      approvedByUserId: approvedBy,
+      metadata: meta,
+    };
   }
 
   async getExceptions(employeeId?: string, status?: ExceptionStatus, hrEmail?: string) {
@@ -347,13 +373,13 @@ export class ExceptionsService {
 
     if (hrEmail) {
       const hrLower = hrEmail.trim().toLowerCase();
-      return list.filter((ex) => {
+      list = list.filter((ex) => {
         const meta = (ex.metadata as Record<string, any>) || {};
         return !meta.hrEmail || meta.hrEmail.toLowerCase() === hrLower;
       });
     }
 
-    return list;
+    return list.map((ex) => this.sanitizeException(ex));
   }
 
   async getExceptionById(id: string) {
@@ -367,17 +393,7 @@ export class ExceptionsService {
         HttpStatus.NOT_FOUND,
       );
     }
-    const meta = (exception.metadata as Record<string, any>) || {};
-    const isUuid = (val?: string) =>
-      Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim()));
-
-    if (meta.approvedByName && isUuid(meta.approvedByName)) {
-      meta.approvedByName = meta.approvedByEmail || meta.hrEmail || 'HR Administrator';
-    }
-    return {
-      ...exception,
-      metadata: meta,
-    };
+    return this.sanitizeException(exception);
   }
 
 

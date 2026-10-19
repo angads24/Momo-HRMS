@@ -46,7 +46,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const count = await fetchUnreadCount(recipientIdentifier, user.email, user.appRole || user.roles?.[0]);
+      const count = await fetchUnreadCount();
       setUnreadCount(count);
       prevCountRef.current = count;
     } catch {

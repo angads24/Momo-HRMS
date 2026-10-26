@@ -218,11 +218,10 @@ export class NotificationsService {
     ];
 
     if (isAdmin) {
-      // Admin sees Admin announcements, notifications sent TO Admin, and notifications SENT BY Admin
+      // Admin sees Admin announcements, notifications sent TO Admin, notifications SENT BY THIS Admin, and all special requests
       orConditions.push({ recipientId: 'ADMIN' });
       orConditions.push({ recipientType: 'ADMIN' });
-      orConditions.push({ metadata: { path: '$.senderRole', equals: 'ADMIN' } });
-      orConditions.push({ metadata: { path: '$.senderUserId', equals: 'admin' } });
+      orConditions.push({ type: 'SPECIAL_WORKING_HOURS_REQUEST' });
 
       if (cleanEmail) {
         orConditions.push({ recipientId: cleanEmail });
@@ -243,21 +242,21 @@ export class NotificationsService {
     }
 
     if (isHr) {
-      // HR sees HR announcements, notifications sent TO HR, notifications SENT BY HR, and employee workflow requests
+      // HR sees HR announcements, notifications sent TO HR, notifications SENT BY THIS HR, and requests specifically assigned to them
       orConditions.push({ recipientId: 'HR' });
       orConditions.push({ recipientType: 'HR' });
-      orConditions.push({ type: 'SPECIAL_WORKING_HOURS_REQUEST' });
-      orConditions.push({ metadata: { path: '$.senderRole', equals: 'HR' } });
 
       if (cleanRecipientId && cleanRecipientId !== 'HR') {
         orConditions.push({ recipientId: cleanRecipientId });
         orConditions.push({ metadata: { path: '$.employeeCode', equals: cleanRecipientId } });
         orConditions.push({ metadata: { path: '$.recipientId', equals: cleanRecipientId } });
+        orConditions.push({ metadata: { path: '$.hrEmail', equals: cleanRecipientId.toLowerCase() } });
         orConditions.push({ metadata: { path: '$.senderUserId', equals: cleanRecipientId } });
       }
       if (cleanEmail) {
         orConditions.push({ recipientId: cleanEmail });
         orConditions.push({ metadata: { path: '$.recipientEmail', equals: cleanEmail } });
+        orConditions.push({ metadata: { path: '$.hrEmail', equals: cleanEmail } });
         orConditions.push({ metadata: { path: '$.senderEmail', equals: cleanEmail } });
       }
       if (cleanCallerUserId) {

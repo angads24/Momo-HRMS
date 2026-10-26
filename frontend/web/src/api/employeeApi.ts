@@ -106,6 +106,16 @@ export const employeeApi = {
     return res.data.data;
   },
 
+  async updateStatus(id: string, status: string): Promise<Employee> {
+    const res = await api.patch<{ success: boolean; data: Employee; message: string }>(`/employees/${id}/status`, { status });
+    return res.data.data;
+  },
+
+  async updateRole(id: string, role: string): Promise<Employee> {
+    const res = await api.patch<{ success: boolean; data: Employee; message: string }>(`/employees/${id}/role`, { role });
+    return res.data.data;
+  },
+
   async deleteEmployee(id: string): Promise<void> {
     await api.delete(`/employees/${id}`);
   },

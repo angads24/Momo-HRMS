@@ -19,9 +19,13 @@ for s in auth-service employee-service attendance-service geofence-service notif
 done
 
 # 2. Build Python Face AI service (pure OpenCV & FastAPI - lightweight)
-echo "--> Setting up Python Face AI service..."
-python3 -m venv backend/face-ai-service/venv
-./backend/face-ai-service/venv/bin/pip install --upgrade pip
-./backend/face-ai-service/venv/bin/pip install --no-cache-dir -r backend/face-ai-service/requirements.txt
+if [ "$SKIP_LOCAL_FACE_BUILD" != "true" ]; then
+  echo "--> Setting up Python Face AI service..."
+  python3 -m venv backend/face-ai-service/venv
+  ./backend/face-ai-service/venv/bin/pip install --upgrade pip
+  ./backend/face-ai-service/venv/bin/pip install --no-cache-dir -r backend/face-ai-service/requirements.txt
+else
+  echo "--> SKIP_LOCAL_FACE_BUILD is true. Skipping local Python venv build to speed up deployment."
+fi
 
 echo "=== All services built successfully! ==="

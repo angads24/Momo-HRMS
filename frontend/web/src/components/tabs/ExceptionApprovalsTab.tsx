@@ -23,8 +23,10 @@ import RuleIcon from '@mui/icons-material/Rule';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 
 import { attendanceApi, type AttendanceException } from '../../api/attendanceApi';
+import { useAuth } from '../../context/AuthContext';
 
 export function ExceptionApprovalsTab() {
+  const { user } = useAuth();
   const [exceptions, setExceptions] = useState<AttendanceException[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedEx, setSelectedEx] = useState<AttendanceException | null>(null);
@@ -83,7 +85,9 @@ export function ExceptionApprovalsTab() {
   const loadExceptions = async () => {
     setLoading(true);
     try {
-      const data = await attendanceApi.listExceptions();
+      const isHrOnly = user?.appRole === 'HR' && !user?.roles?.includes('SUPER_ADMIN');
+      const params = isHrOnly && user?.email ? { hrEmail: user.email } : undefined;
+      const data = await attendanceApi.listExceptions(params);
       if (!data || data.length === 0) {
         setExceptions(defaultMockExceptions.map(normalizeException));
       } else {
@@ -98,7 +102,7 @@ export function ExceptionApprovalsTab() {
 
   useEffect(() => {
     loadExceptions();
-  }, []);
+  }, [user]);
 
   const filteredExceptions = useMemo(() => {
     if (statusFilter === 'ALL') return exceptions;
@@ -108,6 +112,7 @@ export function ExceptionApprovalsTab() {
   const handleApprove = async () => {
     if (!selectedEx) return;
     setSubmitting(true);
+    const reviewerEmail = user?.email || 'hr@company.com';
     try {
       try {
         await attendanceApi.approveException(selectedEx.id, approvalNotes);
@@ -117,7 +122,7 @@ export function ExceptionApprovalsTab() {
       setExceptions((prev) =>
         prev.map((item) =>
           item.id === selectedEx.id
-            ? { ...item, status: 'APPROVED', reviewedAt: new Date().toISOString(), reviewedBy: 'hr@company.com' }
+            ? { ...item, status: 'APPROVED', reviewedAt: new Date().toISOString(), reviewedBy: reviewerEmail }
             : item,
         ),
       );
@@ -132,11 +137,12 @@ export function ExceptionApprovalsTab() {
   const handleReject = async () => {
     if (!rejectingEx) return;
     setSubmitting(true);
+    const reviewerEmail = user?.email || 'hr@company.com';
     try {
       setExceptions((prev) =>
         prev.map((item) =>
           item.id === rejectingEx.id
-            ? { ...item, status: 'REJECTED', reviewedAt: new Date().toISOString(), reviewedBy: 'hr@company.com' }
+            ? { ...item, status: 'REJECTED', reviewedAt: new Date().toISOString(), reviewedBy: reviewerEmail }
             : item,
         ),
       );

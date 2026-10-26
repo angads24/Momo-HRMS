@@ -39,6 +39,7 @@ import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import { DashboardLayout } from '../../../components/DashboardLayout';
 import { LoadingIndicator } from '../../../components/LoadingIndicator';
 import { PATHS } from '../../../routes/paths';
+import { useAuth } from '../../../context/AuthContext';
 import { getErrorMessage } from '../../../utils/errors';
 import { COMPANY_DOMAIN, INTERN_DOMAIN } from '../../../config/env';
 import {
@@ -56,6 +57,11 @@ type FormRole = 'EMPLOYEE' | 'HR' | 'ADMIN';
 
 export default function AddEmployeePage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isSuperAdmin = Boolean(
+    user?.roles?.includes('SUPER_ADMIN') ||
+    user?.email?.toLowerCase().includes('admin')
+  );
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -74,8 +80,6 @@ export default function AddEmployeePage() {
 
   // Dynamic Async Unique Email Resolution
   const [resolvedEmail, setResolvedEmail] = useState<string>('');
-  const [resolvedHrEmail, setResolvedHrEmail] = useState<string>('');
-  const [resolvedAttendanceEmail, setResolvedAttendanceEmail] = useState<string>('');
   const [resolvingEmails, setResolvingEmails] = useState(false);
 
   // Validation
@@ -85,10 +89,6 @@ export default function AddEmployeePage() {
 
   // Post-Creation State
   const [createdEmployee, setCreatedEmployee] = useState<Employee | null>(null);
-  const [createdDualAccounts, setCreatedDualAccounts] = useState<{
-    hrAccount: Employee;
-    attendanceAccount: Employee;
-  } | null>(null);
   const [resending, setResending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -125,8 +125,6 @@ export default function AddEmployeePage() {
     const trimmed = fullName.trim();
     if (!trimmed) {
       setResolvedEmail('');
-      setResolvedHrEmail('');
-      setResolvedAttendanceEmail('');
       return;
     }
 
@@ -137,15 +135,12 @@ export default function AddEmployeePage() {
     setResolvingEmails(true);
     const timer = setTimeout(async () => {
       try {
-        const [empEmail, hrEmail, hrAttEmail] = await Promise.all([
-          generateUniqueEmail(first, last, { isHr: false, isIntern: employmentType === 'INTERN' }),
-          generateUniqueEmail(first, last, { isHr: true }),
-          generateUniqueEmail(first, last, { isHr: false, isIntern: false }),
-        ]);
+        const empEmail = await generateUniqueEmail(first, last, {
+          isHr: false,
+          isIntern: employmentType === 'INTERN',
+        });
         if (active) {
           setResolvedEmail(empEmail);
-          setResolvedHrEmail(hrEmail);
-          setResolvedAttendanceEmail(hrAttEmail);
         }
       } catch {
         // fallback to standard formats
@@ -171,26 +166,6 @@ export default function AddEmployeePage() {
     const base = last ? `${first}.${last}` : first;
     return `${base}@${domain}`;
   }, [fullName, employmentType]);
-
-  const fallbackHrEmail = useMemo(() => {
-    const trimmed = fullName.trim();
-    if (!trimmed) return `firstname.lastname.hr@${COMPANY_DOMAIN}`;
-    const parts = trimmed.split(/\s+/);
-    const first = parts[0].toLowerCase().replace(/[^a-z0-9]/g, '') || 'firstname';
-    const last = parts.length > 1 ? parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9]/g, '') : '';
-    const base = last ? `${first}.${last}` : first;
-    return `${base}.hr@${COMPANY_DOMAIN}`;
-  }, [fullName]);
-
-  const fallbackAttendanceEmail = useMemo(() => {
-    const trimmed = fullName.trim();
-    if (!trimmed) return `firstname.lastname@${COMPANY_DOMAIN}`;
-    const parts = trimmed.split(/\s+/);
-    const first = parts[0].toLowerCase().replace(/[^a-z0-9]/g, '') || 'firstname';
-    const last = parts.length > 1 ? parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9]/g, '') : '';
-    const base = last ? `${first}.${last}` : first;
-    return `${base}@${COMPANY_DOMAIN}`;
-  }, [fullName]);
 
   const validate = (): boolean => {
     let valid = true;
@@ -259,123 +234,66 @@ export default function AddEmployeePage() {
 
       const defaultDepartment = departments.find((d) => d.status === 'ACTIVE') || departments[0];
 
-      if (selectedRole === 'HR') {
-        // Unified HR Creation Flow: Creates 1 Employee record in employee_db and provisions 2 Auth accounts
-        const finalHrEmail = resolvedHrEmail || (await generateUniqueEmail(firstName, lastName, { isHr: true }));
-        const finalAttendanceEmail =
-          resolvedAttendanceEmail || (await generateUniqueEmail(firstName, lastName, { isHr: false, isIntern: false }));
-
-        const employeeCode = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
-
-        const selectedOffices = offices.filter((o) => selectedOfficeIds.includes(o.id));
-        const primaryOffice = selectedOffices[0];
-        const assignedOfficeId = primaryOffice?.id || selectedOfficeIds[0] || undefined;
-        const assignedOfficeName = selectedOffices.map((o) => (o.name ? `${o.name} (${o.code})` : o.code)).join(', ') || undefined;
-        const assignedOfficeIds = selectedOffices.flatMap((o) => [o.id, o.code]).filter(Boolean) as string[];
-
-        // Single Employee Record: department Human Resources, title HR Specialist, official email finalAttendanceEmail
-        const hrPayload: CreateEmployeePayload = {
-          employeeCode,
-          firstName,
-          lastName,
-          email: finalAttendanceEmail,
-          hrWebEmail: finalHrEmail,
-          personalEmail: personalEmail.trim().toLowerCase(),
-          phone: '+91 90000 00000',
-          dateOfJoining: new Date().toISOString().slice(0, 10),
-          jobTitle: 'HR Specialist',
-          departmentId: hrDepartment.id,
-          roleId: hrRole.id || employeeRole.id,
-          provisionAccount: true,
-          sendEmail: autoSendCredentials,
-          officeLocationId: assignedOfficeId,
-          officeLocationName: assignedOfficeName,
-          primaryOfficeId: assignedOfficeId,
-          officeIds: assignedOfficeIds,
-        };
-        const createdEmployeeRecord = await createEmployeeWithRetry(hrPayload, { isHr: false, isIntern: false });
-
-        const hrCreds = (createdEmployeeRecord as any).hrPortalCredentials;
-        const hrTempPass = hrCreds?.temporaryPassword || 'Generated';
-        const attendanceTempPass = createdEmployeeRecord.temporaryPassword || 'Generated';
-
-        setCreatedDualAccounts({
-          hrAccount: {
-            ...createdEmployeeRecord,
-            email: finalHrEmail,
-            temporaryPassword: hrTempPass,
-            role: { id: hrRole.id, name: 'HR_ADMIN' },
-          },
-          attendanceAccount: {
-            ...createdEmployeeRecord,
-            email: finalAttendanceEmail,
-            temporaryPassword: attendanceTempPass,
-            role: { id: employeeRole.id, name: 'EMPLOYEE' },
-          },
-        });
-        setCreatedEmployee(createdEmployeeRecord);
-        setFeedback(
-          autoSendCredentials
-            ? `HR Dual Accounts created! Credentials dispatched to ${personalEmail.trim()}.`
-            : `HR Dual Accounts created successfully.`
-        );
-      } else {
-        // Standard Single Account Creation Flow (Employee or Admin)
-        const matchedRole = selectedRole === 'ADMIN' ? adminRole : employeeRole;
-        const finalEmail =
-          resolvedEmail ||
-          (await generateUniqueEmail(firstName, lastName, {
-            isHr: false,
-            isIntern: employmentType === 'INTERN',
-          }));
-
-        const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
-        const employeeCode = `EMP-${uniqueSuffix}`;
-        const jobTitle =
-          selectedRole === 'ADMIN'
-            ? 'System Administrator'
-            : employmentType === 'INTERN'
-            ? 'Intern Trainee'
-            : 'Associate';
-
-        const selectedOffices = offices.filter((o) => selectedOfficeIds.includes(o.id));
-        const primaryOffice = selectedOffices[0];
-        const assignedOfficeId = primaryOffice?.id || selectedOfficeIds[0] || undefined;
-        const assignedOfficeName = selectedOffices.map((o) => (o.name ? `${o.name} (${o.code})` : o.code)).join(', ') || undefined;
-        const assignedOfficeIds = selectedOffices.flatMap((o) => [o.id, o.code]).filter(Boolean) as string[];
-
-        const payload: CreateEmployeePayload = {
-          employeeCode,
-          firstName,
-          lastName,
-          email: finalEmail,
-          personalEmail: personalEmail.trim().toLowerCase(),
-          phone: '+91 90000 00000',
-          dateOfJoining: new Date().toISOString().slice(0, 10),
-          jobTitle,
-          departmentId: defaultDepartment.id,
-          roleId: matchedRole.id,
-          provisionAccount: true,
-          sendEmail: autoSendCredentials,
-          officeLocationId: assignedOfficeId,
-          officeLocationName: assignedOfficeName,
-          primaryOfficeId: assignedOfficeId,
-          officeIds: assignedOfficeIds,
-        };
-
-        const created = await createEmployeeWithRetry(payload, {
+      const matchedRole =
+        selectedRole === 'ADMIN' ? adminRole : selectedRole === 'HR' ? hrRole : employeeRole;
+      const matchedDepartment = selectedRole === 'HR' ? hrDepartment : defaultDepartment;
+      const finalEmail =
+        resolvedEmail ||
+        (await generateUniqueEmail(firstName, lastName, {
           isHr: false,
           isIntern: employmentType === 'INTERN',
-        });
-        setCreatedEmployee(created);
-        setCreatedDualAccounts(null);
-        setFeedback(
-          created.credentialDelivery?.message ||
-          (created.credentialDelivery?.delivered
-            ? `Credentials dispatched to ${personalEmail.trim()}`
-            : `Employee profile created successfully.`)
-        );
-      }
+        }));
+
+      const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
+      const employeeCode = `EMP-${uniqueSuffix}`;
+      const jobTitle =
+        selectedRole === 'ADMIN'
+          ? 'System Administrator'
+          : selectedRole === 'HR'
+          ? 'HR Specialist'
+          : employmentType === 'INTERN'
+          ? 'Intern Trainee'
+          : 'Associate';
+
+      const selectedOffices = offices.filter((o) => selectedOfficeIds.includes(o.id));
+      const primaryOffice = selectedOffices[0];
+      const assignedOfficeId = primaryOffice?.id || selectedOfficeIds[0] || undefined;
+      const assignedOfficeName = selectedOffices.map((o) => (o.name ? `${o.name} (${o.code})` : o.code)).join(', ') || undefined;
+      const assignedOfficeIds = selectedOffices.flatMap((o) => [o.id, o.code]).filter(Boolean) as string[];
+
+      const payload: CreateEmployeePayload = {
+        employeeCode,
+        firstName,
+        lastName,
+        email: finalEmail,
+        personalEmail: personalEmail.trim().toLowerCase(),
+        phone: '+91 90000 00000',
+        dateOfJoining: new Date().toISOString().slice(0, 10),
+        jobTitle,
+        departmentId: matchedDepartment.id,
+        roleId: matchedRole.id,
+        provisionAccount: true,
+        sendEmail: autoSendCredentials,
+        officeLocationId: assignedOfficeId,
+        officeLocationName: assignedOfficeName,
+        primaryOfficeId: assignedOfficeId,
+        officeIds: assignedOfficeIds,
+      };
+
+      const created = await createEmployeeWithRetry(payload, {
+        isHr: false,
+        isIntern: employmentType === 'INTERN',
+      });
+      setCreatedEmployee(created);
+      setFeedback(
+        created.credentialDelivery?.message ||
+        (created.credentialDelivery?.delivered
+          ? `Credentials dispatched to ${personalEmail.trim()}`
+          : autoSendCredentials
+          ? `${selectedRole === 'HR' ? 'HR Account' : 'User'} created! Credentials dispatched to ${personalEmail.trim()}.`
+          : `${selectedRole === 'HR' ? 'HR Account' : 'User'} created successfully with generated credentials.`)
+      );
+
     } catch (err: unknown) {
       const msg = getErrorMessage(err, 'Failed to create employee. Please try again.');
       if (
@@ -394,7 +312,7 @@ export default function AddEmployeePage() {
   };
 
   const handleResendCredentials = async () => {
-    const target = createdDualAccounts?.hrAccount || createdEmployee;
+    const target = createdEmployee;
     if (!target) return;
     setResending(true);
     try {
@@ -410,7 +328,6 @@ export default function AddEmployeePage() {
 
   const handleCreateAnother = () => {
     setCreatedEmployee(null);
-    setCreatedDualAccounts(null);
     setFullName('');
     setPersonalEmail('');
     setEmploymentType('EMPLOYEE');
@@ -422,8 +339,6 @@ export default function AddEmployeePage() {
       setSelectedOfficeIds([activeOffice.id]);
     }
     setResolvedEmail('');
-    setResolvedHrEmail('');
-    setResolvedAttendanceEmail('');
   };
 
   if (loadingInitial) {
@@ -449,297 +364,8 @@ export default function AddEmployeePage() {
         </Button>
       </Box>
 
-      {/* Post-Creation Dual Accounts Confirmation Screen for HR */}
-      {createdDualAccounts ? (
-        <Card variant="outlined" sx={{ maxWidth: 760, mx: 'auto', p: { xs: 2, sm: 3 }, borderColor: 'success.main', borderWidth: 2 }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-              <CheckCircleIcon color="success" sx={{ fontSize: 44 }} />
-              <Box>
-                <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                  HR CREATED SUCCESSFULLY ✓
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Two separate company accounts have been created for <strong>{createdDualAccounts.hrAccount.firstName} {createdDualAccounts.hrAccount.lastName}</strong>.
-                </Typography>
-              </Box>
-            </Box>
-
-            <Divider sx={{ my: 2 }} />
-
-            {/* DUAL ACCOUNTS HERO CREDENTIALS BANNER */}
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2.5,
-                mb: 3,
-                borderRadius: 2.5,
-                bgcolor: '#fffbeb',
-                border: '2px solid #f59e0b',
-                boxShadow: '0 4px 12px rgba(245, 158, 11, 0.15)',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                <KeyIcon sx={{ color: '#d97706', fontSize: 30 }} />
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 800, color: '#92400e', lineHeight: 1.2 }}>
-                    Generated HR & Attendance Credentials
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: '#b45309', fontWeight: 500 }}>
-                    Copy and share these credentials with the HR employee:
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, mt: 1.5 }}>
-                {/* HR Web Account Creds */}
-                <Box sx={{ p: 2, bgcolor: '#ffffff', borderRadius: 2, border: '1px solid #fde68a' }}>
-                  <Typography variant="caption" sx={{ color: '#6d28d9', fontWeight: 800, textTransform: 'uppercase' }}>
-                    1. HR Portal Account (Web)
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#1e293b', wordBreak: 'break-all', mt: 0.5 }}>
-                    {createdDualAccounts.hrAccount.email}
-                  </Typography>
-                  <Box sx={{ mt: 1, p: 1, bgcolor: '#fef3c7', borderRadius: 1 }}>
-                    <Typography variant="caption" sx={{ color: '#78350f', fontWeight: 700, display: 'block' }}>Temp Password:</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 800, fontFamily: 'monospace', color: '#d97706' }}>
-                      {createdDualAccounts.hrAccount.temporaryPassword || 'Generated'}
-                    </Typography>
-                  </Box>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<ContentCopyIcon fontSize="small" />}
-                    sx={{ mt: 1.5, width: '100%', fontWeight: 600, color: '#6d28d9', borderColor: '#c4b5fd' }}
-                    onClick={() => {
-                      const full = `Momo HRMS HR Portal Account\nEmail: ${createdDualAccounts.hrAccount.email}\nPassword: ${createdDualAccounts.hrAccount.temporaryPassword}\nLogin URL: ${window.location.origin}/login`;
-                      navigator.clipboard.writeText(full);
-                      setFeedback('HR Portal credentials copied!');
-                    }}
-                  >
-                    Copy HR Login
-                  </Button>
-                </Box>
-
-                {/* Attendance App Account Creds */}
-                <Box sx={{ p: 2, bgcolor: '#ffffff', borderRadius: 2, border: '1px solid #fde68a' }}>
-                  <Typography variant="caption" sx={{ color: '#1d4ed8', fontWeight: 800, textTransform: 'uppercase' }}>
-                    2. Attendance Account (Mobile)
-                  </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: '#1e293b', wordBreak: 'break-all', mt: 0.5 }}>
-                    {createdDualAccounts.attendanceAccount.email}
-                  </Typography>
-                  <Box sx={{ mt: 1, p: 1, bgcolor: '#fef3c7', borderRadius: 1 }}>
-                    <Typography variant="caption" sx={{ color: '#78350f', fontWeight: 700, display: 'block' }}>Temp Password:</Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 800, fontFamily: 'monospace', color: '#d97706' }}>
-                      {createdDualAccounts.attendanceAccount.temporaryPassword || 'Generated'}
-                    </Typography>
-                  </Box>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<ContentCopyIcon fontSize="small" />}
-                    sx={{ mt: 1.5, width: '100%', fontWeight: 600, color: '#1d4ed8', borderColor: '#93c5fd' }}
-                    onClick={() => {
-                      const full = `Momo HRMS Mobile Attendance Account\nEmail: ${createdDualAccounts.attendanceAccount.email}\nPassword: ${createdDualAccounts.attendanceAccount.temporaryPassword}\nApp: Momo HRMS Mobile`;
-                      navigator.clipboard.writeText(full);
-                      setFeedback('Attendance Mobile credentials copied!');
-                    }}
-                  >
-                    Copy Mobile Login
-                  </Button>
-                </Box>
-              </Box>
-            </Paper>
-
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2.5, mb: 3 }}>
-              {/* Account 1 Card */}
-              <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, borderColor: 'secondary.light', bgcolor: 'rgba(156, 39, 176, 0.03)' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  <ComputerIcon color="secondary" />
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'secondary.dark' }}>
-                    1. HR Functional Account
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Login Email:</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: 'secondary.main' }}>
-                      {createdDualAccounts.hrAccount.email}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Employee Code:</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {createdDualAccounts.hrAccount.employeeCode}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Purpose:</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                      HR Web Portal (Directory, Working Hours, Analytics)
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Assigned Role:</Typography>
-                    <Chip label="HR_ADMIN" size="small" color="secondary" sx={{ fontWeight: 600, width: 'fit-content' }} />
-                  </Box>
-                  {createdDualAccounts.hrAccount.temporaryPassword && (
-                    <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(156, 39, 176, 0.08)', borderRadius: 1, border: '1px dashed', borderColor: 'secondary.main', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'secondary.dark' }}>Temp Pass:</Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ fontWeight: 700, fontFamily: 'monospace', bgcolor: 'background.paper', px: 1, py: 0.2, borderRadius: 0.5 }}>
-                          {createdDualAccounts.hrAccount.temporaryPassword}
-                        </Typography>
-                        <Tooltip title="Copy password">
-                          <IconButton size="small" color="secondary" onClick={() => navigator.clipboard.writeText(createdDualAccounts.hrAccount.temporaryPassword || '')}>
-                            <ContentCopyIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Box>
-                  )}
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Office Jurisdiction Scope:</Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                      {(createdDualAccounts.hrAccount.assignedOffices || []).length > 0 ? (
-                        createdDualAccounts.hrAccount.assignedOffices!.map((o) => (
-                          <Chip
-                            key={o.id}
-                            icon={<LocationOnIcon fontSize="small" />}
-                            label={`${o.name} (${o.code})${o.isPrimary ? ' • Primary Scope' : ''}`}
-                            size="small"
-                            color="secondary"
-                            sx={{ fontWeight: 600 }}
-                          />
-                        ))
-                      ) : (
-                        <Chip
-                          icon={<LocationOnIcon fontSize="small" />}
-                          label={createdDualAccounts.hrAccount.officeLocationName || 'Assigned Office'}
-                          size="small"
-                          color="secondary"
-                          sx={{ fontWeight: 600 }}
-                        />
-                      )}
-                    </Box>
-                    <Typography variant="caption" color="secondary.dark" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic', fontSize: '0.72rem' }}>
-                      * This HR will strictly see only employees and attendance belonging to this office.
-                    </Typography>
-                  </Box>
-                </Box>
-              </Paper>
-
-              {/* Account 2 Card */}
-              <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2, borderColor: 'primary.light', bgcolor: 'rgba(25, 118, 210, 0.03)' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                  <SmartphoneIcon color="primary" />
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'primary.dark' }}>
-                    2. Employee Attendance Account
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Login Email:</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: 'primary.main' }}>
-                      {createdDualAccounts.attendanceAccount.email}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Employee Code:</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {createdDualAccounts.attendanceAccount.employeeCode}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Purpose:</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                      Employee Check-in / Check-out (Mobile App)
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Assigned Role:</Typography>
-                    <Chip label="EMPLOYEE" size="small" color="primary" sx={{ fontWeight: 600, width: 'fit-content' }} />
-                  </Box>
-                  {createdDualAccounts.attendanceAccount.temporaryPassword && (
-                    <Box sx={{ mt: 1, p: 1, bgcolor: 'rgba(25, 118, 210, 0.08)', borderRadius: 1, border: '1px dashed', borderColor: 'primary.main', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.dark' }}>Temp Pass:</Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" sx={{ fontWeight: 700, fontFamily: 'monospace', bgcolor: 'background.paper', px: 1, py: 0.2, borderRadius: 0.5 }}>
-                          {createdDualAccounts.attendanceAccount.temporaryPassword}
-                        </Typography>
-                        <Tooltip title="Copy password">
-                          <IconButton size="small" color="primary" onClick={() => navigator.clipboard.writeText(createdDualAccounts.attendanceAccount.temporaryPassword || '')}>
-                            <ContentCopyIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </Box>
-                  )}
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">Assigned Workplaces:</Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                      {(createdDualAccounts.attendanceAccount.assignedOffices || []).length > 0 ? (
-                        createdDualAccounts.attendanceAccount.assignedOffices!.map((o) => (
-                          <Chip
-                            key={o.id}
-                            icon={<LocationOnIcon fontSize="small" />}
-                            label={`${o.name} (${o.code})${o.isPrimary ? ' • Primary' : ''}`}
-                            size="small"
-                            color={o.isPrimary ? 'primary' : 'default'}
-                            sx={{ fontWeight: 600 }}
-                          />
-                        ))
-                      ) : (
-                        <Chip
-                          icon={<LocationOnIcon fontSize="small" />}
-                          label={createdDualAccounts.attendanceAccount.officeLocationName || 'Headquarters'}
-                          size="small"
-                          sx={{ fontWeight: 600 }}
-                        />
-                      )}
-                    </Box>
-                  </Box>
-                </Box>
-              </Paper>
-            </Box>
-
-            {createdDualAccounts.hrAccount.credentialDelivery?.delivered ? (
-              <Alert severity="success" sx={{ mb: 3 }}>
-                Official login credentials for both accounts have been generated and dispatched to the employee's registered personal email: <strong>{createdDualAccounts.hrAccount.personalEmail}</strong>.
-              </Alert>
-            ) : (
-              <Alert severity="info" sx={{ mb: 3 }}>
-                Official login credentials for both accounts have been generated and are displayed above. Email dispatch was skipped as requested.
-              </Alert>
-            )}
-
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <Button
-                variant="outlined"
-                startIcon={<SendIcon />}
-                disabled={resending}
-                onClick={handleResendCredentials}
-              >
-                {resending ? 'Sending...' : 'Resend Credentials'}
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handleCreateAnother}
-              >
-                Create Another Employee
-              </Button>
-              <Button
-                variant="contained"
-                startIcon={<VisibilityIcon />}
-                onClick={() => navigate(PATHS.employeeDetails(createdDualAccounts.hrAccount.id))}
-              >
-                View HR Profile
-              </Button>
-            </Box>
-          </CardContent>
-        </Card>
-      ) : createdEmployee ? (
+      {/* Post-Creation Confirmation Screen */}
+      {createdEmployee ? (
         /* Success Card for Standard Employee / Admin */
         <Card variant="outlined" sx={{ maxWidth: 720, mx: 'auto', p: 2, borderColor: 'success.main', borderWidth: 2 }}>
           <CardContent>
@@ -822,7 +448,9 @@ export default function AddEmployeePage() {
                   startIcon={<ContentCopyIcon fontSize="small" />}
                   sx={{ color: '#92400e', borderColor: '#d97706', '&:hover': { borderColor: '#b45309', bgcolor: '#fef3c7' }, fontWeight: 600 }}
                   onClick={() => {
-                    const full = `Momo HRMS Credentials\nUser: ${createdEmployee.firstName} ${createdEmployee.lastName}\nLogin Email: ${createdEmployee.email}\nTemporary Password: ${createdEmployee.temporaryPassword || 'Saved in Database'}\nLogin URL: ${window.location.origin}/login`;
+                    const full = selectedRole === 'HR'
+                      ? `Momo HRMS HR Account\nUser: ${createdEmployee.firstName} ${createdEmployee.lastName}\nRole: HR_ADMIN\nLogin Email: ${createdEmployee.email}\nTemporary Password: ${createdEmployee.temporaryPassword || 'Saved in Database'}\nWeb Portal: ${window.location.origin}/login\nMobile App: Momo HRMS App`
+                      : `Momo HRMS Credentials\nUser: ${createdEmployee.firstName} ${createdEmployee.lastName}\nLogin Email: ${createdEmployee.email}\nTemporary Password: ${createdEmployee.temporaryPassword || 'Saved in Database'}\nLogin URL: ${window.location.origin}/login`;
                     navigator.clipboard.writeText(full);
                     setFeedback('Full credentials copied to clipboard!');
                   }}
@@ -861,6 +489,8 @@ export default function AddEmployeePage() {
                   label={
                     selectedRole === 'ADMIN'
                       ? 'Admin (Web Portal)'
+                      : selectedRole === 'HR'
+                      ? 'HR Admin (Web & Mobile App)'
                       : 'Employee (Mobile App Only)'
                   }
                   color={selectedRole === 'EMPLOYEE' ? 'primary' : 'secondary'}
@@ -1065,26 +695,28 @@ export default function AddEmployeePage() {
                       <SupervisorAccountIcon color="secondary" fontSize="small" />
                       <Box>
                         <Typography variant="body1" sx={{ fontWeight: 600 }}>HR</Typography>
-                        <Typography variant="caption" color="text.secondary">Web Management Portal + Mobile Attendance (Dual Accounts)</Typography>
+                        <Typography variant="caption" color="text.secondary">Web Management Portal + Mobile Attendance (Single Account)</Typography>
                       </Box>
                     </Box>
                   </MenuItem>
-                  <MenuItem value="ADMIN">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <ComputerIcon color="error" fontSize="small" />
-                      <Box>
-                        <Typography variant="body1" sx={{ fontWeight: 600 }}>ADMIN</Typography>
-                        <Typography variant="caption" color="text.secondary">Full Administrative Web Portal Access (System Config)</Typography>
+                  {isSuperAdmin && (
+                    <MenuItem value="ADMIN">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <ComputerIcon color="error" fontSize="small" />
+                        <Box>
+                          <Typography variant="body1" sx={{ fontWeight: 600 }}>ADMIN</Typography>
+                          <Typography variant="caption" color="text.secondary">Full Administrative Web Portal Access (Super Admin Only)</Typography>
+                        </Box>
                       </Box>
-                    </Box>
-                  </MenuItem>
+                    </MenuItem>
+                  )}
                 </Select>
                 <FormHelperText>
                   {selectedRole === 'HR'
-                    ? '👥 HR Role: Creates TWO accounts (HR Functional Web Account + Employee Attendance Account).'
+                    ? '👥 HR Role: Creates a unified account with access to both the Web Management Portal and Mobile App.'
                     : selectedRole === 'EMPLOYEE'
                     ? '📱 Standard employees sign in via the Momo HRMS Mobile App.'
-                    : '💻 Administrative roles have access to the Momo HRMS Web Management Portal.'}
+                    : '💻 Administrative roles have access to the Momo HRMS Web Management Portal (Restricted to Super Admin creators).'}
                 </FormHelperText>
               </FormControl>
 
@@ -1201,48 +833,29 @@ export default function AddEmployeePage() {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                     <SupervisorAccountIcon color="secondary" />
                     <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'secondary.dark' }}>
-                      HR ACCOUNT INFORMATION (DUAL ACCOUNTS)
+                      HR ACCOUNT INFORMATION (SINGLE UNIFIED LOGIN)
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    HR staff members receive two separate accounts for security and separation of roles:
+                    A single official company account provides access to both the HR Web Management Portal and Mobile App:
                   </Typography>
 
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-                    {/* Account 1 */}
-                    <Card variant="outlined" sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <ComputerIcon color="secondary" fontSize="small" />
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                          Account 1: HR Functional Account
-                        </Typography>
-                      </Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        <strong>Used for:</strong> HR Web Portal
+                  <Card variant="outlined" sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      <ComputerIcon color="secondary" fontSize="small" />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                        Unified HR Account (Web & Mobile Access)
                       </Typography>
-                      <Box sx={{ bgcolor: 'grey.100', p: 1, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: 'secondary.main' }}>
-                        {resolvingEmails ? 'Checking availability...' : resolvedHrEmail || fallbackHrEmail}
-                      </Box>
-                      <Chip label="Role: HR Admin" size="small" color="secondary" sx={{ mt: 1, fontWeight: 600, height: 20, fontSize: '0.7rem' }} />
-                    </Card>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                      <strong>Login ID / Company Email:</strong>
+                    </Typography>
+                    <Box sx={{ bgcolor: 'grey.100', p: 1, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: 'secondary.main' }}>
+                      {resolvingEmails ? 'Checking availability...' : resolvedEmail || fallbackOfficialEmail}
+                    </Box>
+                    <Chip label="Role: HR Admin (Web + Mobile App)" size="small" color="secondary" sx={{ mt: 1, fontWeight: 600, height: 22, fontSize: '0.75rem' }} />
+                  </Card>
 
-                    {/* Account 2 */}
-                    <Card variant="outlined" sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <SmartphoneIcon color="primary" fontSize="small" />
-                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                          Account 2: Employee Attendance Account
-                        </Typography>
-                      </Box>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        <strong>Used for:</strong> Normal Employee Attendance
-                      </Typography>
-                      <Box sx={{ bgcolor: 'grey.100', p: 1, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: 'primary.main' }}>
-                        {resolvingEmails ? 'Checking availability...' : resolvedAttendanceEmail || fallbackAttendanceEmail}
-                      </Box>
-                      <Chip label="Role: Employee" size="small" color="primary" sx={{ mt: 1, fontWeight: 600, height: 20, fontSize: '0.7rem' }} />
-                    </Card>
-                  </Box>
                   <Box sx={{ mt: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1.5, border: '1px dashed', borderColor: 'secondary.main' }}>
                     <Typography variant="caption" sx={{ fontWeight: 700, color: 'secondary.dark', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <LocationOnIcon fontSize="inherit" /> Assigned Workplace Jurisdiction Scope:
@@ -1256,9 +869,6 @@ export default function AddEmployeePage() {
                       * Only staff members assigned to this office will be visible to this HR in the HR dashboard and directory.
                     </Typography>
                   </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-                    * If duplicate emails exist, available numbered suffixes (.hr1, .hr2 / 1, 2) are automatically assigned.
-                  </Typography>
                 </Paper>
               ) : (
                 /* Standard Provisioning Preview */
@@ -1323,7 +933,7 @@ export default function AddEmployeePage() {
                   disabled={submitting}
                   startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
                 >
-                  {submitting ? 'Creating User...' : selectedRole === 'HR' ? 'Create HR (Dual Accounts)' : 'Create User'}
+                  {submitting ? 'Creating User...' : selectedRole === 'HR' ? 'Create HR' : 'Create User'}
                 </Button>
               </Box>
             </Box>

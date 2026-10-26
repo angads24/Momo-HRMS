@@ -76,9 +76,9 @@ export const attendanceApi = {
     }
   },
 
-  async listExceptions(): Promise<AttendanceException[]> {
+  async listExceptions(params?: { hrEmail?: string; employeeId?: string; status?: string }): Promise<AttendanceException[]> {
     try {
-      const res = await api.get<{ success: boolean; data: AttendanceException[] }>('/attendance/exceptions');
+      const res = await api.get<{ success: boolean; data: AttendanceException[] }>('/attendance/exceptions', { params });
       return res.data.data ?? [];
     } catch {
       return [];

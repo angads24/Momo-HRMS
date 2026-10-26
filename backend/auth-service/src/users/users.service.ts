@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -29,11 +29,14 @@ export class UsersService {
    * enter the system — there is no open public self-registration, by
    * design (see spec section 5).
    *
-   * Intended to be called either by the protected `POST /auth/users`
-   * endpoint (SUPER_ADMIN only) or, later, directly by the Employee
-   * Service when it provisions a new hire.
+   * Only SUPER_ADMIN may provision other admin roles (SUPER_ADMIN or HR_ADMIN).
    */
-  async createUser(dto: CreateUserDto): Promise<UserResponseDto> {
+  async createUser(dto: CreateUserDto, callerRoles?: string[]): Promise<UserResponseDto> {
+    const requestedAdminRole = dto.roles.some((r) => r === 'SUPER_ADMIN' || r === 'HR_ADMIN');
+    if (callerRoles && requestedAdminRole && !callerRoles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Only SUPER_ADMIN can create admin users');
+    }
+
     const normalizedEmail = this.normalizeEmail(dto.email);
 
     const [existingEmail, existingUsername] = await Promise.all([
@@ -169,13 +172,29 @@ export class UsersService {
    * Updates profile fields and/or the full role set for a user.
    * Username is intentionally not editable here — treat it as a stable
    * identifier; changing it is a separate, rarer operation if ever needed.
+   *
+   * Only SUPER_ADMIN can assign the SUPER_ADMIN role or modify a SUPER_ADMIN user.
    */
-  async updateUser(identifier: string, dto: UpdateUserDto): Promise<UserResponseDto> {
+  async updateUser(identifier: string, dto: UpdateUserDto, callerRoles?: string[]): Promise<UserResponseDto> {
     const existing = await this.findUserByIdentifier(identifier);
     if (!existing) {
       throw new NotFoundException('User not found');
     }
     const userId = existing.id;
+    const existingRoles = existing.userRoles.map((ur) => ur.role.name);
+
+    if (callerRoles) {
+      const isCallerSuperAdmin = callerRoles.includes('SUPER_ADMIN');
+      const targetIsSuperAdmin = existingRoles.includes('SUPER_ADMIN');
+
+      if (targetIsSuperAdmin && !isCallerSuperAdmin) {
+        throw new ForbiddenException('Only SUPER_ADMIN can modify a SUPER_ADMIN user');
+      }
+
+      if (dto.roles && dto.roles.includes('SUPER_ADMIN') && !isCallerSuperAdmin) {
+        throw new ForbiddenException('Only SUPER_ADMIN can assign the SUPER_ADMIN role');
+      }
+    }
 
     const data: { fullName?: string; email?: string } = {};
 

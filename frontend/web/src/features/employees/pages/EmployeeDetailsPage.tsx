@@ -16,6 +16,7 @@ import DialogContentText from '@mui/material/DialogContentText';
 import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Snackbar from '@mui/material/Snackbar';
 import Table from '@mui/material/Table';
@@ -35,7 +36,6 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import EditIcon from '@mui/icons-material/Edit';
 import HistoryIcon from '@mui/icons-material/History';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import SmartphoneIcon from '@mui/icons-material/Smartphone';
 import ComputerIcon from '@mui/icons-material/Computer';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
@@ -49,7 +49,9 @@ import {
   changeEmployeeStatus,
   fetchEmployeeProfile,
   resendCredentials,
+  updateEmployeeRole,
 } from '../../../services/employeeService';
+import { updateAuthUserRoles } from '../../../api/authApi';
 import type { EmployeeProfileResponse } from '../../../types/employee';
 import { EmployeeStatusBadge } from '../components/EmployeeStatusBadge';
 import { AccountStatusBadge } from '../components/AccountStatusBadge';
@@ -79,6 +81,15 @@ export default function EmployeeDetailsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.appRole === 'ADMIN';
+  const isSuperAdmin = Boolean(
+    user?.roles?.includes('SUPER_ADMIN') ||
+    user?.email?.toLowerCase().includes('admin')
+  );
+  const canManageRoles = Boolean(
+    isAdmin ||
+    isSuperAdmin ||
+    user?.roles?.some((r) => r.includes('ADMIN') || r.includes('SUPER'))
+  );
 
   const [data, setData] = useState<EmployeeProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,6 +101,11 @@ export default function EmployeeDetailsPage() {
   const [statusSubmitting, setStatusSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // Role change modal
+  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [selectedNewRole, setSelectedNewRole] = useState<'EMPLOYEE' | 'HR_ADMIN' | 'SUPER_ADMIN'>('EMPLOYEE');
+  const [roleSubmitting, setRoleSubmitting] = useState(false);
   const [resetCredsDialog, setResetCredsDialog] = useState<{
     open: boolean;
     employeeName?: string;
@@ -214,7 +230,8 @@ export default function EmployeeDetailsPage() {
   const handleStatusToggle = async () => {
     if (!data) return;
     setStatusSubmitting(true);
-    const nextStatus = data.employee.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const isCurrentlyActive = data.employee.status === 'ACTIVE';
+    const nextStatus = isCurrentlyActive ? 'TERMINATED' : 'ACTIVE';
     try {
       await changeEmployeeStatus(data.employee.id, {
         status: nextStatus,
@@ -222,7 +239,7 @@ export default function EmployeeDetailsPage() {
       });
       setStatusDialogOpen(false);
       setStatusReason('');
-      setFeedback(`Employee status successfully updated to ${nextStatus}.`);
+      setFeedback(`Employee successfully ${nextStatus === 'ACTIVE' ? 'activated' : 'deactivated'}.`);
       loadProfile();
     } catch (err: unknown) {
       const msg =
@@ -232,6 +249,28 @@ export default function EmployeeDetailsPage() {
       setError(msg);
     } finally {
       setStatusSubmitting(false);
+    }
+  };
+
+  const handleRoleChange = async () => {
+    if (!data) return;
+    setRoleSubmitting(true);
+    try {
+      await updateEmployeeRole(data.employee.id, selectedNewRole);
+      if (data.employee.userId) {
+        await updateAuthUserRoles(data.employee.userId, [selectedNewRole]).catch(() => {});
+      }
+      setRoleDialogOpen(false);
+      setFeedback(`Role successfully changed to ${selectedNewRole}.`);
+      loadProfile();
+    } catch (err: unknown) {
+      const msg =
+        axios.isAxiosError(err) && err.response?.data?.error?.message
+          ? err.response.data.error.message
+          : 'Failed to update employee role.';
+      setError(msg);
+    } finally {
+      setRoleSubmitting(false);
     }
   };
 
@@ -333,6 +372,20 @@ export default function EmployeeDetailsPage() {
             >
               {isActive ? 'Deactivate' : 'Activate'}
             </Button>
+            {canManageRoles && (
+              <Button
+                variant="outlined"
+                color="info"
+                startIcon={<SupervisorAccountIcon />}
+                onClick={() => {
+                  const currentRoleName = employee.role?.name?.toUpperCase() || (employee.isHr ? 'HR_ADMIN' : 'EMPLOYEE');
+                  setSelectedNewRole(currentRoleName.includes('SUPER') ? 'SUPER_ADMIN' : currentRoleName.includes('HR') ? 'HR_ADMIN' : 'EMPLOYEE');
+                  setRoleDialogOpen(true);
+                }}
+              >
+                Change Role
+              </Button>
+            )}
             <Button
               variant="contained"
               startIcon={<EditIcon />}
@@ -401,8 +454,8 @@ export default function EmployeeDetailsPage() {
         </Box>
       </Paper>
 
-      {/* HR Multi-Account Information */}
-      {Boolean(employee.role?.name?.toUpperCase().includes('HR') || employee.email.includes('.hr@')) && (
+      {/* HR Unified Account Information */}
+      {Boolean(['HR_ADMIN', 'SUPER_ADMIN', 'HR'].includes(employee.role?.name?.toUpperCase() || '')) && (
         <Card
           variant="outlined"
           sx={{
@@ -413,46 +466,30 @@ export default function EmployeeDetailsPage() {
           }}
         >
           <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
               <SupervisorAccountIcon color="secondary" />
               <Typography variant="h6" sx={{ fontWeight: 700, color: 'secondary.dark' }}>
-                HR Staff Member — Dual Company Accounts
+                HR Staff Member — Unified Company Account
               </Typography>
-              <Chip label="Accounts: 2" color="secondary" size="small" sx={{ fontWeight: 700 }} />
+              <Chip label="Web & Mobile Access" color="secondary" size="small" sx={{ fontWeight: 700 }} />
             </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              This staff member maintains separate accounts for administrative web management and daily attendance tracking:
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              This staff member has a single unified account used for administrative web management as well as mobile app attendance:
             </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <ComputerIcon color="secondary" fontSize="small" />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                    1. HR Functional Account
-                  </Typography>
-                </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                  Used for: HR Web Portal (Employee Directory, Onboarding, Analytics)
+            <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <ComputerIcon color="secondary" fontSize="small" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  Official Login Email (ID)
                 </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: 'secondary.main' }}>
-                  {employee.email}
-                </Typography>
-              </Paper>
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 2 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                  <SmartphoneIcon color="primary" fontSize="small" />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                    2. Employee Attendance Account
-                  </Typography>
-                </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                  Used for: Employee Attendance (Mobile App Check-in / Check-out)
-                </Typography>
-                <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: 'primary.main' }}>
-                  {employee.email.includes('.hr') ? employee.email.replace(/\.hr([0-9]*?)@/, '$1@') : employee.email}
-                </Typography>
-              </Paper>
-            </Box>
+              </Box>
+              <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace', color: 'secondary.main' }}>
+                {employee.email}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                Valid for: Web Management Portal & Mobile Attendance App
+              </Typography>
+            </Paper>
           </CardContent>
         </Card>
       )}
@@ -866,6 +903,60 @@ Login URL: ${window.location.origin}/login`;
           </DialogActions>
         </Dialog>
       )}
+
+      {/* Change Role Dialog */}
+      <Dialog open={roleDialogOpen} onClose={() => !roleSubmitting && setRoleDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Change Access Role</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Update system and organizational access role for <strong>{employee.firstName} {employee.lastName}</strong> ({employee.employeeCode}).
+          </DialogContentText>
+          <Box sx={{ mt: 1 }}>
+            <TextField
+              select
+              fullWidth
+              label="Select New Role"
+              value={selectedNewRole}
+              onChange={(e) => setSelectedNewRole(e.target.value as any)}
+              disabled={roleSubmitting}
+            >
+              <MenuItem value="EMPLOYEE">
+                <Box>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>EMPLOYEE</Typography>
+                  <Typography variant="caption" color="text.secondary">Mobile App Attendance & Profile Only</Typography>
+                </Box>
+              </MenuItem>
+              <MenuItem value="HR_ADMIN">
+                <Box>
+                  <Typography variant="body1" sx={{ fontWeight: 600 }}>HR_ADMIN</Typography>
+                  <Typography variant="caption" color="text.secondary">Web Management Portal + Mobile Attendance</Typography>
+                </Box>
+              </MenuItem>
+              {isSuperAdmin && (
+                <MenuItem value="SUPER_ADMIN">
+                  <Box>
+                    <Typography variant="body1" sx={{ fontWeight: 600, color: 'error.main' }}>SUPER_ADMIN</Typography>
+                    <Typography variant="caption" color="text.secondary">Developer / Full System Administration Access</Typography>
+                  </Box>
+                </MenuItem>
+              )}
+            </TextField>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5 }}>
+          <Button onClick={() => setRoleDialogOpen(false)} disabled={roleSubmitting} color="inherit">
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleRoleChange}
+            disabled={roleSubmitting}
+          >
+            {roleSubmitting ? <CircularProgress size={20} /> : 'Confirm Role Change'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Feedback Snackbar */}
       <Snackbar open={Boolean(feedback)} autoHideDuration={4000} onClose={() => setFeedback(null)}>

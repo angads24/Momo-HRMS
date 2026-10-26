@@ -23,9 +23,9 @@ export class CreateNotificationDto {
   @IsNotEmpty()
   recipientId: string;
 
-  @ApiPropertyOptional({ description: 'Recipient classification (EMPLOYEE, USER, BROADCAST, HR, ADMIN)', default: 'EMPLOYEE' })
+  @ApiPropertyOptional({ description: 'Recipient classification (EMPLOYEE, USER, BROADCAST, HR, ADMIN, INDIVIDUAL)', default: 'EMPLOYEE' })
   @IsOptional()
-  @IsIn(['EMPLOYEE', 'USER', 'BROADCAST', 'HR', 'ADMIN'])
+  @IsIn(['EMPLOYEE', 'USER', 'BROADCAST', 'HR', 'ADMIN', 'INDIVIDUAL'])
   recipientType?: string;
 
   @ApiProperty({ description: 'Notification type', enum: NOTIFICATION_TYPES })

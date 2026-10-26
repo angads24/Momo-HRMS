@@ -56,6 +56,7 @@ export interface Employee {
   jobTitle: string;
   department: DepartmentRef;
   role: RoleRef;
+  roleId?: string;
   officeLocationId?: string | null;
   officeLocationName?: string | null;
   primaryOfficeId?: string | null;
@@ -172,6 +173,7 @@ export interface UpdateEmployeePayload {
   dateOfJoining?: string;
   jobTitle?: string;
   departmentId?: string;
+  roleId?: string;
   officeLocationId?: string | null;
   officeLocationName?: string | null;
   primaryOfficeId?: string | null;

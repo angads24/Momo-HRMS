@@ -201,7 +201,7 @@ export function SendNotificationDialog({ open, onClose, onNotificationSent }: Pr
 
       // Use clean employee code or email instead of raw database UUID so internal IDs are not exposed
       finalRecipientId = selectedRecipient.code || selectedRecipient.email || selectedRecipient.id;
-      finalRecipientType = selectedRecipient.role || 'EMPLOYEE';
+      finalRecipientType = 'INDIVIDUAL';
       matchedRecipient = selectedRecipient;
     }
 

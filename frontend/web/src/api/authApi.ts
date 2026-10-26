@@ -102,3 +102,8 @@ export async function deleteAuthUser(userId: string): Promise<any> {
   const res = await api.delete(`/auth/users/${userId}`);
   return res.data;
 }
+
+export async function updateAuthUserRoles(userId: string, roles: string[]): Promise<any> {
+  const res = await api.patch(`/auth/users/${userId}`, { roles });
+  return res.data;
+}

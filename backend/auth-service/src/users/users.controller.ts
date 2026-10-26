@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ROLE_NAMES } from '../common/constants/rbac.constants';
+import { CurrentUser, AuthenticatedUser } from '../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -19,14 +20,15 @@ export class UsersController {
 
   /**
    * User provisioning (NOT self-registration). Only SUPER_ADMIN may
-   * create users through this endpoint. The Employee Service can later
-   * call UsersService.createUser directly (in-process) or via an
-   * internal/service-to-service endpoint using the same method.
+   * create admin users through this endpoint.
    */
   @Post()
   @Roles(ROLE_NAMES.SUPER_ADMIN, ROLE_NAMES.HR_ADMIN)
-  create(@Body() dto: CreateUserDto): Promise<UserResponseDto> {
-    return this.usersService.createUser(dto);
+  create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ): Promise<UserResponseDto> {
+    return this.usersService.createUser(dto, user?.roles);
   }
 
   @Get()
@@ -55,8 +57,9 @@ export class UsersController {
   update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
+    @CurrentUser() user?: AuthenticatedUser,
   ): Promise<UserResponseDto> {
-    return this.usersService.updateUser(id, dto);
+    return this.usersService.updateUser(id, dto, user?.roles);
   }
 
   /**

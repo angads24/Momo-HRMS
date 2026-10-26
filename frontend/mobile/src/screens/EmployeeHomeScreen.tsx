@@ -52,6 +52,7 @@ import {
 } from '../components/InAppNotificationBanner';
 import { palette } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
+import { promptEnableLocationServices, promptLocationPermission } from '../utils/locationUtils';
 
 function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -283,6 +284,7 @@ export default function EmployeeHomeScreen() {
 
   // Concurrency & Cache refs
   const isVerifyingRef = useRef(false);
+  const isPromptingLocationRef = useRef(false);
   const officesCacheRef = useRef<Office[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isTransitioningRef = useRef(false);
@@ -398,8 +400,9 @@ export default function EmployeeHomeScreen() {
 
   // 3. Resolve assigned office & evaluate geofence with GPS
   const checkLocationAndGeofence = useCallback(
-    async (arg?: unknown) => {
+    async (arg?: unknown, shouldPromptArg?: boolean) => {
       const forceRefreshOffices = typeof arg === 'boolean' ? arg : false;
+      const shouldPrompt = shouldPromptArg !== undefined ? shouldPromptArg : true;
       if (isVerifyingRef.current) return;
       isVerifyingRef.current = true;
       setVerifyingGeofence(true);
@@ -454,6 +457,14 @@ export default function EmployeeHomeScreen() {
             'Location access is required to verify that you are at your assigned office. Please enable location permissions in your device settings.',
           );
           await pauseOnLocationOff('Location permission disabled');
+          if (shouldPrompt && !isPromptingLocationRef.current) {
+            isPromptingLocationRef.current = true;
+            try {
+              await promptLocationPermission();
+            } finally {
+              isPromptingLocationRef.current = false;
+            }
+          }
           return;
         }
 
@@ -463,6 +474,21 @@ export default function EmployeeHomeScreen() {
           setGpsDisabled(true);
           setLocationError('GPS is disabled on your device. Please turn on Location services in High Accuracy mode.');
           await pauseOnLocationOff('Device GPS turned off');
+
+          if (shouldPrompt && !isPromptingLocationRef.current) {
+            isPromptingLocationRef.current = true;
+            try {
+              const turnedOn = await promptEnableLocationServices();
+              if (turnedOn) {
+                setGpsDisabled(false);
+                setLocationError(null);
+                isVerifyingRef.current = false;
+                return checkLocationAndGeofence(false, false);
+              }
+            } finally {
+              isPromptingLocationRef.current = false;
+            }
+          }
           return;
         }
 
@@ -842,7 +868,27 @@ export default function EmployeeHomeScreen() {
   };
 
   // Step 1: Initiate Check-In (Validate Geofence & Open Biometric Face Modal)
-  const handleInitiateCheckIn = () => {
+  const handleInitiateCheckIn = async () => {
+    // 1. Verify device location services (GPS) are turned on
+    const isLocationServicesEnabled = await Location.hasServicesEnabledAsync();
+    if (!isLocationServicesEnabled) {
+      const turnedOn = await promptEnableLocationServices();
+      if (turnedOn) {
+        await checkLocationAndGeofence(false, false);
+      }
+      return;
+    }
+
+    // 2. Verify location permissions
+    const { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      const granted = await promptLocationPermission();
+      if (granted) {
+        await checkLocationAndGeofence(false, false);
+      }
+      return;
+    }
+
     if (!assignedOffice) {
       Alert.alert(
         'No Office Assigned',
@@ -860,14 +906,17 @@ export default function EmployeeHomeScreen() {
         `You are outside your assigned office${distance}.\nPlease reach the office premises to mark attendance.`,
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Refresh Location', onPress: checkLocationAndGeofence },
+          { text: 'Refresh Location', onPress: () => void checkLocationAndGeofence(true, true) },
         ],
       );
       return;
     }
 
     if (!location) {
-      Alert.alert('GPS Required', 'Please refresh your location to verify geofence before check-in.');
+      Alert.alert('GPS Required', 'Please refresh your location to verify geofence before check-in.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Refresh Location', onPress: () => void checkLocationAndGeofence(true, true) },
+      ]);
       return;
     }
 
@@ -1206,14 +1255,14 @@ export default function EmployeeHomeScreen() {
                 <View style={styles.permissionActions}>
                   <TouchableOpacity
                     style={styles.settingsBtn}
-                    onPress={() => void Linking.openSettings()}
+                    onPress={() => void promptLocationPermission()}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.settingsBtnText}>Open Settings</Text>
+                    <Text style={styles.settingsBtnText}>Enable Permission</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.recheckBtn}
-                    onPress={checkLocationAndGeofence}
+                    onPress={() => void checkLocationAndGeofence(true, true)}
                     activeOpacity={0.8}
                   >
                     <Text style={styles.recheckBtnText}>Try Again</Text>
@@ -1235,13 +1284,27 @@ export default function EmployeeHomeScreen() {
                 <Text style={styles.permissionText}>
                   GPS is disabled on your device. Please turn on location services in High Accuracy mode to verify office presence.
                 </Text>
-                <TouchableOpacity
-                  style={[styles.settingsBtn, { marginTop: 8 }]}
-                  onPress={checkLocationAndGeofence}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.settingsBtnText}>Re-check GPS</Text>
-                </TouchableOpacity>
+                <View style={styles.permissionActions}>
+                  <TouchableOpacity
+                    style={styles.settingsBtn}
+                    onPress={async () => {
+                      const enabled = await promptEnableLocationServices();
+                      if (enabled) {
+                        await checkLocationAndGeofence(true, false);
+                      }
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.settingsBtnText}>Turn On Location</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.recheckBtn}
+                    onPress={() => void checkLocationAndGeofence(true, true)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.recheckBtnText}>Re-check GPS</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </Card.Content>
           </Card>

@@ -131,18 +131,11 @@ export class EmployeeService implements OnModuleInit {
         include: { designation: true },
       });
       if (duplicatePersonal && duplicatePersonal.email !== dto.email) {
-        const isDualHrPair =
-          (dto.jobTitle?.includes('HR') || duplicatePersonal.designation?.title?.includes('HR')) &&
-          duplicatePersonal.firstName.toLowerCase() === dto.firstName.toLowerCase() &&
-          duplicatePersonal.lastName.toLowerCase() === dto.lastName.toLowerCase();
-
-        if (!isDualHrPair) {
-          throw new AppException(
-            ErrorCodes.DUPLICATE_EMAIL,
-            'already account is created!',
-            HttpStatus.CONFLICT,
-          );
-        }
+        throw new AppException(
+          ErrorCodes.DUPLICATE_EMAIL,
+          'already account is created!',
+          HttpStatus.CONFLICT,
+        );
       }
     }
 
@@ -274,13 +267,18 @@ export class EmployeeService implements OnModuleInit {
       `[CREDENTIAL_GENERATE] Provisioning credentials for ${result.email} (${result.employeeCode}): targetEmail=${targetEmail}`,
     );
 
-    // Automatically sync/provision credentials to auth-service so login immediately works
+    // Determine primary role to sync to auth-service
+    const isHr = Boolean(dto.roleId?.includes('HR') || dto.jobTitle?.toUpperCase().includes('HR'));
+    const isSuperAdmin = Boolean(dto.roleId?.includes('SUPER'));
+    const targetRole = isSuperAdmin ? 'SUPER_ADMIN' : isHr ? 'HR_ADMIN' : (dto.roleId || 'EMPLOYEE');
+
+    // Automatically sync/provision single credentials to auth-service so login immediately works
     const authUserId = await this.syncCredentialsToAuthService(
       result.email,
       tempPass,
       `${result.firstName} ${result.lastName}`,
       result.employeeCode,
-      dto.roleId || 'EMPLOYEE',
+      targetRole,
     );
 
     if (authUserId && !result.userId) {
@@ -293,33 +291,6 @@ export class EmployeeService implements OnModuleInit {
 
     result.temporaryPassword = tempPass;
 
-    // Dual HR Portal account provisioning if hrWebEmail is provided
-    let hrPortalCredentials: { email: string; temporaryPassword: string; role: string; userId?: string } | undefined;
-    if (dto.hrWebEmail && dto.hrWebEmail.trim()) {
-      const cleanHrEmail = dto.hrWebEmail.trim().toLowerCase();
-      const hrTempPass = this.generateStrongTemporaryPassword();
-      const hrUsername = cleanHrEmail.split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '_');
-
-      const hrAuthUserId = await this.syncCredentialsToAuthService(
-        cleanHrEmail,
-        hrTempPass,
-        `${result.firstName} ${result.lastName}`,
-        hrUsername,
-        'HR_ADMIN',
-      );
-
-      hrPortalCredentials = {
-        email: cleanHrEmail,
-        temporaryPassword: hrTempPass,
-        role: 'HR_ADMIN',
-        userId: hrUsername || cleanHrEmail,
-      };
-      (result as any).hrPortalCredentials = hrPortalCredentials;
-      this.logger.log(
-        `[CREDENTIAL_GENERATE] Provisioned linked HR Web Portal auth user for ${cleanHrEmail} (ID: ${hrAuthUserId})`,
-      );
-    }
-
     const shouldSendEmail = dto.provisionAccount !== false && (dto as any).sendEmail !== false;
 
     if (shouldSendEmail && tempPass) {
@@ -330,10 +301,8 @@ export class EmployeeService implements OnModuleInit {
         officialEmail: result.email,
         username: result.employeeCode.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_"),
         temporaryPassword: tempPass,
-        roleName: dto.roleId || "EMPLOYEE",
+        roleName: targetRole,
         isPasswordReset: false,
-        hrPortalEmail: hrPortalCredentials?.email,
-        hrPortalPassword: hrPortalCredentials?.temporaryPassword,
       });
 
       // Allow up to 6 seconds for live SMTP delivery confirmation
@@ -541,7 +510,14 @@ export class EmployeeService implements OnModuleInit {
         assignments: { where: { isActive: true } },
       },
     });
-    return this.formatEmployee(updated);
+
+    if (dto.roleId) {
+      await this.updateEmployeeRole(employee.id, dto.roleId).catch((err) => {
+        this.logger.warn(`Failed to update employee role during updateEmployee: ${err.message}`);
+      });
+    }
+
+    return this.getEmployeeById(employee.id);
   }
 
   /**
@@ -606,7 +582,7 @@ export class EmployeeService implements OnModuleInit {
       throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee profile not found for this user', HttpStatus.NOT_FOUND);
     }
 
-    return this.formatEmployee(employee);
+    return this.getEmployeeById(employee.id);
   }
 
   /**
@@ -727,8 +703,31 @@ export class EmployeeService implements OnModuleInit {
       this.prisma.employee.count({ where }),
     ]);
 
+    const roleMap = new Map<string, { id: string; name: string }>();
+    if (items.length > 0) {
+      try {
+        const emails = items.map((e) => e.email.trim().toLowerCase()).filter(Boolean);
+        if (emails.length > 0) {
+          const placeholders = emails.map(() => '?').join(',');
+          const userRoles = await this.prisma.$queryRawUnsafe<Array<{ email: string; id: string; name: string }>>(
+            `SELECT LOWER(u.email) as email, r.id, r.name 
+             FROM auth_service.roles r 
+             JOIN auth_service.user_roles ur ON ur.role_id = r.id 
+             JOIN auth_service.users u ON u.id = ur.user_id 
+             WHERE LOWER(u.email) IN (${placeholders})`,
+            ...emails,
+          );
+          for (const ur of userRoles) {
+            roleMap.set(ur.email, { id: ur.id, name: ur.name });
+          }
+        }
+      } catch {
+        // Fallback if auth_service cannot be reached
+      }
+    }
+
     return {
-      items: items.map((e) => this.formatEmployeeSummary(e)),
+      items: items.map((e) => this.formatEmployeeSummary(e, roleMap.get(e.email?.trim().toLowerCase()))),
       page: isAll ? 1 : page,
       limit: isAll ? total : limit,
       total,
@@ -772,7 +771,27 @@ export class EmployeeService implements OnModuleInit {
       throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', HttpStatus.NOT_FOUND);
     }
 
-    return this.formatEmployee(employee);
+    let explicitRole: { id: string; name: string } | null = null;
+    try {
+      const userRoles = await this.prisma.$queryRawUnsafe<Array<{ id: string; name: string }>>(
+        `SELECT r.id, r.name 
+         FROM auth_service.roles r 
+         JOIN auth_service.user_roles ur ON ur.role_id = r.id 
+         JOIN auth_service.users u ON u.id = ur.user_id 
+         WHERE LOWER(u.email) = ? OR LOWER(u.username) = ? OR u.id = ? 
+         LIMIT 1`,
+        employee.email.trim().toLowerCase(),
+        employee.employeeCode.toLowerCase(),
+        employee.userId || '',
+      );
+      if (userRoles && userRoles.length > 0) {
+        explicitRole = { id: userRoles[0].id, name: userRoles[0].name };
+      }
+    } catch {
+      // Fallback if auth_service cannot be reached
+    }
+
+    return this.formatEmployee(employee, explicitRole);
   }
 
   /**
@@ -806,24 +825,133 @@ export class EmployeeService implements OnModuleInit {
 
   /**
    * Update employee status (e.g. ACTIVE, INACTIVE, TERMINATED).
+   * Automatically normalizes status to Prisma EmploymentStatus enum
+   * and synchronizes is_active with auth_service.
    */
-  async updateEmployeeStatus(id: string, status: EmploymentStatus) {
+  async updateEmployeeStatus(id: string, status: any) {
     const employee = await this.prisma.employee.findFirst({
       where: { OR: [{ id }, { employeeCode: id }] },
     });
     if (!employee) {
       throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', HttpStatus.NOT_FOUND);
     }
+    const normalizedStatus =
+      status === 'INACTIVE' || status === 'TERMINATED' || status === 'DEACTIVATED'
+        ? EmploymentStatus.TERMINATED
+        : EmploymentStatus.ACTIVE;
+
     const updated = await this.prisma.employee.update({
       where: { id: employee.id },
-      data: { employmentStatus: status },
+      data: { employmentStatus: normalizedStatus },
       include: {
         department: true,
         designation: true,
         assignments: { where: { isActive: true } },
       },
     });
-    return this.formatEmployee(updated);
+
+    const isActiveInt = normalizedStatus === EmploymentStatus.ACTIVE ? 1 : 0;
+    try {
+      await this.prisma.$executeRawUnsafe(
+        'UPDATE auth_service.users SET is_active = ?, updated_at = NOW() WHERE id = ? OR email = ? OR username = ?',
+        isActiveInt,
+        employee.userId || '',
+        employee.email.trim().toLowerCase(),
+        employee.employeeCode.toLowerCase(),
+      );
+    } catch (e: any) {
+      this.logger.warn(`Failed to sync is_active to auth_service: ${e.message}`);
+    }
+
+    return this.getEmployeeById(employee.id);
+  }
+
+  /**
+   * Update employee role (SUPER_ADMIN, HR_ADMIN, EMPLOYEE).
+   * Enforces role hierarchy: only SUPER_ADMIN can assign SUPER_ADMIN or alter a SUPER_ADMIN.
+   * Syncs with auth_service.user_roles.
+   */
+  async updateEmployeeRole(idOrCode: string, newRoleName: string, callerRoles: string[] = []) {
+    const employee = await this.prisma.employee.findFirst({
+      where: { OR: [{ id: idOrCode }, { employeeCode: idOrCode }] },
+      include: {
+        department: true,
+        designation: true,
+        assignments: { where: { isActive: true } },
+      },
+    });
+    if (!employee) {
+      throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee not found', HttpStatus.NOT_FOUND);
+    }
+
+    const norm = (newRoleName || '').trim().toUpperCase();
+    const targetRoleName = norm.includes('SUPER')
+      ? 'SUPER_ADMIN'
+      : (norm.includes('HR') || norm.includes('ADMIN'))
+      ? 'HR_ADMIN'
+      : 'EMPLOYEE';
+
+    if (callerRoles.length > 0) {
+      const isCallerSuperAdmin = callerRoles.includes('SUPER_ADMIN');
+      const isCallerAdmin = callerRoles.includes('HR_ADMIN') || callerRoles.includes('ADMIN') || isCallerSuperAdmin;
+
+      if (!isCallerAdmin) {
+        throw new AppException(ErrorCodes.UNAUTHORIZED, 'Only Admin or Super Admin can change roles', HttpStatus.FORBIDDEN);
+      }
+
+      if (targetRoleName === 'SUPER_ADMIN' && !isCallerSuperAdmin) {
+        throw new AppException(ErrorCodes.FORBIDDEN, 'Only Super Admin can assign the SUPER_ADMIN role', HttpStatus.FORBIDDEN);
+      }
+
+      // Check if current user is SUPER_ADMIN
+      try {
+        const currentRole = await this.prisma.$queryRawUnsafe<Array<{ name: string }>>(
+          'SELECT r.name FROM auth_service.users u JOIN auth_service.user_roles ur ON u.id = ur.user_id JOIN auth_service.roles r ON ur.role_id = r.id WHERE u.email = ? OR u.id = ? LIMIT 1',
+          employee.email.trim().toLowerCase(),
+          employee.userId || '',
+        );
+
+        const currentHasSuper = currentRole?.some((r) => r.name === 'SUPER_ADMIN');
+        if (currentHasSuper && !isCallerSuperAdmin) {
+          throw new AppException(ErrorCodes.FORBIDDEN, 'Only Super Admin can modify a Super Admin user', HttpStatus.FORBIDDEN);
+        }
+      } catch {
+        // Continue if query fails
+      }
+    }
+
+    // Sync to auth_service
+    try {
+      const roles: Array<{ id: string }> = await this.prisma.$queryRawUnsafe(
+        'SELECT id FROM auth_service.roles WHERE name = ? LIMIT 1',
+        targetRoleName,
+      );
+      if (roles && roles.length > 0) {
+        const targetRoleId = roles[0].id;
+        const users: Array<{ id: string }> = await this.prisma.$queryRawUnsafe(
+          'SELECT id FROM auth_service.users WHERE email = ? OR username = ? OR id = ? LIMIT 1',
+          employee.email.trim().toLowerCase(),
+          employee.employeeCode.toLowerCase(),
+          employee.userId || '',
+        );
+        if (users && users.length > 0) {
+          const authUserId = users[0].id;
+          await this.prisma.$executeRawUnsafe(
+            'DELETE FROM auth_service.user_roles WHERE user_id = ?',
+            authUserId,
+          );
+          await this.prisma.$executeRawUnsafe(
+            'INSERT INTO auth_service.user_roles (user_id, role_id) VALUES (?, ?)',
+            authUserId,
+            targetRoleId,
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not sync role to auth_service: ${err.message}`);
+    }
+
+    return this.getEmployeeById(employee.id);
   }
 
 
@@ -860,7 +988,7 @@ export class EmployeeService implements OnModuleInit {
       throw new AppException(ErrorCodes.EMPLOYEE_NOT_FOUND, 'Employee profile not found for this user', HttpStatus.NOT_FOUND);
     }
 
-    return this.formatEmployee(employee);
+    return this.getEmployeeById(employee.id);
   }
 
   /**
@@ -959,7 +1087,10 @@ export class EmployeeService implements OnModuleInit {
         username,
       );
 
-      const roleName = role.includes('HR') ? 'HR_ADMIN' : 'EMPLOYEE';
+      const isSuper = role.includes('SUPER');
+      const isHr = role.includes('HR');
+      const isAdmin = role.includes('ADMIN');
+      const roleName = isSuper ? 'SUPER_ADMIN' : (isHr || isAdmin) ? 'HR_ADMIN' : 'EMPLOYEE';
       const roles: Array<{ id: string }> = await this.prisma.$queryRawUnsafe(
         'SELECT id FROM auth_service.roles WHERE name = ? LIMIT 1',
         roleName,
@@ -1061,7 +1192,7 @@ export class EmployeeService implements OnModuleInit {
     return this.emailService.sendTestEmail(toEmail);
   }
 
-  private formatEmployee(emp: any) {
+  private formatEmployee(emp: any, explicitRole?: { id: string; name: string } | null) {
     if (!emp) return emp;
     const activeAssignments = (emp.assignments || []).filter((a: any) => a.isActive);
     const primaryAssignment = activeAssignments.find((a: any) => a.isPrimary) ||
@@ -1114,12 +1245,46 @@ export class EmployeeService implements OnModuleInit {
         }
       : null;
 
-    const isHrMember = Boolean(
-      emp.department?.name?.toUpperCase().includes('HUMAN') ||
-      emp.designation?.title?.toUpperCase().includes('HR') ||
-      emp.jobTitle?.toUpperCase().includes('HR') ||
-      emp.email?.toLowerCase().includes('.hr@')
-    );
+    let roleName = 'EMPLOYEE';
+    let roleId = 'role-employee';
+    let isHrMember = false;
+
+    if (explicitRole && explicitRole.name) {
+      const normRole = explicitRole.name.toUpperCase();
+      if (normRole.includes('SUPER')) {
+        roleName = 'SUPER_ADMIN';
+        roleId = 'role-super-admin';
+        isHrMember = false;
+      } else if (normRole.includes('HR') || normRole.includes('ADMIN')) {
+        roleName = 'HR_ADMIN';
+        roleId = 'role-hr-admin';
+        isHrMember = true;
+      } else if (normRole.includes('MANAGER')) {
+        roleName = 'MANAGER';
+        roleId = 'role-manager';
+        isHrMember = false;
+      } else {
+        roleName = 'EMPLOYEE';
+        roleId = 'role-employee';
+        isHrMember = false;
+      }
+    } else {
+      const departmentOrTitleHr = Boolean(
+        emp.department?.name?.toUpperCase().includes('HUMAN') ||
+        emp.designation?.title?.toUpperCase().includes('HR') ||
+        emp.jobTitle?.toUpperCase().includes('HR') ||
+        emp.email?.toLowerCase().includes('.hr@')
+      );
+      if (departmentOrTitleHr) {
+        roleName = 'HR_ADMIN';
+        roleId = 'role-hr-admin';
+        isHrMember = true;
+      } else {
+        roleName = 'EMPLOYEE';
+        roleId = 'role-employee';
+        isHrMember = false;
+      }
+    }
 
     let displayJobTitle = emp.designation?.title || emp.jobTitle || '';
     if (displayJobTitle.includes('(Attendance)')) {
@@ -1194,8 +1359,8 @@ export class EmployeeService implements OnModuleInit {
       jobTitle: displayJobTitle,
       isHr: isHrMember,
       hrWebEmail,
-      role: { id: 'role-employee', name: isHrMember ? 'HR_ADMIN' : 'EMPLOYEE' },
-      roleId: isHrMember ? 'role-hr' : 'role-employee',
+      role: { id: roleId, name: roleName },
+      roleId: roleId,
       officeLocationId,
       primaryOfficeId,
       officeLocationName,
@@ -1219,9 +1384,9 @@ export class EmployeeService implements OnModuleInit {
     };
   }
 
-  private formatEmployeeSummary(emp: any) {
+  private formatEmployeeSummary(emp: any, explicitRole?: { id: string; name: string } | null) {
     if (!emp) return emp;
-    const formatted = this.formatEmployee(emp);
+    const formatted = this.formatEmployee(emp, explicitRole);
     return {
       id: formatted.id,
       employeeCode: formatted.employeeCode,
@@ -1340,17 +1505,12 @@ export class EmployeeService implements OnModuleInit {
    */
   async isAssignedToOffice(employeeIdOrCode: string, officeId: string): Promise<boolean> {
     await this.ensureOfficesCache();
-    const cleanId = (employeeIdOrCode || '').trim();
-    const emailPrefix = cleanId.includes('@') ? cleanId : `${cleanId}@`;
     const employee = await this.prisma.employee.findFirst({
       where: {
         OR: [
-          { id: cleanId },
-          { employeeCode: cleanId },
-          { userId: cleanId },
-          { email: cleanId },
-          { personalEmail: cleanId },
-          { email: { startsWith: emailPrefix } },
+          { id: employeeIdOrCode },
+          { employeeCode: employeeIdOrCode },
+          { userId: employeeIdOrCode },
         ],
         employmentStatus: EmploymentStatus.ACTIVE,
       },
@@ -1361,12 +1521,11 @@ export class EmployeeService implements OnModuleInit {
       return false;
     }
 
-    const skewTolerance = new Date(Date.now() + 60000);
     const activeAssignments = await this.prisma.employeeOfficeAssignment.findMany({
       where: {
         employeeId: employee.id,
         isActive: true,
-        effectiveFrom: { lte: skewTolerance },
+        effectiveFrom: { lte: new Date() },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }],
       },
     });

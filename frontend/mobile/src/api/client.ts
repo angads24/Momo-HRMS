@@ -141,10 +141,14 @@ function attachInterceptors(instance: AxiosInstance) {
           original.headers.Authorization = `Bearer ${session.accessToken}`;
           return instance(original);
         } catch (refreshError) {
-          if (axios.isAxiosError(refreshError) && !refreshError.response) {
-            return Promise.reject(error);
+          const isExplicitAuthFailure =
+            axios.isAxiosError(refreshError) &&
+            refreshError.response &&
+            [401, 403].includes(refreshError.response.status);
+
+          if (isExplicitAuthFailure) {
+            handlers.onSessionExpired();
           }
-          handlers.onSessionExpired();
           return Promise.reject(error);
         }
       }

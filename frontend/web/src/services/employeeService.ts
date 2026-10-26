@@ -351,6 +351,7 @@ export async function updateEmployee(id: string, payload: UpdateEmployeePayload)
   }
   if (payload.jobTitle !== undefined) cleanPayload.jobTitle = payload.jobTitle.trim();
   if (payload.departmentId !== undefined) cleanPayload.departmentId = payload.departmentId;
+  if (payload.roleId !== undefined) cleanPayload.roleId = payload.roleId;
   if (payload.dateOfJoining !== undefined) cleanPayload.dateOfJoining = payload.dateOfJoining;
   if (payload.officeLocationId !== undefined) {
     cleanPayload.officeLocationId = payload.officeLocationId ? payload.officeLocationId.trim() : '';

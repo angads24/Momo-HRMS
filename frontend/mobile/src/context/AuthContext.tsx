@@ -3,7 +3,16 @@ import type { ReactNode } from 'react';
 import axios from 'axios';
 import { getCurrentUser, loginUser, logoutUser, resetPassword as resetPasswordApi } from '../api/authApi';
 import { refreshSession, setAuthEventHandlers } from '../api/client';
-import { clearTokens, getRefreshToken, saveTokens } from '../api/tokenStorage';
+import {
+  clearTokens,
+  getAuthUser,
+  getEmployeeProfile,
+  getRefreshToken,
+  initAccessToken,
+  saveAuthUser,
+  saveEmployeeProfile,
+  saveTokens,
+} from '../api/tokenStorage';
 import { getEmployeeMe } from '../api/employeeApi';
 import type { EmployeeProfile } from '../api/employeeApi';
 import { getFaceStatus } from '../api/faceApi';
@@ -13,7 +22,7 @@ import { toAuthUser } from '../utils/roles';
 type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated';
 
 export const RESTRICTED_APP_MESSAGE =
-  'Access Restricted: The mobile app is reserved exclusively for employees. Admin and HR staff must use the Momo HRMS web management portal.';
+  'Access Restricted: The mobile app is reserved for employees and HR staff. Administrators must use the Momo HRMS web management portal.';
 
 const NO_MODULE_MESSAGE =
   'Your account does not have access to any module. Please contact your administrator.';
@@ -89,15 +98,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = useCallback(async (): Promise<EmployeeProfile | null> => {
     try {
       const profile = await getEmployeeMe();
-      setEmployeeProfile(profile);
-      const complete = checkProfileCompleteness(profile);
-      setIsProfileComplete(complete);
-      const empId = profile?.employeeCode || profile?.id;
-      if (empId) {
-        try {
-          const statusRes = await getFaceStatus(empId);
-          setIsFaceEnrolled(statusRes.is_enrolled);
-        } catch {}
+      if (profile) {
+        setEmployeeProfile(profile);
+        const complete = checkProfileCompleteness(profile);
+        setIsProfileComplete(complete);
+        await saveEmployeeProfile(profile);
+        const empId = profile?.employeeCode || profile?.id;
+        if (empId) {
+          try {
+            const statusRes = await getFaceStatus(empId);
+            setIsFaceEnrolled(statusRes.is_enrolled);
+          } catch {}
+        }
       }
       return profile;
     } catch {
@@ -125,69 +137,109 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, [endSession]);
 
-  // Session restoration on app start - MUST run only once on mount
+  // Session restoration on app start - Persists across app closures and reboots
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const stored = await getRefreshToken();
-        if (!stored) {
+        await initAccessToken();
+        const [storedRefreshToken, storedUser, storedProfile] = await Promise.all([
+          getRefreshToken(),
+          getAuthUser(),
+          getEmployeeProfile(),
+        ]);
+
+        if (!storedRefreshToken) {
           if (!cancelled) endSession();
           return;
         }
 
-        const session = await refreshSession();
-        if (cancelled) return;
-
-        const sessionUser = session?.user || (session as any)?.data?.user;
-        if (!sessionUser) {
-          await clearTokens();
-          if (!cancelled) endSession();
-          return;
-        }
-
-        const restored = toAuthUser(sessionUser);
-        if (!restored.appRole) {
-          await clearTokens();
-          endSession(NO_MODULE_MESSAGE);
-          return;
-        }
-
-        // Platform separation: reject ADMIN and HR on mobile
-        if (restored.appRole !== 'EMPLOYEE') {
-          await clearTokens();
-          endSession(RESTRICTED_APP_MESSAGE);
-          return;
-        }
-
-        if (!restored.mustChangePassword) {
-          try {
-            const profile = await getEmployeeMe();
-            if (!cancelled) {
-              setEmployeeProfile(profile);
-              setIsProfileComplete(checkProfileCompleteness(profile));
-              const empId = profile?.employeeCode || profile?.id;
-              if (empId) {
-                try {
-                  const statusRes = await getFaceStatus(empId);
-                  setIsFaceEnrolled(statusRes.is_enrolled);
-                } catch {}
-              }
+        // 1. Instantly hydrate state from local persistent storage (offline-first)
+        if (storedUser) {
+          if (!cancelled) {
+            setUser(storedUser);
+            if (storedProfile) {
+              setEmployeeProfile(storedProfile);
+              setIsProfileComplete(checkProfileCompleteness(storedProfile));
             }
-          } catch {
-            // Non-fatal
+            setStatus('authenticated');
           }
         }
 
-        if (!cancelled) {
-          setUser(restored);
-          setStatus('authenticated');
+        // 2. Perform background session refresh & profile sync
+        try {
+          const session = await refreshSession();
+          if (cancelled) return;
+
+          const sessionUser = session?.user || (session as any)?.data?.user;
+          if (sessionUser) {
+            const restored = toAuthUser(sessionUser);
+            if (!restored.appRole) {
+              await clearTokens();
+              endSession(NO_MODULE_MESSAGE);
+              return;
+            }
+
+            // Platform separation: reject ADMIN on mobile, allow EMPLOYEE and HR
+            if (restored.appRole !== 'EMPLOYEE' && restored.appRole !== 'HR') {
+              await clearTokens();
+              endSession(RESTRICTED_APP_MESSAGE);
+              return;
+            }
+
+            if (!cancelled) {
+              setUser(restored);
+              await saveAuthUser(restored);
+              setStatus('authenticated');
+            }
+          }
+
+          if (!cancelled) {
+            try {
+              const freshProfile = await getEmployeeMe();
+              if (!cancelled && freshProfile) {
+                setEmployeeProfile(freshProfile);
+                setIsProfileComplete(checkProfileCompleteness(freshProfile));
+                await saveEmployeeProfile(freshProfile);
+                const empId = freshProfile?.employeeCode || freshProfile?.id;
+                if (empId) {
+                  try {
+                    const statusRes = await getFaceStatus(empId);
+                    setIsFaceEnrolled(statusRes.is_enrolled);
+                  } catch {}
+                }
+              }
+            } catch {
+              // Non-fatal if offline
+            }
+          }
+        } catch (error) {
+          if (cancelled) return;
+
+          // Only terminate session if token is genuinely rejected (401 / 403 from server)
+          if (
+            axios.isAxiosError(error) &&
+            error.response &&
+            [400, 401, 403].includes(error.response.status)
+          ) {
+            await clearTokens();
+            endSession('Your session has expired. Please log in again.');
+            return;
+          }
+
+          // If offline, connection timed out, 503, or temporary server error:
+          // Keep the stored session alive!
+          if (storedUser) {
+            console.log('[Auth] Background refresh skipped due to network/server; maintaining offline session.');
+            return;
+          }
+
+          const offline = axios.isAxiosError(error) && !error.response;
+          endSession(offline ? 'Unable to reach the server. Please check your connection and log in.' : null);
         }
-      } catch (error) {
-        if (cancelled) return;
-        const offline = axios.isAxiosError(error) && !error.response;
-        endSession(offline ? 'Unable to reach the server. Please check your connection and log in.' : null);
+      } catch (err) {
+        if (!cancelled) endSession();
       }
     })();
 
@@ -215,16 +267,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(NO_MODULE_MESSAGE);
       }
 
-      // Platform Separation: strictly reject non-EMPLOYEE roles
-      if (loggedIn.appRole !== 'EMPLOYEE') {
+      // Platform Separation: allow EMPLOYEE and HR roles on mobile
+      if (loggedIn.appRole !== 'EMPLOYEE' && loggedIn.appRole !== 'HR') {
         await logoutUser().catch(() => {});
         await clearTokens();
         throw new Error(RESTRICTED_APP_MESSAGE);
       }
 
+      let profile: EmployeeProfile | null = null;
       if (!loggedIn.mustChangePassword) {
         try {
-          const profile = await getEmployeeMe();
+          profile = await getEmployeeMe();
           setEmployeeProfile(profile);
           setIsProfileComplete(checkProfileCompleteness(profile));
           const empId = profile?.employeeCode || profile?.id;
@@ -237,6 +290,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           // Fallback
         }
+      }
+
+      // Persist auth user and employee profile for offline app restarts
+      await saveAuthUser(loggedIn);
+      if (profile) {
+        await saveEmployeeProfile(profile);
       }
 
       setNotice(null);
@@ -266,6 +325,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('The server did not confirm the password change. Please try again.');
       }
       setUser(fresh);
+      await saveAuthUser(fresh);
       setNotice('Your password was updated successfully.');
 
       // Now check profile completeness and face enrollment
@@ -273,6 +333,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profile = await getEmployeeMe();
         setEmployeeProfile(profile);
         setIsProfileComplete(checkProfileCompleteness(profile));
+        await saveEmployeeProfile(profile);
         await checkFaceEnrollment(profile);
       } catch {
         // Fallback

@@ -14,6 +14,7 @@ import {
   fetchEmployeeById,
   fetchRoles,
   updateEmployee,
+  updateEmployeeRole,
 } from '../../../services/employeeService';
 import { fetchOffices } from '../../geofence/services/geofenceService';
 import type { Office } from '../../geofence/types/geofence';
@@ -77,7 +78,7 @@ export default function EditEmployeePage() {
     setServerError(null);
 
     try {
-      // Update employee profile details including office location
+      // Update employee profile details including office location and role
       await updateEmployee(id, {
         firstName: values.firstName,
         lastName: values.lastName,
@@ -86,6 +87,7 @@ export default function EditEmployeePage() {
         phone: values.phone,
         jobTitle: values.jobTitle,
         departmentId: values.departmentId,
+        roleId: values.roleId,
         dateOfJoining: values.dateOfJoining,
         dateOfBirth: values.dateOfBirth ? values.dateOfBirth : null,
         gender: values.gender ?? null,
@@ -96,6 +98,10 @@ export default function EditEmployeePage() {
         primaryOfficeId: values.primaryOfficeId ?? null,
         officeIds: values.officeIds ?? [],
       });
+
+      if (values.roleId) {
+        await updateEmployeeRole(id, values.roleId).catch(() => {});
+      }
 
       setNotice(`Employee profile for "${values.firstName} ${values.lastName}" updated successfully.`);
       navigate(PATHS.employeeDetails(id));
@@ -140,6 +146,17 @@ export default function EditEmployeePage() {
     );
   }
 
+  const resolvedRoleId = (() => {
+    const roleName = employee.role?.name?.toUpperCase();
+    if (roleName === 'SUPER_ADMIN') return 'role-super-admin';
+    if (roleName === 'HR_ADMIN' || roleName === 'HR') return 'role-hr-admin';
+    if (roleName === 'MANAGER') return 'role-manager';
+    if (roleName === 'EMPLOYEE') return 'role-employee';
+    if (employee.roleId && employee.roleId.startsWith('role-')) return employee.roleId;
+    if (employee.role?.id && employee.role.id.startsWith('role-')) return employee.role.id;
+    return 'role-employee';
+  })();
+
   const initialValues: Partial<CreateEmployeePayload> = {
     employeeCode: employee.employeeCode,
     firstName: employee.firstName,
@@ -149,7 +166,7 @@ export default function EditEmployeePage() {
     phone: employee.phone,
     jobTitle: employee.jobTitle,
     departmentId: (employee as any).departmentId || employee.department?.id || '',
-    roleId: employee.role?.id ?? '',
+    roleId: resolvedRoleId,
     officeLocationId:
       employee.officeLocationId ??
       employee.assignedOffice?.id ??

@@ -33,7 +33,7 @@ import { getErrorMessage } from '../utils/errors';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
-  const { user, employeeProfile, refreshProfile } = useAuth();
+  const { user, employeeProfile, refreshProfile, logout } = useAuth();
 
   // Edit Modal State
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -419,6 +419,37 @@ export default function ProfileScreen() {
             </Text>
           </View>
           <MaterialCommunityIcons name="chevron-right" size={22} color={palette.muted} />
+        </TouchableOpacity>
+
+        {/* 5. SIGN OUT ACTION */}
+        <TouchableOpacity
+          style={[styles.msgToHrCard, { marginTop: 0, borderColor: '#FECACA', backgroundColor: '#FEF2F2' }]}
+          activeOpacity={0.8}
+          onPress={() => {
+            Alert.alert(
+              'Sign Out',
+              'Are you sure you want to sign out of Momo HRMS on this device?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Sign Out',
+                  style: 'destructive',
+                  onPress: () => void logout(),
+                },
+              ],
+            );
+          }}
+        >
+          <View style={[styles.msgToHrIconWrap, { backgroundColor: '#FEE2E2' }]}>
+            <MaterialCommunityIcons name="logout" size={22} color={palette.error} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.msgToHrTitle, { color: palette.error }]}>Sign Out</Text>
+            <Text style={styles.msgToHrSubtitle}>
+              Explicitly sign out of your account on this device
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={palette.error} />
         </TouchableOpacity>
       </ScrollView>
 

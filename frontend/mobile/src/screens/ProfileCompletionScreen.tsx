@@ -28,6 +28,7 @@ import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppButton } from '../components/AppButton';
 import { AppHeader } from '../components/AppHeader';
+import { promptEnableLocationServices, promptLocationPermission } from '../utils/locationUtils';
 import { AppTextInput } from '../components/AppTextInput';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { useAuth } from '../context/AuthContext';
@@ -357,20 +358,24 @@ export default function ProfileCompletionScreen() {
   const handleRequestLocationPermission = async () => {
     setLocationLoading(true);
     try {
+      // 1. Ensure device location (GPS) is turned on
+      const isLocationServicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!isLocationServicesEnabled) {
+        const turnedOn = await promptEnableLocationServices();
+        if (!turnedOn) {
+          setLocationLoading(false);
+          return;
+        }
+      }
+
+      // 2. Request / verify permissions
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         setLocationPermissionGranted(true);
         const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
         setCurrentCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
       } else {
-        Alert.alert(
-          'Location Permission Required',
-          'Momo HRMS needs your location to verify office geofence during check-in. Please enable location in device settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
-          ],
-        );
+        await promptLocationPermission();
       }
     } catch {
       Alert.alert('Error', 'Unable to retrieve GPS coordinates.');

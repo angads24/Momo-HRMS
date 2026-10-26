@@ -29,7 +29,19 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Momo HRMS to use your location to verify presence in assigned office geofences."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Momo HRMS to access your camera for biometric face verification."
+        }
+      ]
     ],
     "extra": {
       "eas": {

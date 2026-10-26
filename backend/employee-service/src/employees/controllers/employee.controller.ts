@@ -28,10 +28,18 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AppException } from '../../common/exceptions/app.exception';
 import { ErrorCodes } from '../../common/constants/error-codes';
 
-function extractUserFromRequest(req: Request): { userId?: string; email?: string; employeeId?: string } {
+function extractUserFromRequest(req: Request): { userId?: string; email?: string; employeeId?: string; roles: string[] } {
   let userId = (req.headers['x-user-id'] as string) || undefined;
   let employeeId = (req.headers['x-employee-id'] as string) || undefined;
   let email = (req.headers['x-email'] as string) || undefined;
+  let roles: string[] = [];
+
+  const rawRoles = req.headers['x-user-roles'];
+  if (typeof rawRoles === 'string') {
+    roles = rawRoles.replace(/[\[\]"'\\]/g, '').split(',').map((r) => r.trim()).filter(Boolean);
+  } else if (Array.isArray(rawRoles)) {
+    roles = rawRoles.map(String);
+  }
 
   const authHeader = req.headers['authorization'] || req.headers['Authorization'];
   if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
@@ -44,13 +52,14 @@ function extractUserFromRequest(req: Request): { userId?: string; email?: string
         if (payload.sub && !userId) userId = payload.sub;
         if (payload.email && !email) email = payload.email;
         if (payload.employeeId && !employeeId) employeeId = payload.employeeId;
+        if (Array.isArray(payload.roles) && roles.length === 0) roles = payload.roles;
       }
     } catch {
       // Ignore token parse error
     }
   }
 
-  return { userId, email, employeeId };
+  return { userId, email, employeeId, roles };
 }
 
 interface UploadedMulterFile {
@@ -240,8 +249,14 @@ export class EmployeeController {
   @Patch(':id/role')
   @ApiOperation({ summary: 'Update employee role' })
   @ApiMessage('Employee role updated successfully')
-  async updateRole(@Param('id') id: string, @Body() body: { roleId: string }) {
-    return this.employeeService.getEmployeeById(id);
+  async updateRole(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { roleId?: string; role?: string },
+  ) {
+    const { roles } = extractUserFromRequest(req);
+    const targetRole = body.role || body.roleId || 'EMPLOYEE';
+    return this.employeeService.updateEmployeeRole(id, targetRole, roles);
   }
 
   @Delete(':id')

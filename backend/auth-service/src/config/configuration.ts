@@ -37,7 +37,7 @@ export default (): AppConfig => ({
     accessSecret: process.env.JWT_ACCESS_SECRET ?? '',
     refreshSecret: process.env.JWT_REFRESH_SECRET ?? '',
     accessExpiration: process.env.ACCESS_TOKEN_EXPIRATION ?? '15m',
-    refreshExpiration: process.env.REFRESH_TOKEN_EXPIRATION ?? '7d',
+    refreshExpiration: process.env.REFRESH_TOKEN_EXPIRATION ?? '365d',
   },
   throttle: {
     loginTtl: parseInt(process.env.LOGIN_THROTTLE_TTL ?? '60', 10),

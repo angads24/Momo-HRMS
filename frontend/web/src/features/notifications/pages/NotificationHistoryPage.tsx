@@ -42,7 +42,6 @@ export default function NotificationHistoryPage() {
         const meta = (item.metadata || {}) as Record<string, any>;
         const itemRecipEmail = (meta.recipientEmail || meta.email || (item as any).recipientEmail || '').trim().toLowerCase();
         const itemSenderEmail = (meta.senderEmail || (item as any).senderEmail || '').trim().toLowerCase();
-        const senderRole = (meta.senderRole || (item as any).senderRole || '').trim().toUpperCase();
         const targetMode = (meta.targetMode || (item as any).targetMode || '').trim().toUpperCase();
         const recipType = (item.recipientType || '').trim().toUpperCase();
         const recipId = (item.recipientId || '').trim();
@@ -60,11 +59,14 @@ export default function NotificationHistoryPage() {
           (user?.fullName && item.from && item.from.toLowerCase().includes(user.fullName.toLowerCase())) ||
           (user?.username && item.from && item.from.toLowerCase().includes(user.username.toLowerCase()))
         ) return true;
+        if (targetMode === 'SPECIFIC' || recipType === 'INDIVIDUAL') {
+          return false;
+        }
         if (user?.appRole === 'ADMIN') {
-          return recipId === 'ADMIN' || recipType === 'ADMIN' || targetMode === 'ADMIN' || senderRole === 'ADMIN';
+          return recipId === 'ADMIN' || recipType === 'ADMIN' || targetMode === 'ADMIN';
         }
         if (user?.appRole === 'HR') {
-          return recipId === 'HR' || recipType === 'HR' || targetMode === 'HR' || senderRole === 'HR' || item.type === 'SPECIAL_WORKING_HOURS_REQUEST';
+          return recipId === 'HR' || recipType === 'HR' || targetMode === 'HR' || item.type === 'SPECIAL_WORKING_HOURS_REQUEST';
         }
         return false;
       });

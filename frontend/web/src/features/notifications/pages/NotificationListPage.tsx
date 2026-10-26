@@ -51,7 +51,6 @@ export default function NotificationListPage() {
     const userEmail = (user.email || '').trim().toLowerCase();
     const itemRecipEmail = (meta.recipientEmail || meta.email || (item as any).recipientEmail || '').trim().toLowerCase();
     const itemSenderEmail = (meta.senderEmail || (item as any).senderEmail || '').trim().toLowerCase();
-    const senderRole = (meta.senderRole || (item as any).senderRole || '').trim().toUpperCase();
     const targetMode = (meta.targetMode || (item as any).targetMode || '').trim().toUpperCase();
     const recipType = (item.recipientType || '').trim().toUpperCase();
     const recipId = (item.recipientId || '').trim();
@@ -81,17 +80,24 @@ export default function NotificationListPage() {
       return true;
     }
 
-    // 4. Role-based rules:
+    // If targeted specifically to an individual, only recipient or sender may see it
+    if (targetMode === 'SPECIFIC' || recipType === 'INDIVIDUAL') {
+      return false;
+    }
+
+    // 4. Role-based rules for broadcasts/requests:
     if (user.appRole === 'ADMIN') {
+      if (item.type === 'SPECIAL_WORKING_HOURS_REQUEST') return true;
       if (recipId === 'ADMIN' || recipType === 'ADMIN' || targetMode === 'ADMIN') return true;
-      if (senderRole === 'ADMIN') return true;
       return false;
     }
 
     if (user.appRole === 'HR') {
+      if (item.type === 'SPECIAL_WORKING_HOURS_REQUEST') {
+        const targetHr = String(meta.hrEmail || meta.recipientEmail || recipId || '').toLowerCase();
+        return !targetHr || targetHr === 'hr' || targetHr === userEmail;
+      }
       if (recipId === 'HR' || recipType === 'HR' || targetMode === 'HR') return true;
-      if (item.type === 'SPECIAL_WORKING_HOURS_REQUEST') return true;
-      if (senderRole === 'HR') return true;
       return false;
     }
 

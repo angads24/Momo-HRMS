@@ -20,7 +20,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 function ProtectedEmployeeScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE', 'HR']}>
         <EmployeeHomeScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
@@ -30,7 +30,7 @@ function ProtectedEmployeeScreen() {
 function ProtectedHistoryScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE', 'HR']}>
         <AttendanceHistoryScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
@@ -40,7 +40,7 @@ function ProtectedHistoryScreen() {
 function ProtectedProfileScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE', 'HR']}>
         <ProfileScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
@@ -50,7 +50,7 @@ function ProtectedProfileScreen() {
 function ProtectedNotificationsScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE', 'HR']}>
         <NotificationsScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
@@ -60,7 +60,7 @@ function ProtectedNotificationsScreen() {
 function ProtectedMsgToHrScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE', 'HR']}>
         <MsgToHrScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
@@ -70,7 +70,7 @@ function ProtectedMsgToHrScreen() {
 function ProtectedMyAttendanceScreen() {
   return (
     <ProtectedRoute>
-      <RoleBasedRoute allowedRoles={['EMPLOYEE']}>
+      <RoleBasedRoute allowedRoles={['EMPLOYEE', 'HR']}>
         <MyAttendanceScreen />
       </RoleBasedRoute>
     </ProtectedRoute>
@@ -78,11 +78,11 @@ function ProtectedMyAttendanceScreen() {
 }
 
 /**
- * Root Navigator for the Momo HRMS Employee Mobile Application.
+ * Root Navigator for the Momo HRMS Employee & HR Mobile Application.
  *
  * Platform Rule:
- *  - Mobile is strictly reserved for EMPLOYEE accounts.
- *  - ADMIN & HR are blocked at login & session restoration in AuthContext.
+ *  - Mobile is available for EMPLOYEE and HR accounts.
+ *  - ADMIN is directed to use the web management portal.
  *
  * Flow:
  *  1. Unauthenticated -> LoginScreen

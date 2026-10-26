@@ -18,6 +18,17 @@
         "EXPO_PUBLIC_USE_GATEWAY": "true"
       }
     },
+    "preview-arm64": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=arm64-v8a"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://momo-hrms-backend.onrender.com",
+        "EXPO_PUBLIC_USE_GATEWAY": "true"
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"

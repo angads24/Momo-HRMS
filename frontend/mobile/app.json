@@ -41,6 +41,15 @@
         {
           "cameraPermission": "Allow Momo HRMS to access your camera for biometric face verification."
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
       ]
     ],
     "extra": {

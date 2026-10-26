@@ -882,17 +882,49 @@ export default function EmployeeHomeScreen() {
     setFeedback(null);
 
     try {
-      const officeId =
-        (geofenceResult?.isInside && geofenceResult.officeId) ||
-        assignedOffice?.code ||
-        assignedOffice?.id ||
-        employeeProfile?.officeLocationId ||
-        employeeProfile?.primaryOfficeId ||
-        employeeProfile?.assignedOffice?.code ||
-        employeeProfile?.assignedOffice?.id ||
-        (Array.isArray(employeeProfile?.officeIds) && employeeProfile.officeIds[0]) ||
-        geofenceResult?.officeId ||
-        'OFFICE-001';
+      // Strictly collect all offices assigned to this employee
+      const assignedCodes = new Set<string>();
+      (assignedOfficesList || []).forEach((o) => {
+        if (o.code) assignedCodes.add(o.code);
+        if (o.id) assignedCodes.add(o.id);
+      });
+      (employeeProfile?.assignedOffices || []).forEach((o) => {
+        if (o.code) assignedCodes.add(o.code);
+        if (o.id) assignedCodes.add(o.id);
+      });
+      if (employeeProfile?.officeLocationId) assignedCodes.add(employeeProfile.officeLocationId);
+      if (employeeProfile?.primaryOfficeId) assignedCodes.add(employeeProfile.primaryOfficeId);
+      if (employeeProfile?.assignedOffice?.code) assignedCodes.add(employeeProfile.assignedOffice.code);
+      if (employeeProfile?.assignedOffice?.id) assignedCodes.add(employeeProfile.assignedOffice.id);
+      if (Array.isArray(employeeProfile?.officeIds)) {
+        employeeProfile.officeIds.forEach((id) => assignedCodes.add(id));
+      }
+
+      // If geofence verified inside an assigned office, use that office
+      let officeId: string | undefined;
+      if (geofenceResult?.isInside && geofenceResult.officeId) {
+        const detected = geofenceResult.officeId.trim().toLowerCase();
+        const matched = Array.from(assignedCodes).find(
+          (code) => code.trim().toLowerCase() === detected,
+        );
+        if (matched) {
+          officeId = matched;
+        }
+      }
+
+      // Otherwise pick primary assigned office or first assigned office
+      if (!officeId) {
+        officeId =
+          (assignedOffice?.code && assignedCodes.has(assignedOffice.code) ? assignedOffice.code : null) ||
+          (assignedOffice?.id && assignedCodes.has(assignedOffice.id) ? assignedOffice.id : null) ||
+          employeeProfile?.officeLocationId ||
+          employeeProfile?.primaryOfficeId ||
+          employeeProfile?.assignedOffice?.code ||
+          employeeProfile?.assignedOffice?.id ||
+          (Array.isArray(employeeProfile?.officeIds) && employeeProfile.officeIds[0]) ||
+          Array.from(assignedCodes)[0] ||
+          'OFFICE-001';
+      }
 
       // Fallback token if not passed directly from Face AI verification
       let finalVerificationToken = verificationToken;
@@ -904,6 +936,12 @@ export default function EmployeeHomeScreen() {
           // Handled in attendanceApi
         }
       }
+
+      const empCode =
+        employeeProfile?.employeeCode ||
+        employeeProfile?.id ||
+        user?.username ||
+        user?.email;
 
       const safeAccuracy = Math.min(Math.round(location?.accuracy ?? 10), 30);
       const session = await checkInAttendance(
@@ -918,7 +956,7 @@ export default function EmployeeHomeScreen() {
             timestamp: new Date().toISOString(),
           },
         },
-        employeeProfile?.employeeCode || employeeProfile?.id,
+        empCode,
       );
 
       setActiveSession(session);
@@ -984,6 +1022,12 @@ export default function EmployeeHomeScreen() {
         (Array.isArray(employeeProfile?.officeIds) && employeeProfile.officeIds[0]) ||
         'OFFICE-001';
 
+      const empCode =
+        employeeProfile?.employeeCode ||
+        employeeProfile?.id ||
+        user?.username ||
+        user?.email;
+
       const safeAccuracy = Math.min(Math.round(location?.accuracy ?? 10), 30);
       await checkOutAttendance(
         {
@@ -996,7 +1040,7 @@ export default function EmployeeHomeScreen() {
             timestamp: new Date().toISOString(),
           },
         },
-        employeeProfile?.employeeCode || employeeProfile?.id,
+        empCode,
       );
 
       const checkOutTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

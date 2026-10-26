@@ -1340,12 +1340,17 @@ export class EmployeeService implements OnModuleInit {
    */
   async isAssignedToOffice(employeeIdOrCode: string, officeId: string): Promise<boolean> {
     await this.ensureOfficesCache();
+    const cleanId = (employeeIdOrCode || '').trim();
+    const emailPrefix = cleanId.includes('@') ? cleanId : `${cleanId}@`;
     const employee = await this.prisma.employee.findFirst({
       where: {
         OR: [
-          { id: employeeIdOrCode },
-          { employeeCode: employeeIdOrCode },
-          { userId: employeeIdOrCode },
+          { id: cleanId },
+          { employeeCode: cleanId },
+          { userId: cleanId },
+          { email: cleanId },
+          { personalEmail: cleanId },
+          { email: { startsWith: emailPrefix } },
         ],
         employmentStatus: EmploymentStatus.ACTIVE,
       },
@@ -1356,11 +1361,12 @@ export class EmployeeService implements OnModuleInit {
       return false;
     }
 
+    const skewTolerance = new Date(Date.now() + 60000);
     const activeAssignments = await this.prisma.employeeOfficeAssignment.findMany({
       where: {
         employeeId: employee.id,
         isActive: true,
-        effectiveFrom: { lte: new Date() },
+        effectiveFrom: { lte: skewTolerance },
         OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }],
       },
     });

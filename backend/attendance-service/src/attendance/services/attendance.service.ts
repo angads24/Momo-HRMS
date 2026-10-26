@@ -182,7 +182,14 @@ export class AttendanceService {
     const policy = await this.policyProvider.getPolicy(dto.officeId);
     this.validateLocationAccuracy(dto.location, policy);
 
-    const assigned = await this.employeeProvider.isAssignedToOffice(employeeId, dto.officeId);
+    const candidateIds = await this.resolveEmployeeIds(employeeId);
+    let assigned = false;
+    for (const cid of candidateIds) {
+      if (await this.employeeProvider.isAssignedToOffice(cid, dto.officeId)) {
+        assigned = true;
+        break;
+      }
+    }
     if (!assigned) {
       throw new AppException(
         ErrorCodes.EMPLOYEE_NOT_ASSIGNED_TO_OFFICE,

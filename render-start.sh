@@ -89,20 +89,16 @@ start_node_service "employee-service" 3004 "${EMPLOYEE_DATABASE_URL:-$DATABASE_U
 start_node_service "notification-service" 3005 "${NOTIFICATION_DATABASE_URL:-$DATABASE_URL}"
 
 # 4. Launch Python Face AI service (:3006)
-if [ -n "$FACE_SERVICE_URL" ] && [ "$FACE_SERVICE_URL" != "http://localhost:3006" ]; then
-  echo "--> FACE_SERVICE_URL is configured externally ($FACE_SERVICE_URL). Skipping local Face AI service."
-else
-  echo "--> Launching local Python Face AI service (:3006)..."
-  FACE_AI_DB="${FACE_AI_DATABASE_URL:-$DATABASE_URL}"
-  PYTHON_DATABASE_URL=$(echo "$FACE_AI_DB" | sed 's|^mysql://|mysql+pymysql://|')
+echo "--> Launching Python Face AI service (:3006)..."
+FACE_AI_DB="${FACE_AI_DATABASE_URL:-$DATABASE_URL}"
+PYTHON_DATABASE_URL=$(echo "$FACE_AI_DB" | sed 's|^mysql://|mysql+pymysql://|')
 
-  if [ -f "backend/face-ai-service/venv/bin/uvicorn" ]; then
-    (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 3006) &
-  elif command -v uvicorn >/dev/null 2>&1; then
-    (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" uvicorn app.main:app --host 0.0.0.0 --port 3006) &
-  else
-    (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3006) &
-  fi
+if [ -f "backend/face-ai-service/venv/bin/uvicorn" ]; then
+  (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+elif command -v uvicorn >/dev/null 2>&1; then
+  (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" uvicorn app.main:app --host 0.0.0.0 --port 3006) &
+else
+  (cd backend/face-ai-service && DATABASE_URL="$PYTHON_DATABASE_URL" python3 -m uvicorn app.main:app --host 0.0.0.0 --port 3006) &
 fi
 
 # Wait 3 seconds for internal microservices to bind

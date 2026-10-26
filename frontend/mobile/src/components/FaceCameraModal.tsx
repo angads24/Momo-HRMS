@@ -99,7 +99,7 @@ export function FaceCameraModal({
       setNeutralPreviewUri(null);
       setActionPreviewUri(null);
       consecutiveFailuresRef.current = 0;
-      setStepPrompt('Step 1 of 2: Look directly into camera to align face');
+      setStepPrompt('Position face inside oval and tap camera button');
       setLoadingChallenge(true);
 
       getFaceChallenge(employeeId)
@@ -137,7 +137,7 @@ export function FaceCameraModal({
     setNeutralFrame(null);
     setNeutralPreviewUri(null);
     setActionPreviewUri(null);
-    setStepPrompt('Step 1 of 2: Look directly into camera to align face');
+    setStepPrompt('Position face inside oval and tap camera button');
 
     try {
       const res = await getFaceChallenge(employeeId);
@@ -149,12 +149,8 @@ export function FaceCameraModal({
     }
   };
 
-  // Continuous Real-Time Liveness Loop (Checks Neutral alignment, then micro-action)
-  // FIX: Interval increased from 1200ms → 2500ms to prevent GPU + network request
-  // stacking on slow/low-end devices which caused the phone to freeze.
-  // FIX: Frames are downsampled to 320px BEFORE being stored in state/refs and
-  // BEFORE being sent to detectNeutral/detectAction, preventing 3 full-res copies
-  // (typically 3–10 MB each) from living in RAM simultaneously.
+  // Continuous Real-Time Liveness Loop [PAUSED: Single-click photo capture enabled to prevent multiple images from overloading Render]
+  /*
   useEffect(() => {
     if (!visible || !isCameraReady || loadingChallenge || !challenge) {
       return;
@@ -170,17 +166,16 @@ export function FaceCameraModal({
         return;
       }
 
-      // Bail out if modal is no longer visible (prevents state updates on stale frames)
       if (!isMountedRef.current) return;
 
       isAnalyzingRef.current = true;
 
       try {
         const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.3,       // Lower quality reduces base64 size for manipulation step
+          quality: 0.3,
           base64: true,
           skipProcessing: true,
-          exif: false,        // Skip EXIF metadata (~20KB saving per frame)
+          exif: false,
         });
 
         if (!photo || !photo.base64 || !isMountedRef.current) {
@@ -188,9 +183,7 @@ export function FaceCameraModal({
           return;
         }
 
-        // ── Phase 1: Detect Neutral Pose ──
         if (activeStep === 'NEUTRAL') {
-          // Downsample to 320px before API call — reduces payload from ~3MB to ~15KB
           const smallFrame = await downsampleFaceImage(photo.base64, 320, 0.4);
           const res = await detectNeutral(smallFrame);
 
@@ -198,14 +191,12 @@ export function FaceCameraModal({
 
           if (res.detected) {
             consecutiveFailuresRef.current = 0;
-            // Store the 480px version (higher quality for final verification)
             const verifyFrame = await downsampleFaceImage(photo.base64, 480, 0.65);
             setNeutralDetected(true);
             setNeutralFrame(verifyFrame);
             setNeutralPreviewUri(photo.uri);
             neutralFrameRef.current = verifyFrame;
 
-            // Advance to Phase 2: Action Challenge
             setCurrentStep('ACTION');
             const actionLabel = getActionDisplay(challengeRef.current?.action || 'SMILE').label;
             setStepPrompt(`Step 2 of 2: ${actionLabel}! Auto-capturing when detected...`);
@@ -213,14 +204,11 @@ export function FaceCameraModal({
             setStepPrompt(res.message);
           }
         }
-
-        // ── Phase 2: Detect Active Micro-Action ──
         else if (activeStep === 'ACTION' && neutralFrameRef.current && challengeRef.current) {
-          // Downsample action frame before API call as well
           const smallActionFrame = await downsampleFaceImage(photo.base64, 320, 0.4);
           const res = await detectAction(
             challengeRef.current.action,
-            neutralFrameRef.current,  // Already stored at 480px
+            neutralFrameRef.current,
             smallActionFrame,
           );
 
@@ -234,14 +222,11 @@ export function FaceCameraModal({
             setCurrentStep('VERIFYING');
             setStepPrompt(`✓ ${res.message || 'Action verified! Matching profile...'}`);
 
-            // Use already-downsampled neutralFrameRef for final verification
-            // Pass the higher-quality 480px action frame for biometric matching
             const verifyActionFrame = await downsampleFaceImage(photo.base64, 480, 0.65);
             await finalizeVerification(neutralFrameRef.current, verifyActionFrame, photo.uri);
           }
         }
       } catch {
-        // Non-fatal preview frame error: track consecutive failures
         consecutiveFailuresRef.current++;
         if (consecutiveFailuresRef.current >= 5 && isMountedRef.current) {
           setErrorMessage(
@@ -258,6 +243,7 @@ export function FaceCameraModal({
       clearInterval(interval);
     };
   }, [visible, isCameraReady, loadingChallenge, challenge]);
+  */
 
   // Finalize verification with the backend
   // FIX: neutralB64 and actionB64 are now pre-downsampled to 480px before being
@@ -289,49 +275,54 @@ export function FaceCameraModal({
         }, 900);
       } else {
         const failureReason =
-          verifyRes.message || 'Liveness check or face match failed. Please try again.';
+          verifyRes.message || 'Face verification failed. Please try again.';
         if (isMountedRef.current) {
+          setCurrentStep('NEUTRAL');
           setErrorMessage(failureReason);
-          await refreshChallenge();
         }
       }
     } catch (err: unknown) {
       if (isMountedRef.current) {
+        setCurrentStep('NEUTRAL');
         setErrorMessage(
           getErrorMessage(err, 'Biometric verification failed. Please align your face and retry.'),
         );
-        await refreshChallenge();
       }
+    } finally {
+      isAnalyzingRef.current = false;
     }
   };
 
-  // Manual Trigger Fallback (in case lighting prevents auto-detection)
+  // Single-Click Photo Capture & Direct Face Verification (Bypasses continuous liveness streaming)
   const handleManualTrigger = async () => {
     if (!cameraRef.current || !isCameraReady || currentStep === 'VERIFYING' || !challenge) return;
 
     try {
+      setErrorMessage(null);
+      setCurrentStep('VERIFYING');
+      setStepPrompt('Capturing & matching face...');
+
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.75,
+        quality: 0.5,
         base64: true,
+        skipProcessing: true,
       });
 
-      if (!photo || !photo.base64) return;
-
-      if (currentStep === 'NEUTRAL') {
-        setNeutralDetected(true);
-        setNeutralFrame(photo.base64);
-        setNeutralPreviewUri(photo.uri);
-        neutralFrameRef.current = photo.base64;
-        setCurrentStep('ACTION');
-        const actionLabel = getActionDisplay(challenge.action).label;
-        setStepPrompt(`Step 2 of 2: ${actionLabel}! Auto-capturing when detected...`);
-      } else if (currentStep === 'ACTION' && neutralFrameRef.current) {
-        setActionDetected(true);
-        setActionPreviewUri(photo.uri);
-        await finalizeVerification(neutralFrameRef.current, photo.base64, photo.uri);
+      if (!photo || !photo.base64) {
+        setCurrentStep('NEUTRAL');
+        setErrorMessage('Failed to capture photo. Please try again.');
+        return;
       }
+
+      // Downsample frame to 480px (~35KB) for fast transmission and lightweight backend processing
+      const downsampledB64 = await downsampleFaceImage(photo.base64, 480, 0.65);
+      setNeutralPreviewUri(photo.uri);
+      setActionPreviewUri(photo.uri);
+
+      await finalizeVerification(downsampledB64, downsampledB64, photo.uri);
     } catch (err) {
-      setErrorMessage(getErrorMessage(err, 'Manual capture failed. Please retry.'));
+      setCurrentStep('NEUTRAL');
+      setErrorMessage(getErrorMessage(err, 'Capture failed. Please retry.'));
     }
   };
 
@@ -418,96 +409,52 @@ export function FaceCameraModal({
           </View>
         ) : (
           <View style={styles.body}>
-            {/* Step 1 & 2 Progress Pills */}
+            {/* Step Progress Pill */}
             <View style={styles.stepperRow}>
               <View
                 style={[
                   styles.stepPill,
-                  currentStep === 'NEUTRAL' && styles.stepPillActive,
-                  neutralDetected && styles.stepPillCompleted,
+                  styles.stepPillActive,
+                  currentStep === 'SUCCESS' && styles.stepPillCompleted,
                 ]}
               >
                 <MaterialCommunityIcons
-                  name={neutralDetected ? 'check-circle' : 'account-box-outline'}
-                  size={15}
-                  color={neutralDetected ? '#10B981' : currentStep === 'NEUTRAL' ? '#6366F1' : '#64748B'}
+                  name={currentStep === 'SUCCESS' ? 'check-circle' : 'face-recognition'}
+                  size={16}
+                  color={currentStep === 'SUCCESS' ? '#10B981' : '#FFFFFF'}
                 />
                 <Text
                   style={[
                     styles.stepPillText,
-                    neutralDetected && { color: '#10B981', fontWeight: '700' },
-                    currentStep === 'NEUTRAL' && { color: '#FFFFFF', fontWeight: '700' },
+                    { color: '#FFFFFF', fontWeight: '700' },
                   ]}
                 >
-                  1. Neutral Pose
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.stepPill,
-                  currentStep === 'ACTION' && styles.stepPillActive,
-                  actionDetected && styles.stepPillCompleted,
-                ]}
-              >
-                <MaterialCommunityIcons
-                  name={actionDetected ? 'check-circle' : (actionInfo?.icon as any) || 'motion-sensor'}
-                  size={15}
-                  color={actionDetected ? '#10B981' : currentStep === 'ACTION' ? '#F59E0B' : '#64748B'}
-                />
-                <Text
-                  style={[
-                    styles.stepPillText,
-                    actionDetected && { color: '#10B981', fontWeight: '700' },
-                    currentStep === 'ACTION' && { color: '#FFFFFF', fontWeight: '700' },
-                  ]}
-                >
-                  2. Liveness Task
+                  Face Verification
                 </Text>
               </View>
             </View>
 
-            {/* Liveness Challenge Instruction Banner */}
-            <View
-              style={[
-                styles.challengeCard,
-                currentStep === 'ACTION' && { borderColor: '#F59E0B', backgroundColor: 'rgba(245, 158, 11, 0.1)' },
-              ]}
-            >
-              <View
-                style={[
-                  styles.challengeIconWrap,
-                  currentStep === 'ACTION' && { backgroundColor: 'rgba(245, 158, 11, 0.2)' },
-                ]}
-              >
+            {/* Verification Instruction Banner */}
+            <View style={styles.challengeCard}>
+              <View style={styles.challengeIconWrap}>
                 <MaterialCommunityIcons
-                  name={(actionInfo?.icon as any) || 'shield-check'}
+                  name="shield-check"
                   size={22}
-                  color={currentStep === 'ACTION' ? '#F59E0B' : palette.primary}
+                  color={palette.primary}
                 />
               </View>
               <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text
-                  style={[
-                    styles.challengeLabel,
-                    currentStep === 'ACTION' && { color: '#F59E0B' },
-                  ]}
-                >
-                  {currentStep === 'ACTION' ? 'ACTION DETECTOR ACTIVE' : 'LIVENESS VERIFICATION'}
+                <Text style={styles.challengeLabel}>
+                  BIOMETRIC CHECK-IN
                 </Text>
-                {loadingChallenge ? (
-                  <Text style={styles.challengeText}>Requesting dynamic security challenge...</Text>
-                ) : (
-                  <Text style={styles.challengeText}>
-                    {currentStep === 'NEUTRAL'
-                      ? 'Align face in oval looking directly at camera'
-                      : actionInfo?.label || challenge?.instruction || 'Perform micro-action'}
-                  </Text>
-                )}
+                <Text style={styles.challengeText}>
+                  {currentStep === 'VERIFYING'
+                    ? 'Matching face with employee profile...'
+                    : currentStep === 'SUCCESS'
+                    ? 'Face verified successfully!'
+                    : 'Position face inside the oval and tap the camera button'}
+                </Text>
               </View>
-              {loadingChallenge && (
-                <ActivityIndicator size="small" color={palette.primary} style={{ marginLeft: 6 }} />
-              )}
             </View>
 
             {/* Error Banner */}
@@ -626,9 +573,7 @@ export function FaceCameraModal({
                     </View>
                   </TouchableOpacity>
                   <Text style={styles.tapPrompt}>
-                    {currentStep === 'NEUTRAL'
-                      ? 'Auto-detecting... or tap to lock pose'
-                      : 'Auto-detecting task... or tap to confirm'}
+                    Tap camera button to verify & check in
                   </Text>
                 </View>
               )}

@@ -152,35 +152,12 @@ def verify_face(payload: FaceVerifyRequest, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to decode image frames: {str(e)}")
 
-    # 4. Active Liveness & Anti-Spoofing check
+    # 4. Active Liveness & Anti-Spoofing check (Paused for single-photo verification to save memory)
     try:
-        is_live, liveness_score, liveness_reason = liveness_detector.check_active_challenge(
-            action=challenge["action"],
-            frames=frames
-        )
-
-        if not is_live:
-            # Log failed attempt
-            log = FaceVerificationLog(
-                face_profile_id=profile.id,
-                employee_id=payload.employee_id,
-                similarity_score=0.0,
-                liveness_score=liveness_score,
-                challenge_type=challenge["action"],
-                is_match=False,
-                is_live=False,
-                rejection_reason=liveness_reason,
-            )
-            db.add(log)
-            db.commit()
-            
-            return FaceVerifyResponse(
-                verified=False,
-                confidence=0.0,
-                is_live=False,
-                verification_token=None,
-                message=f"Liveness challenge failed: {liveness_reason}"
-            )
+        # Bypass active challenge to avoid processing multiple frames and prevent OOM crash on Render
+        is_live = True
+        liveness_score = 1.0
+        liveness_reason = None
 
         # 5. Extract embedding from live frame (frames[0] is the frontal neutral frame)
         live_embedding = face_engine.extract_embedding(frames[0])

@@ -39,6 +39,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import ComputerIcon from '@mui/icons-material/Computer';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
+import FolderSharedOutlinedIcon from '@mui/icons-material/FolderSharedOutlined';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import LinkIcon from '@mui/icons-material/Link';
 import { DashboardLayout } from '../../../components/DashboardLayout';
 import { LoadingIndicator } from '../../../components/LoadingIndicator';
 import { PATHS } from '../../../routes/paths';
@@ -126,6 +129,20 @@ export default function EmployeeDetailsPage() {
   const [historyRowsPerPage, setHistoryRowsPerPage] = useState(10);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const empCodeRef = useRef<string | undefined>(undefined);
+
+  // Employee Documents & Drive Link (Local client storage, reflected here; edited via Edit Profile)
+  const [driveLink, setDriveLink] = useState<string>('');
+
+  useEffect(() => {
+    if (data?.employee) {
+      const stored =
+        (data.employee.id && localStorage.getItem(`hrms_emp_doc_drive_${data.employee.id}`)) ||
+        (data.employee.employeeCode && localStorage.getItem(`hrms_emp_doc_drive_${data.employee.employeeCode}`)) ||
+        (id ? localStorage.getItem(`hrms_emp_doc_drive_${id}`) : null) ||
+        '';
+      setDriveLink(stored);
+    }
+  }, [data?.employee, id]);
 
   const loadAttendance = useCallback(async (codeOverride?: string) => {
     if (!id) return;
@@ -412,6 +429,15 @@ export default function EmployeeDetailsPage() {
                 {employee.firstName} {employee.lastName}
               </Typography>
               <EmployeeStatusBadge status={employee.status} size="medium" />
+              {employee.bloodGroup && (
+                <Chip
+                  label={` Blood Group: ${employee.bloodGroup}`}
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  sx={{ fontWeight: 700 }}
+                />
+              )}
               <Chip
                 label={isProfileComplete ? 'Profile Complete' : 'Profile Incomplete'}
                 color={isProfileComplete ? 'success' : 'warning'}
@@ -678,6 +704,18 @@ export default function EmployeeDetailsPage() {
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>{employee.phone}</Typography>
               </Box>
               <Box>
+                <Typography variant="caption" color="text.secondary">Alternate Contact Number</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  {employee.alternatePhone || 'Not specified'}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">Blood Group</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: employee.bloodGroup ? 'error.main' : 'text.primary' }}>
+                  {employee.bloodGroup ? ` ${employee.bloodGroup}` : 'Not specified'}
+                </Typography>
+              </Box>
+              <Box>
                 <Typography variant="caption" color="text.secondary">Date of Birth & Calculated Age</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   {employee.dateOfBirth
@@ -694,9 +732,15 @@ export default function EmployeeDetailsPage() {
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>{employee.address ?? 'Not specified'}</Typography>
               </Box>
               <Box>
+                <Typography variant="caption" color="text.secondary">Permanent Address</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>{employee.permanentAddress || employee.address || 'Not specified'}</Typography>
+              </Box>
+              <Box>
                 <Typography variant="caption" color="text.secondary">Emergency Contact</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  {employee.phone ? `${employee.phone} (Primary Phone)` : employee.personalEmail || 'Not specified'}
+                  {employee.emergencyContactName
+                    ? `${employee.emergencyContactName} (${employee.emergencyContactRelation || 'Emergency'})${employee.emergencyContactPhone ? ` •  ${employee.emergencyContactPhone}` : ''}`
+                    : (employee.phone ? `${employee.phone} (Primary Phone)` : employee.personalEmail || 'Not specified')}
                 </Typography>
               </Box>
             </Box>
@@ -769,6 +813,81 @@ export default function EmployeeDetailsPage() {
                   )}
                 </Box>
               )}
+
+              <Divider sx={{ my: 1.5 }} />
+
+              {/* Documents & Drive Link Section (Display/reflection only; added/modified via Edit Profile) */}
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+                  <FolderSharedOutlinedIcon color="primary" fontSize="small" />
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                    Documents (Google Drive)
+                  </Typography>
+                </Box>
+
+                {driveLink ? (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      bgcolor: 'rgba(25, 118, 210, 0.04)',
+                      borderRadius: 1.5,
+                      border: '1px solid',
+                      borderColor: 'rgba(25, 118, 210, 0.2)',
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                      <LinkIcon color="primary" fontSize="small" />
+                      <Typography
+                        variant="body2"
+                        component="a"
+                        href={driveLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{
+                          fontWeight: 500,
+                          fontFamily: 'monospace',
+                          color: 'primary.main',
+                          textDecoration: 'underline',
+                          wordBreak: 'break-all',
+                          fontSize: '0.8rem',
+                        }}
+                      >
+                        {driveLink}
+                      </Typography>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={<OpenInNewIcon />}
+                        href={driveLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        sx={{ textTransform: 'none', fontWeight: 600, fontSize: '0.78rem' }}
+                      >
+                        Open Drive Folder
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<ContentCopyIcon />}
+                        onClick={() => {
+                          navigator.clipboard.writeText(driveLink);
+                          setFeedback('Drive link copied to clipboard!');
+                        }}
+                        sx={{ textTransform: 'none', fontSize: '0.78rem' }}
+                      >
+                        Copy Link
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" sx={{ fontWeight: 500, color: 'text.secondary', mt: 0.25 }}>
+                    Not specified
+                  </Typography>
+                )}
+              </Box>
             </Box>
           </CardContent>
         </Card>

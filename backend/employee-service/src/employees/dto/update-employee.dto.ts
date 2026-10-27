@@ -97,6 +97,11 @@ export class UpdateEmployeeDto {
   @IsString()
   gender?: string;
 
+  @ApiPropertyOptional({ description: 'Blood group', example: 'O+' })
+  @IsOptional()
+  @IsString()
+  bloodGroup?: string;
+
   @ApiPropertyOptional({ description: 'Address' })
   @IsOptional()
   @IsString()

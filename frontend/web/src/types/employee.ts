@@ -48,9 +48,15 @@ export interface Employee {
   email: string;
   personalEmail?: string | null;
   phone: string;
+  alternatePhone?: string | null;
+  bloodGroup?: string | null;
   dateOfBirth?: string | null;
   gender?: Gender | null;
   address?: string | null;
+  permanentAddress?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactRelation?: string | null;
+  emergencyContactPhone?: string | null;
   profilePhotoUrl?: string | null;
   dateOfJoining: string;
   jobTitle: string;
@@ -141,6 +147,8 @@ export interface CreateEmployeePayload {
   personalEmail: string;
   employmentType?: EmploymentType;
   phone: string;
+  alternatePhone?: string | null;
+  bloodGroup?: string | null;
   dateOfBirth?: string;
   gender?: Gender;
   address?: string;
@@ -157,6 +165,7 @@ export interface CreateEmployeePayload {
   provisionAccount?: boolean;
   sendEmail?: boolean;
   hrWebEmail?: string;
+  documentsDriveLink?: string;
 }
 
 export interface UpdateEmployeePayload {
@@ -166,9 +175,14 @@ export interface UpdateEmployeePayload {
   personalEmail?: string | null;
   employmentType?: EmploymentType;
   phone?: string;
+  alternatePhone?: string | null;
+  bloodGroup?: string | null;
   dateOfBirth?: string | null;
   gender?: Gender | null;
   address?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactRelation?: string | null;
+  emergencyContactPhone?: string | null;
   profilePhotoUrl?: string | null;
   dateOfJoining?: string;
   jobTitle?: string;

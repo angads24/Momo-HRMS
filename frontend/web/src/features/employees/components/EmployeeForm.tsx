@@ -54,6 +54,8 @@ export function EmployeeForm({
     personalEmail: initialValues?.personalEmail ?? '',
     employmentType: initialValues?.employmentType ?? 'EMPLOYEE',
     phone: initialValues?.phone ?? '',
+    alternatePhone: initialValues?.alternatePhone ?? '',
+    bloodGroup: initialValues?.bloodGroup ?? '',
     jobTitle: initialValues?.jobTitle ?? '',
     departmentId: initialValues?.departmentId ?? '',
     roleId: initialValues?.roleId ?? '',
@@ -71,6 +73,7 @@ export function EmployeeForm({
     gender: (initialValues?.gender as Gender) ?? undefined,
     address: initialValues?.address ?? '',
     profilePhotoUrl: initialValues?.profilePhotoUrl ?? '',
+    documentsDriveLink: initialValues?.documentsDriveLink ?? '',
     provisionAccount: true,
   });
 
@@ -378,6 +381,18 @@ export function EmployeeForm({
             slotProps={{ inputLabel: { shrink: true } }}
             fullWidth
           />
+
+          <Box sx={{ gridColumn: { xs: '1', sm: '1 / -1' } }}>
+            <TextField
+              label="Documents Google Drive Link"
+              placeholder="https://drive.google.com/drive/folders/..."
+              disabled={loading}
+              value={formData.documentsDriveLink ?? ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, documentsDriveLink: e.target.value }))}
+              helperText="Link to employee documents, ID proofs, certifications, and contracts Drive folder"
+              fullWidth
+            />
+          </Box>
         </Box>
 
         <Divider sx={{ my: 3 }} />
@@ -453,6 +468,39 @@ export function EmployeeForm({
             helperText={errors.phone ?? 'e.g. +91 98765 43210'}
             fullWidth
           />
+
+          <TextField
+            label="Alternate Contact Number"
+            disabled={loading}
+            value={formData.alternatePhone ?? ''}
+            onChange={(e) => setFormData((prev) => ({ ...prev, alternatePhone: e.target.value }))}
+            helperText="Secondary contact or emergency mobile"
+            fullWidth
+          />
+
+          <FormControl fullWidth disabled={loading}>
+            <InputLabel id="blood-group-select-label">Blood Group</InputLabel>
+            <Select
+              labelId="blood-group-select-label"
+              value={formData.bloodGroup ?? ''}
+              label="Blood Group"
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  bloodGroup: e.target.value || undefined,
+                }))
+              }
+            >
+              <MenuItem value="">
+                <em>Unspecified</em>
+              </MenuItem>
+              {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
+                <MenuItem key={bg} value={bg}>
+                  {bg}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
           <TextField
             label="Date of Birth"

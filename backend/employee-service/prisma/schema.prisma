@@ -45,6 +45,7 @@ model Employee {
   personalEmail             String?                    @map("personal_email") @db.VarChar(255)
   dateOfBirth               DateTime?                  @map("date_of_birth")
   gender                    String?                    @db.VarChar(32)
+  bloodGroup                String?                    @map("blood_group") @db.VarChar(16)
   address                   String?                    @db.Text
   permanentAddress          String?                    @map("permanent_address") @db.Text
   alternatePhone            String?                    @map("alternate_phone") @db.VarChar(32)

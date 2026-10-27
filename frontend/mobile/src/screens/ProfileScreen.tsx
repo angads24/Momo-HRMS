@@ -123,6 +123,8 @@ export default function ProfileScreen() {
   const [lastName, setLastName] = useState('');
   const [personalEmail, setPersonalEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [alternatePhone, setAlternatePhone] = useState('');
+  const [bloodGroup, setBloodGroup] = useState<string | null>(null);
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [address, setAddress] = useState('');
 
@@ -138,6 +140,8 @@ export default function ProfileScreen() {
     setLastName(employeeProfile?.lastName || '');
     setPersonalEmail(employeeProfile?.personalEmail || '');
     setPhone(employeeProfile?.phone || '');
+    setAlternatePhone(employeeProfile?.alternatePhone || '');
+    setBloodGroup(employeeProfile?.bloodGroup || null);
     setDateOfBirth(
       employeeProfile?.dateOfBirth ? String(employeeProfile.dateOfBirth).slice(0, 10) : '',
     );
@@ -170,6 +174,8 @@ export default function ProfileScreen() {
         lastName: lastName.trim() || undefined,
         personalEmail: personalEmail.trim() || null,
         phone: phone.trim() || undefined,
+        alternatePhone: alternatePhone.trim() || null,
+        bloodGroup: bloodGroup || null,
         dateOfBirth: dateOfBirth.trim() || null,
         address: address.trim() || null,
       };
@@ -308,6 +314,18 @@ export default function ProfileScreen() {
               label="Phone Number"
               value={employeeProfile?.phone || '—'}
               icon="phone-outline"
+            />
+            <Divider style={styles.rowDivider} />
+            <InfoRow
+              label="Alternate Phone"
+              value={employeeProfile?.alternatePhone || '—'}
+              icon="phone-plus-outline"
+            />
+            <Divider style={styles.rowDivider} />
+            <InfoRow
+              label="Blood Group"
+              value={employeeProfile?.bloodGroup ? `🩸 ${employeeProfile.bloodGroup}` : '—'}
+              icon="water-outline"
             />
             <Divider style={styles.rowDivider} />
             <InfoRow
@@ -525,8 +543,50 @@ export default function ProfileScreen() {
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
                 editable={!saving}
+                returnKeyType="next"
+              />
+
+              <AppTextInput
+                label="Alternate Phone Number"
+                value={alternatePhone}
+                onChangeText={setAlternatePhone}
+                keyboardType="phone-pad"
+                editable={!saving}
                 returnKeyType="done"
               />
+
+              {/* Blood Group Selector in Modal */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: palette.muted, marginBottom: 6 }}>
+                  Blood Group
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
+                    <TouchableOpacity
+                      key={bg}
+                      onPress={() => setBloodGroup(bloodGroup === bg ? null : bg)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: bloodGroup === bg ? palette.primary : palette.border,
+                        backgroundColor: bloodGroup === bg ? palette.primary : '#FFFFFF',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: '700',
+                          color: bloodGroup === bg ? '#FFFFFF' : palette.ink,
+                        }}
+                      >
+                        {bg}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
 
               {/* Native Date Picker for DOB */}
               <View style={styles.dateFieldWrap}>

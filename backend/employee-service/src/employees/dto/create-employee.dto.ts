@@ -123,6 +123,16 @@ export class CreateEmployeeDto {
   @IsString()
   gender?: string;
 
+  @ApiPropertyOptional({ description: 'Blood group', example: 'O+' })
+  @IsOptional()
+  @IsString()
+  bloodGroup?: string;
+
+  @ApiPropertyOptional({ description: 'Alternate phone number' })
+  @IsOptional()
+  @IsString()
+  alternatePhone?: string;
+
   @ApiPropertyOptional({ description: 'Residential address' })
   @IsOptional()
   @IsString()

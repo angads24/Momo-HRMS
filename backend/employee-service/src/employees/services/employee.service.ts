@@ -188,6 +188,11 @@ export class EmployeeService implements OnModuleInit {
           email: dto.email,
           personalEmail: dto.personalEmail?.trim()?.toLowerCase() || null,
           phone: dto.phone || null,
+          alternatePhone: dto.alternatePhone || null,
+          bloodGroup: dto.bloodGroup || null,
+          gender: dto.gender || null,
+          address: dto.address || null,
+          dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
           departmentId: resolvedDepartmentId,
           designationId: resolvedDesignationId,
           employmentStatus: dto.employmentStatus ?? EmploymentStatus.ACTIVE,
@@ -490,6 +495,7 @@ export class EmployeeService implements OnModuleInit {
         personalEmail: dto.personalEmail !== undefined ? dto.personalEmail : undefined,
         dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : (dto.dateOfBirth === null ? null : undefined),
         gender: dto.gender !== undefined ? dto.gender : undefined,
+        bloodGroup: dto.bloodGroup !== undefined ? dto.bloodGroup : undefined,
         address: dto.address !== undefined ? dto.address : undefined,
         permanentAddress: dto.permanentAddress !== undefined ? dto.permanentAddress : undefined,
         alternatePhone: dto.alternatePhone !== undefined ? dto.alternatePhone : undefined,
@@ -1374,6 +1380,7 @@ export class EmployeeService implements OnModuleInit {
         : null,
       personalEmail: emp.personalEmail ?? null,
       gender: emp.gender ?? null,
+      bloodGroup: emp.bloodGroup ?? null,
       address: emp.address ?? null,
       permanentAddress: emp.permanentAddress ?? null,
       alternatePhone: emp.alternatePhone ?? null,
@@ -1429,6 +1436,8 @@ export class EmployeeService implements OnModuleInit {
       hasUserAccount: formatted.hasUserAccount,
       isHr: formatted.isHr,
       profilePhotoUrl: formatted.profilePhotoUrl || null,
+      bloodGroup: formatted.bloodGroup || null,
+      alternatePhone: formatted.alternatePhone || null,
     };
   }
 

@@ -11,6 +11,7 @@ export interface EmployeeProfile {
   phone: string;
   dateOfBirth: string | null;
   gender: 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY' | string | null;
+  bloodGroup?: string | null;
   address: string | null;
   permanentAddress?: string | null;
   alternatePhone?: string | null;
@@ -63,6 +64,7 @@ export interface UpdateEmployeeProfileInput {
   phone?: string;
   dateOfBirth?: string | null;
   gender?: 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY' | string | null;
+  bloodGroup?: string | null;
   address?: string | null;
   permanentAddress?: string | null;
   alternatePhone?: string | null;

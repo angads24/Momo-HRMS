@@ -286,6 +286,12 @@ export async function createEmployee(payload: CreateEmployeePayload): Promise<Em
   if (payload.personalEmail?.trim()) {
     cleanPayload.personalEmail = payload.personalEmail.trim().toLowerCase();
   }
+  if (payload.alternatePhone?.trim()) {
+    cleanPayload.alternatePhone = payload.alternatePhone.trim();
+  }
+  if (payload.bloodGroup?.trim()) {
+    cleanPayload.bloodGroup = payload.bloodGroup.trim();
+  }
   if (payload.dateOfBirth) {
     cleanPayload.dateOfBirth = payload.dateOfBirth;
   }
@@ -343,9 +349,24 @@ export async function updateEmployee(id: string, payload: UpdateEmployeePayload)
     cleanPayload.personalEmail = payload.personalEmail ? payload.personalEmail.trim().toLowerCase() : null;
   }
   if (payload.phone !== undefined) cleanPayload.phone = payload.phone.trim();
+  if (payload.alternatePhone !== undefined) {
+    cleanPayload.alternatePhone = payload.alternatePhone ? payload.alternatePhone.trim() : null;
+  }
+  if (payload.bloodGroup !== undefined) {
+    cleanPayload.bloodGroup = payload.bloodGroup ? payload.bloodGroup.trim() : null;
+  }
   if (payload.dateOfBirth !== undefined) cleanPayload.dateOfBirth = payload.dateOfBirth;
   if (payload.gender !== undefined) cleanPayload.gender = payload.gender;
   if (payload.address !== undefined) cleanPayload.address = payload.address ? payload.address.trim() : null;
+  if (payload.emergencyContactName !== undefined) {
+    cleanPayload.emergencyContactName = payload.emergencyContactName ? payload.emergencyContactName.trim() : null;
+  }
+  if (payload.emergencyContactRelation !== undefined) {
+    cleanPayload.emergencyContactRelation = payload.emergencyContactRelation ? payload.emergencyContactRelation.trim() : null;
+  }
+  if (payload.emergencyContactPhone !== undefined) {
+    cleanPayload.emergencyContactPhone = payload.emergencyContactPhone ? payload.emergencyContactPhone.trim() : null;
+  }
   if (payload.profilePhotoUrl !== undefined) {
     cleanPayload.profilePhotoUrl = payload.profilePhotoUrl ? payload.profilePhotoUrl.trim() : null;
   }

@@ -94,6 +94,8 @@ export default function EditEmployeePage() {
         email: values.email,
         personalEmail: values.personalEmail ? values.personalEmail.trim() : null,
         phone: values.phone,
+        alternatePhone: values.alternatePhone ? values.alternatePhone.trim() : null,
+        bloodGroup: values.bloodGroup ? values.bloodGroup.trim() : null,
         jobTitle: values.jobTitle,
         departmentId: values.departmentId,
         roleId: values.roleId,
@@ -110,6 +112,21 @@ export default function EditEmployeePage() {
 
       if (values.roleId) {
         await updateEmployeeRole(id, values.roleId).catch(() => {});
+      }
+
+      if (values.documentsDriveLink !== undefined) {
+        let link = values.documentsDriveLink.trim();
+        if (link && !/^https?:\/\//i.test(link)) {
+          link = `https://${link}`;
+        }
+        const keys = [employee.id, employee.employeeCode, id].filter(Boolean) as string[];
+        for (const k of keys) {
+          if (link) {
+            localStorage.setItem(`hrms_emp_doc_drive_${k}`, link);
+          } else {
+            localStorage.removeItem(`hrms_emp_doc_drive_${k}`);
+          }
+        }
       }
 
       setNotice(`Employee profile for "${values.firstName} ${values.lastName}" updated successfully.`);
@@ -173,6 +190,8 @@ export default function EditEmployeePage() {
     email: employee.email,
     personalEmail: employee.personalEmail ?? '',
     phone: employee.phone,
+    alternatePhone: employee.alternatePhone ?? '',
+    bloodGroup: employee.bloodGroup ?? '',
     jobTitle: employee.jobTitle,
     departmentId: (employee as any).departmentId || employee.department?.id || '',
     roleId: resolvedRoleId,
@@ -208,6 +227,11 @@ export default function EditEmployeePage() {
     gender: employee.gender ?? undefined,
     address: employee.address ?? '',
     profilePhotoUrl: employee.profilePhotoUrl ?? '',
+    documentsDriveLink:
+      (employee.id && localStorage.getItem(`hrms_emp_doc_drive_${employee.id}`)) ||
+      (employee.employeeCode && localStorage.getItem(`hrms_emp_doc_drive_${employee.employeeCode}`)) ||
+      (id && localStorage.getItem(`hrms_emp_doc_drive_${id}`)) ||
+      '',
   };
 
   return (

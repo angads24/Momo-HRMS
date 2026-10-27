@@ -383,6 +383,11 @@ export function EmployeeTable({
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               {emp.employeeCode}
+                              {emp.bloodGroup && (
+                                <Box component="span" sx={{ ml: 1, color: 'error.main', fontWeight: 700, fontSize: '0.75rem' }}>
+                                   {emp.bloodGroup}
+                                </Box>
+                              )}
                             </Typography>
                           </Box>
                         </Box>
@@ -402,9 +407,14 @@ export function EmployeeTable({
                             Personal: {emp.personalEmail}
                           </Typography>
                         )}
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                           {emp.phone}
                         </Typography>
+                        {emp.alternatePhone && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.72rem' }}>
+                            Alt: {emp.alternatePhone}
+                          </Typography>
+                        )}
                       </TableCell>
 
                       <TableCell>

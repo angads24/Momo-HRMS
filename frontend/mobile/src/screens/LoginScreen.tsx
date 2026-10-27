@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Controller, useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
+import type { Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AppButton } from '../components/AppButton';
 import { AppHeader } from '../components/AppHeader';
@@ -25,6 +26,36 @@ import { getErrorMessage } from '../utils/errors';
 import { API_URL } from '../config/env';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+const AccountIcon = <TextInput.Icon icon="account-outline" forceTextInputFocus={false} />;
+
+function LoginSubmitButton({
+  control,
+  isSubmitting,
+  onPress,
+}: {
+  control: Control<LoginFormValues>;
+  isSubmitting: boolean;
+  onPress: () => void;
+}) {
+  const [email, password] = useWatch({
+    control,
+    name: ['email', 'password'],
+  });
+  const isFilled = Boolean(email?.trim() && password);
+
+  return (
+    <AppButton
+      onPress={onPress}
+      loading={isSubmitting}
+      disabled={!isFilled || isSubmitting}
+      accessibilityLabel="Login"
+      style={styles.loginBtn}
+    >
+      Login
+    </AppButton>
+  );
+}
+
 export default function LoginScreen() {
   const { login, notice } = useAuth();
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -33,10 +64,10 @@ export default function LoginScreen() {
   const {
     control,
     handleSubmit,
-    formState: { errors, isValid, isSubmitting },
+    formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    mode: 'onChange',
+    mode: 'onTouched',
     defaultValues: { email: '', password: '' },
   });
 
@@ -54,8 +85,7 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
           contentContainerStyle={styles.content}
@@ -83,11 +113,12 @@ export default function LoginScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
-                autoComplete="email"
+                autoComplete="username"
+                textContentType="username"
                 returnKeyType="next"
                 onSubmitEditing={() => passwordRef.current?.focus()}
                 blurOnSubmit={false}
-                left={<TextInput.Icon icon="account-outline" />}
+                left={AccountIcon}
                 errorText={errors.email?.message}
               />
             )}
@@ -100,7 +131,7 @@ export default function LoginScreen() {
               <PasswordInput
                 label="Password"
                 placeholder="Enter password"
-                value={value}
+                value={value ?? ''}
                 onChangeText={onChange}
                 onBlur={onBlur}
                 autoComplete="password"
@@ -113,15 +144,11 @@ export default function LoginScreen() {
             )}
           />
 
-          <AppButton
+          <LoginSubmitButton
+            control={control}
+            isSubmitting={isSubmitting}
             onPress={onSubmit}
-            loading={isSubmitting}
-            disabled={!isValid || isSubmitting}
-            accessibilityLabel="Login"
-            style={styles.loginBtn}
-          >
-            Login
-          </AppButton>
+          />
 
           <View style={styles.helpBox}>
             <Text style={styles.help}>

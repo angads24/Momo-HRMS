@@ -1,12 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 
@@ -43,8 +41,6 @@ function getThisMonthDateRange() {
 }
 
 export default function AttendanceReportsPage() {
-  const navigate = useNavigate();
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,22 +114,12 @@ export default function AttendanceReportsPage() {
         sx={{
           mb: 3,
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: 2,
         }}
       >
-        <Button
-          variant="text"
-          color="inherit"
-          startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/attendance')}
-          sx={{ fontWeight: 600 }}
-        >
-          Back to Attendance
-        </Button>
-
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
           <TextField
             label="From"

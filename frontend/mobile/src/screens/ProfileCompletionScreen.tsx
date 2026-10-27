@@ -47,6 +47,17 @@ const GENDER_OPTIONS: { label: string; value: GenderOption }[] = [
   { label: 'Prefer not to say', value: 'PREFER_NOT_TO_SAY' },
 ];
 
+const BLOOD_GROUP_OPTIONS = [
+  'A+',
+  'A-',
+  'B+',
+  'B-',
+  'AB+',
+  'AB-',
+  'O+',
+  'O-',
+];
+
 const RELATION_OPTIONS = [
   'Parent',
   'Spouse',
@@ -178,6 +189,9 @@ export default function ProfileCompletionScreen() {
   const [gender, setGender] = useState<GenderOption | null>(
     (employeeProfile?.gender as GenderOption) ?? null,
   );
+  const [bloodGroup, setBloodGroup] = useState<string | null>(
+    employeeProfile?.bloodGroup ?? null,
+  );
   // Native date picker toggle
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -219,6 +233,7 @@ export default function ProfileCompletionScreen() {
         setDateOfBirth(String(employeeProfile.dateOfBirth).slice(0, 10));
       }
       if (!gender && employeeProfile.gender) setGender(employeeProfile.gender as GenderOption);
+      if (!bloodGroup && employeeProfile.bloodGroup) setBloodGroup(employeeProfile.bloodGroup);
       if (!address && employeeProfile.address) setAddress(employeeProfile.address);
       if (!permanentAddress && employeeProfile.permanentAddress) {
         setPermanentAddress(employeeProfile.permanentAddress);
@@ -454,6 +469,7 @@ export default function ProfileCompletionScreen() {
         phone: phone.trim(),
         dateOfBirth: parsedDob.normalized ?? undefined,
         gender: gender ?? undefined,
+        bloodGroup: bloodGroup || undefined,
         address: address.trim(),
         permanentAddress: finalPermanent || undefined,
         alternatePhone: alternatePhone.trim() || undefined,
@@ -626,6 +642,31 @@ export default function ProfileCompletionScreen() {
                     }}
                   >
                     {opt.label}
+                  </Chip>
+                ))}
+              </View>
+
+              {/* Blood Group */}
+              <Text style={styles.sectionLabel}>Blood Group</Text>
+              <View style={styles.chipRow}>
+                {BLOOD_GROUP_OPTIONS.map((bg) => (
+                  <Chip
+                    key={bg}
+                    selected={bloodGroup === bg}
+                    onPress={() => {
+                      setBloodGroup(bg === bloodGroup ? null : bg);
+                      if (stepError) setStepError(null);
+                    }}
+                    style={[
+                      styles.chip,
+                      bloodGroup === bg && { backgroundColor: palette.primary },
+                    ]}
+                    textStyle={{
+                      color: bloodGroup === bg ? '#FFFFFF' : palette.ink,
+                      fontWeight: bloodGroup === bg ? '700' : '500',
+                    }}
+                  >
+                    {bg}
                   </Chip>
                 ))}
               </View>
@@ -948,7 +989,9 @@ export default function ProfileCompletionScreen() {
 
                   <View style={styles.summaryItem}>
                     <MaterialCommunityIcons name="check-circle" size={20} color={palette.success} />
-                    <Text style={styles.summaryText}>Personal Information Verified</Text>
+                    <Text style={styles.summaryText}>
+                      Personal Information Verified{bloodGroup ? ` • Blood Group: ${bloodGroup}` : ''}
+                    </Text>
                   </View>
 
                   <View style={styles.summaryItem}>

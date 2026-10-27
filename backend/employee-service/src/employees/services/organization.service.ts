@@ -136,7 +136,6 @@ export class OrganizationService {
     return [
       { id: 'role-super-admin', name: 'SUPER_ADMIN', description: 'Full administrative access across the system', employeeCount: 1 },
       { id: 'role-hr-admin', name: 'HR_ADMIN', description: 'Manages employees, departments, devices and face-template references', employeeCount: 1 },
-      { id: 'role-manager', name: 'MANAGER', description: 'Manages a team within a department (no system administration rights)', employeeCount: 0 },
       { id: 'role-employee', name: 'EMPLOYEE', description: 'Standard employee with access to their own record', employeeCount: 1 },
     ];
   }

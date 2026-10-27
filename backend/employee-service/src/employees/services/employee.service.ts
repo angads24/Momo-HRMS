@@ -1260,8 +1260,8 @@ export class EmployeeService implements OnModuleInit {
         roleId = 'role-hr-admin';
         isHrMember = true;
       } else if (normRole.includes('MANAGER')) {
-        roleName = 'MANAGER';
-        roleId = 'role-manager';
+        roleName = 'EMPLOYEE';
+        roleId = 'role-employee';
         isHrMember = false;
       } else {
         roleName = 'EMPLOYEE';

@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { AppConfig } from './config/configuration';
 import { validateEmployeeEnv } from './config/validate-env';
@@ -13,6 +14,10 @@ async function bootstrap() {
   validateEmployeeEnv(process.env);
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService<AppConfig, true>);
+
+  // Increase body size limit to handle base64-encoded profile photos (default NestJS is 100kb)
+  app.use(json({ limit: '15mb' }));
+  app.use(urlencoded({ limit: '15mb', extended: true }));
 
   const apiPrefix = configService.get('apiPrefix', { infer: true });
   const swaggerPath = configService.get('swaggerPath', { infer: true });

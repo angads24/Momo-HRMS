@@ -1,5 +1,13 @@
-import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { useRef, useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  TextInput as RNTextInput,
+  View,
+} from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Controller, useForm } from 'react-hook-form';
@@ -9,7 +17,6 @@ import { AppHeader } from '../components/AppHeader';
 import { AppTextInput } from '../components/AppTextInput';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { PasswordInput } from '../components/PasswordInput';
-import { PasswordRequirements } from '../components/PasswordRequirements';
 import { useAuth } from '../context/AuthContext';
 import { loginSchema } from '../schemas/authSchemas';
 import type { LoginFormValues } from '../schemas/authSchemas';
@@ -21,19 +28,17 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 export default function LoginScreen() {
   const { login, notice } = useAuth();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const passwordRef = useRef<RNTextInput>(null);
 
   const {
     control,
     handleSubmit,
-    watch,
     formState: { errors, isValid, isSubmitting },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     mode: 'onChange',
     defaultValues: { email: '', password: '' },
   });
-
-  const password = watch('password');
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError(null);
@@ -47,8 +52,16 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
           <AppHeader
             title="Welcome to Momo HRMS"
             subtitle="Enter the email or employee ID and password sent to your email"
@@ -71,6 +84,9 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="email"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                blurOnSubmit={false}
                 left={<TextInput.Icon icon="account-outline" />}
                 errorText={errors.email?.message}
               />
@@ -89,6 +105,9 @@ export default function LoginScreen() {
                 onBlur={onBlur}
                 autoComplete="password"
                 textContentType="password"
+                returnKeyType="done"
+                onSubmitEditing={onSubmit}
+                innerRef={passwordRef}
                 errorText={errors.password?.message}
               />
             )}
@@ -99,6 +118,7 @@ export default function LoginScreen() {
             loading={isSubmitting}
             disabled={!isValid || isSubmitting}
             accessibilityLabel="Login"
+            style={styles.loginBtn}
           >
             Login
           </AppButton>
@@ -123,6 +143,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: palette.background },
   flex: { flex: 1 },
   content: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  loginBtn: { marginTop: 4 },
   helpBox: { marginTop: 20, alignItems: 'center' },
   help: { color: palette.muted, fontSize: 13, textAlign: 'center' },
   serverInfoBox: {

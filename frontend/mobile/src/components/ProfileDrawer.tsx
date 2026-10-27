@@ -331,6 +331,11 @@ const styles = StyleSheet.create({
   avatarWrap: {
     position: 'relative',
     marginBottom: 12,
+    borderRadius: 44,
+    padding: 3,
+    borderWidth: 2,
+    borderColor: palette.primaryLight,
+    backgroundColor: palette.surface,
   },
   avatar: {
     backgroundColor: palette.primary,
@@ -342,8 +347,8 @@ const styles = StyleSheet.create({
   },
   onlineBadge: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
+    bottom: 3,
+    right: 3,
     width: 14,
     height: 14,
     borderRadius: 7,

@@ -53,7 +53,16 @@ export default function EditEmployeePage() {
         if (mounted) {
           setEmployee(empData);
           setDepartments(deptsData);
-          setRoles(rolesData);
+          setRoles(
+            Array.isArray(rolesData)
+              ? rolesData.filter(
+                  (r) =>
+                    r.name?.toUpperCase() !== 'MANAGER' &&
+                    (r as any).code?.toUpperCase() !== 'MANAGER' &&
+                    r.id !== 'role-manager'
+                )
+              : []
+          );
           setOffices(Array.isArray(officesData) ? officesData : []);
         }
       })
@@ -150,10 +159,10 @@ export default function EditEmployeePage() {
     const roleName = employee.role?.name?.toUpperCase();
     if (roleName === 'SUPER_ADMIN') return 'role-super-admin';
     if (roleName === 'HR_ADMIN' || roleName === 'HR') return 'role-hr-admin';
-    if (roleName === 'MANAGER') return 'role-manager';
+    if (roleName === 'MANAGER') return 'role-employee';
     if (roleName === 'EMPLOYEE') return 'role-employee';
-    if (employee.roleId && employee.roleId.startsWith('role-')) return employee.roleId;
-    if (employee.role?.id && employee.role.id.startsWith('role-')) return employee.role.id;
+    if (employee.roleId && employee.roleId.startsWith('role-') && employee.roleId !== 'role-manager') return employee.roleId;
+    if (employee.role?.id && employee.role.id.startsWith('role-') && employee.role.id !== 'role-manager') return employee.role.id;
     return 'role-employee';
   })();
 

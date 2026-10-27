@@ -1,5 +1,5 @@
-import { StyleSheet, View } from 'react-native';
-import { Icon, Text } from 'react-native-paper';
+import { Image, StyleSheet, View } from 'react-native';
+import { Text } from 'react-native-paper';
 import { COMPANY_NAME } from '../config/env';
 import { palette } from '../theme/theme';
 
@@ -9,15 +9,17 @@ interface Props {
   showLogo?: boolean;
 }
 
-/** Logo placeholder + company name + screen heading. Replace the icon with your real logo. */
+/** App logo + company name + screen heading. */
 export function AppHeader({ title, subtitle, showLogo = true }: Props) {
   return (
     <View style={styles.container}>
       {showLogo && (
         <View style={styles.brandRow}>
-          <View style={styles.logo}>
-            <Icon source="account-group" size={26} color="#FFFFFF" />
-          </View>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={styles.company}>{COMPANY_NAME}</Text>
         </View>
       )}
@@ -31,16 +33,13 @@ export function AppHeader({ title, subtitle, showLogo = true }: Props) {
 
 const styles = StyleSheet.create({
   container: { marginBottom: 24 },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 28 },
-  logo: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: palette.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 28 },
+  logoImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
   },
-  company: { fontSize: 20, fontWeight: '700', color: palette.ink },
-  title: { fontSize: 30, fontWeight: '700', color: palette.ink },
+  company: { fontSize: 20, fontWeight: '800', color: palette.ink, letterSpacing: -0.3 },
+  title: { fontSize: 30, fontWeight: '800', color: palette.ink, letterSpacing: -0.5 },
   subtitle: { fontSize: 15, color: palette.muted, marginTop: 6, lineHeight: 22 },
 });

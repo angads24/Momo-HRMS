@@ -7,10 +7,12 @@ import {
   Linking,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   Avatar,
   Card,
@@ -176,6 +178,9 @@ export default function ProfileCompletionScreen() {
   const [gender, setGender] = useState<GenderOption | null>(
     (employeeProfile?.gender as GenderOption) ?? null,
   );
+  // Native date picker toggle
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
 
   // Section C: Contact Information
   const [alternatePhone, setAlternatePhone] = useState(employeeProfile?.alternatePhone ?? '');
@@ -419,7 +424,7 @@ export default function ProfileCompletionScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.5,
@@ -492,12 +497,14 @@ export default function ProfileCompletionScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0}
       >
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           {/* Header & Step Indicator */}
           <AppHeader
@@ -536,6 +543,7 @@ export default function ProfileCompletionScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 placeholder="e.g. yourname@gmail.com"
+                returnKeyType="next"
                 left={<TextInput.Icon icon="email-outline" />}
               />
 
@@ -548,34 +556,53 @@ export default function ProfileCompletionScreen() {
                 }}
                 keyboardType="phone-pad"
                 placeholder="e.g. +91 9876543210"
+                returnKeyType="done"
                 left={<TextInput.Icon icon="phone-outline" />}
               />
 
-              <AppTextInput
-                label="Date of Birth (DD/MM/YYYY or YYYY-MM-DD) *"
-                value={dateOfBirth}
-                onChangeText={(t) => {
-                  setDateOfBirth(t);
-                  if (stepError) setStepError(null);
-                }}
-                placeholder="e.g. 03/04/2000"
-                maxLength={10}
-                left={<TextInput.Icon icon="calendar" />}
-              />
-
-              {/* Dynamic Age Badge */}
-              <View style={styles.ageContainer}>
-                <Text style={styles.ageLabel}>Age (Derived from Date of Birth):</Text>
-                {parsedDob.age !== null ? (
-                  <View style={styles.ageBadge}>
-                    <Text style={styles.ageText}>{parsedDob.age} years</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.agePlaceholder}>Enter valid DOB above</Text>
-                )}
+              {/* Native Date Picker for DOB */}
+              <View style={styles.dateFieldWrap}>
+                <Text style={styles.dateFieldLabel}>Date of Birth *</Text>
+                <TouchableOpacity
+                  style={styles.dateFieldBtn}
+                  onPress={() => setShowDatePicker(true)}
+                  accessibilityLabel="Select date of birth"
+                >
+                  <MaterialCommunityIcons name="calendar" size={18} color={palette.muted} />
+                  <Text style={[styles.dateFieldText, !dateOfBirth && styles.dateFieldPlaceholder]}>
+                    {dateOfBirth
+                      ? new Date(dateOfBirth).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                      : 'Select Date of Birth (DD MMM YYYY)'}
+                  </Text>
+                  {parsedDob.age !== null && (
+                    <View style={styles.inlineAgeBadge}>
+                      <Text style={styles.inlineAgeText}>{parsedDob.age}y</Text>
+                    </View>
+                  )}
+                  <MaterialCommunityIcons name="chevron-down" size={16} color={palette.muted} />
+                </TouchableOpacity>
               </View>
+
+              {showDatePicker && (
+                <DateTimePicker
+                  value={dateOfBirth ? new Date(dateOfBirth) : new Date(2000, 0, 1)}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  maximumDate={new Date()}
+                  minimumDate={new Date(1940, 0, 1)}
+                  onValueChange={(_: any, selected?: Date) => {
+                    if (Platform.OS === 'android') setShowDatePicker(false);
+                    if (selected) {
+                      setDateOfBirth(selected.toISOString().slice(0, 10));
+                      if (stepError) setStepError(null);
+                    }
+                  }}
+                  onDismiss={() => setShowDatePicker(false)}
+                />
+              )}
+
               <HelperText type="info" visible style={styles.helperText}>
-                Age is calculated dynamically from your birth date and is non-editable.
+                Age is calculated dynamically from your birth date.
               </HelperText>
 
               {/* Gender */}
@@ -1059,6 +1086,34 @@ const styles = StyleSheet.create({
   ageText: { color: palette.success, fontWeight: '700', fontSize: 13 },
   agePlaceholder: { fontSize: 12, color: palette.muted, fontStyle: 'italic' },
   helperText: { paddingHorizontal: 0, marginBottom: 8 },
+  dateFieldWrap: { marginBottom: 6 },
+  dateFieldLabel: {
+    fontSize: 12,
+    color: palette.muted,
+    marginBottom: 4,
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+  dateFieldBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  dateFieldText: { flex: 1, fontSize: 14, color: palette.ink, fontWeight: '500' },
+  dateFieldPlaceholder: { color: palette.muted, fontWeight: '400' },
+  inlineAgeBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  inlineAgeText: { color: palette.success, fontWeight: '700', fontSize: 12 },
   sectionLabel: { fontSize: 13, fontWeight: '700', color: palette.ink, marginTop: 8, marginBottom: 8 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   chip: { backgroundColor: palette.surface, borderRadius: 8 },

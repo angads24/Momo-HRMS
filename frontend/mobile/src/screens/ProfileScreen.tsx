@@ -5,11 +5,13 @@ import {
   Modal,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   Avatar,
   Card,
@@ -30,6 +32,7 @@ import { AppTextInput } from '../components/AppTextInput';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { palette } from '../theme/theme';
 import { getErrorMessage } from '../utils/errors';
+import { downsampleFaceImage } from '../utils/imageUtils';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
@@ -80,7 +83,7 @@ export default function ProfileScreen() {
                 return;
               }
               const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                mediaTypes: ['images'],
                 allowsEditing: true,
                 aspect: [1, 1],
                 quality: 0.6,
@@ -102,7 +105,9 @@ export default function ProfileScreen() {
   const savePhoto = async (asset: ImagePicker.ImagePickerAsset) => {
     setUpdatingPhoto(true);
     try {
-      const dataUri = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
+      const source = asset.uri || (asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : '');
+      const b64 = await downsampleFaceImage(source, 480, 0.7);
+      const dataUri = b64.startsWith('data:') ? b64 : `data:image/jpeg;base64,${b64}`;
       await uploadProfilePhoto(dataUri);
       await refreshProfile();
       setSnackbarMessage('Profile photo updated successfully!');
@@ -120,6 +125,9 @@ export default function ProfileScreen() {
   const [phone, setPhone] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [address, setAddress] = useState('');
+
+  // Date Picker state
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Snackbar feedback
   const [snackbarMessage, setSnackbarMessage] = useState<string | null>(null);
@@ -463,8 +471,9 @@ export default function ProfileScreen() {
         }}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalBackdrop}
+          keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0}
         >
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
@@ -478,8 +487,9 @@ export default function ProfileScreen() {
             </View>
 
             <ScrollView
-              contentContainerStyle={styles.modalScroll}
+              contentContainerStyle={[styles.modalScroll, { paddingBottom: 40 }]}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
               {editError && <ErrorMessage message={editError} />}
 
@@ -488,6 +498,7 @@ export default function ProfileScreen() {
                 value={firstName}
                 onChangeText={setFirstName}
                 editable={!saving}
+                returnKeyType="next"
               />
 
               <AppTextInput
@@ -495,6 +506,7 @@ export default function ProfileScreen() {
                 value={lastName}
                 onChangeText={setLastName}
                 editable={!saving}
+                returnKeyType="next"
               />
 
               <AppTextInput
@@ -504,6 +516,7 @@ export default function ProfileScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 editable={!saving}
+                returnKeyType="next"
               />
 
               <AppTextInput
@@ -512,15 +525,40 @@ export default function ProfileScreen() {
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
                 editable={!saving}
+                returnKeyType="done"
               />
 
-              <AppTextInput
-                label="Date of Birth (YYYY-MM-DD)"
-                value={dateOfBirth}
-                onChangeText={setDateOfBirth}
-                placeholder="e.g. 1998-05-15"
-                editable={!saving}
-              />
+              {/* Native Date Picker for DOB */}
+              <View style={styles.dateFieldWrap}>
+                <Text style={styles.dateFieldLabel}>Date of Birth</Text>
+                <TouchableOpacity
+                  style={[styles.dateFieldBtn, !saving && { opacity: 1 }]}
+                  onPress={() => !saving && setShowDatePicker(true)}
+                  disabled={saving}
+                  accessibilityLabel="Select date of birth"
+                >
+                  <MaterialCommunityIcons name="calendar" size={18} color={palette.muted} />
+                  <Text style={[styles.dateFieldText, !dateOfBirth && styles.dateFieldPlaceholder]}>
+                    {dateOfBirth ? formatDate(dateOfBirth) : 'Select Date of Birth'}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-down" size={16} color={palette.muted} />
+                </TouchableOpacity>
+              </View>
+
+              {showDatePicker && (
+                <DateTimePicker
+                  value={dateOfBirth ? new Date(dateOfBirth) : new Date(2000, 0, 1)}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  maximumDate={new Date()}
+                  minimumDate={new Date(1940, 0, 1)}
+                  onValueChange={(_: any, selected?: Date) => {
+                    if (Platform.OS === 'android') setShowDatePicker(false);
+                    if (selected) setDateOfBirth(selected.toISOString().slice(0, 10));
+                  }}
+                  onDismiss={() => setShowDatePicker(false)}
+                />
+              )}
 
               <AppTextInput
                 label="Address"
@@ -774,8 +812,8 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '90%',
-    paddingBottom: 24,
+    maxHeight: '92%',
+    paddingBottom: 8,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -794,6 +832,38 @@ const styles = StyleSheet.create({
   },
   modalScroll: {
     padding: 20,
+  },
+  dateFieldWrap: {
+    marginBottom: 2,
+  },
+  dateFieldLabel: {
+    fontSize: 12,
+    color: palette.muted,
+    marginBottom: 4,
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+  dateFieldBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 6,
+  },
+  dateFieldText: {
+    flex: 1,
+    fontSize: 14,
+    color: palette.ink,
+    fontWeight: '500',
+  },
+  dateFieldPlaceholder: {
+    color: palette.muted,
+    fontWeight: '400',
   },
   modalActions: {
     flexDirection: 'row',

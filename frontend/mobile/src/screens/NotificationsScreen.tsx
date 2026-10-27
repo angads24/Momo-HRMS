@@ -37,10 +37,11 @@ export default function NotificationsScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const recipientId = employeeProfile?.employeeCode || employeeProfile?.id || user?.id || '';
+  const userEmail = user?.email || employeeProfile?.email || '';
 
   // 1. Load Notifications
   const loadNotifications = useCallback(async () => {
-    if (!recipientId) {
+    if (!recipientId && !userEmail) {
       setLoading(false);
       setRefreshing(false);
       return;
@@ -49,7 +50,8 @@ export default function NotificationsScreen() {
     setError(null);
     try {
       const res = await getNotifications({
-        recipientId,
+        recipientId: recipientId || undefined,
+        email: userEmail || undefined,
         limit: 50,
       });
       setNotifications(res.items || []);
@@ -59,7 +61,7 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [recipientId]);
+  }, [recipientId, userEmail]);
 
   useEffect(() => {
     loadNotifications();
@@ -77,20 +79,36 @@ export default function NotificationsScreen() {
       setNotifications((prev) =>
         prev.map((n) => (n.id === notification.id ? { ...n, isRead: true } : n)),
       );
-      await markNotificationAsRead(notification.id);
+      await markNotificationAsRead(notification.id, {
+        recipientId: recipientId || undefined,
+        email: userEmail || undefined,
+      });
     } catch {
       await loadNotifications();
     }
   };
 
   const handleMarkAllRead = async () => {
-    if (!recipientId) return;
+    const unreadItems = notifications.filter((n) => !n.isRead);
+    if (unreadItems.length === 0) return;
+
+    // Snappy optimistic UI update
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
 
     try {
-      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      await markAllNotificationsAsRead(recipientId);
-    } catch {
-      await loadNotifications();
+      const batchPromise = markAllNotificationsAsRead({
+        recipientId: recipientId || undefined,
+        email: userEmail || undefined,
+      });
+      const individualPromises = unreadItems.map((n) =>
+        markNotificationAsRead(n.id, {
+          recipientId: recipientId || undefined,
+          email: userEmail || undefined,
+        }).catch(() => undefined),
+      );
+      await Promise.allSettled([batchPromise, ...individualPromises]);
+    } catch (err) {
+      console.warn('Failed to mark all as read:', err);
     }
   };
 

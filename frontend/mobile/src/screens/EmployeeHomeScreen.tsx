@@ -20,7 +20,7 @@ import {
   Text,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -323,14 +323,25 @@ export default function EmployeeHomeScreen() {
   // 1. Fetch unread notification count
   const loadUnreadCount = useCallback(async () => {
     const recipientId = employeeProfile?.employeeCode || employeeProfile?.id || user?.id;
-    if (!recipientId) return;
+    const email = user?.email || employeeProfile?.email;
+    if (!recipientId && !email) return;
     try {
-      const count = await getUnreadNotificationCount(recipientId);
+      const count = await getUnreadNotificationCount({
+        recipientId: recipientId || undefined,
+        email: email || undefined,
+      });
       setUnreadCount(count);
     } catch {
       // non-fatal
     }
-  }, [employeeProfile?.employeeCode, employeeProfile?.id, user?.id]);
+  }, [employeeProfile?.employeeCode, employeeProfile?.id, employeeProfile?.email, user?.id, user?.email]);
+
+  // Automatically refresh unread count whenever screen comes into focus (e.g. popping back from Notifications)
+  useFocusEffect(
+    useCallback(() => {
+      void loadUnreadCount();
+    }, [loadUnreadCount]),
+  );
 
   // 2. Load today's attendance records from server
   const loadAttendance = useCallback(async () => {
@@ -1206,7 +1217,10 @@ export default function EmployeeHomeScreen() {
           <TouchableOpacity
             style={styles.profileBtn}
             activeOpacity={0.8}
-            onPress={() => setIsDrawerVisible(true)}
+            onPress={() => {
+              void loadUnreadCount();
+              setIsDrawerVisible(true);
+            }}
             accessibilityLabel="Open user menu"
           >
             {employeeProfile?.profilePhotoUrl ? (
@@ -1310,14 +1324,16 @@ export default function EmployeeHomeScreen() {
           </Card>
         )}
 
-        {/* SECTION 5 — DEDICATED ASSIGNED OFFICE CARD */}
+        {/* UNIFIED COMPACT ASSIGNED WORKPLACE & GEOFENCE STATUS CARD */}
         <Card style={styles.officeCard} mode="outlined">
           <Card.Content style={styles.officeCardContent}>
+            {/* Header: Title + Live Status Pill */}
             <View style={styles.officeCardHeader}>
               <View style={styles.officeTitleRow}>
-                <MaterialCommunityIcons name="office-building" size={20} color={palette.primary} />
-                <Text style={styles.officeSectionTitle}>YOUR ASSIGNED OFFICE</Text>
+                <MaterialCommunityIcons name="office-building" size={17} color={palette.primary} />
+                <Text style={styles.officeSectionTitle}>ASSIGNED WORKPLACE</Text>
               </View>
+
               {hasAssignedOffice ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   {assignedOfficesList.length > 1 && (
@@ -1327,12 +1343,28 @@ export default function EmployeeHomeScreen() {
                       </Text>
                     </View>
                   )}
-                  <View style={styles.activeBadge}>
-                    <View style={styles.activeBadgeDot} />
-                    <Text style={styles.activeBadgeText}>
-                      {assignedOffice?.isActive !== false ? 'Active' : 'Inactive'}
-                    </Text>
-                  </View>
+                  {geofenceUIState === 'INSIDE' ? (
+                    <View style={styles.activeBadge}>
+                      <View style={styles.activeBadgeDot} />
+                      <Text style={styles.activeBadgeText}>Inside Office</Text>
+                    </View>
+                  ) : geofenceUIState === 'OUTSIDE' ? (
+                    <View style={styles.outsidePill}>
+                      <View style={styles.outsideDot} />
+                      <Text style={styles.outsidePillText}>Outside Office</Text>
+                    </View>
+                  ) : geofenceUIState === 'CHECKING' ? (
+                    <View style={styles.checkingPill}>
+                      <ActivityIndicator size={10} color={palette.primary} />
+                      <Text style={styles.checkingPillText}>Verifying...</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.unassignedBadge}>
+                      <Text style={styles.unassignedBadgeText}>
+                        {assignedOffice?.isActive !== false ? 'Active' : 'Inactive'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ) : (
                 <View style={styles.unassignedBadge}>
@@ -1347,301 +1379,163 @@ export default function EmployeeHomeScreen() {
               <View>
                 {/* Multi-Location Switcher Chips if employee has more than 1 assigned office */}
                 {assignedOfficesList.length > 1 && (
-                  <View style={styles.multiOfficeBox}>
-                    <Text style={styles.multiOfficeBoxLabel}>
-                      Multi-Location Access (Tap workplace to inspect):
-                    </Text>
-                    <View style={styles.multiOfficeChipRow}>
-                      {assignedOfficesList.map((off) => {
-                        const isCurrent =
-                          (assignedOffice?.id && off.id && assignedOffice.id === off.id) ||
-                          (assignedOffice?.code &&
-                            off.code &&
-                            assignedOffice.code.toLowerCase() === off.code.toLowerCase());
-                        const isInsideThis = isCurrent && geofenceResult?.isInside;
-                        return (
-                          <TouchableOpacity
-                            key={off.id || off.code}
+                  <View style={styles.multiOfficeChipRow}>
+                    {assignedOfficesList.map((off) => {
+                      const isCurrent =
+                        (assignedOffice?.id && off.id && assignedOffice.id === off.id) ||
+                        (assignedOffice?.code &&
+                          off.code &&
+                          assignedOffice.code.toLowerCase() === off.code.toLowerCase());
+                      const isInsideThis = isCurrent && geofenceResult?.isInside;
+                      return (
+                        <TouchableOpacity
+                          key={off.id || off.code}
+                          style={[
+                            styles.multiOfficeChip,
+                            isCurrent && styles.multiOfficeChipSelected,
+                            isInsideThis && styles.multiOfficeChipInside,
+                          ]}
+                          onPress={() => {
+                            setAssignedOffice(off);
+                            if (location) {
+                              void verifyLocation({
+                                officeId: off.code || off.id,
+                                latitude: location.latitude,
+                                longitude: location.longitude,
+                                accuracyMeters: Math.min(Math.round(location.accuracy ?? 10), 30),
+                                altitudeMeters: location.altitude ?? undefined,
+                              })
+                                .then((res) => setGeofenceResult(res))
+                                .catch((e) => console.warn('Office switch verify error:', e));
+                            }
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialCommunityIcons
+                            name={isInsideThis ? 'check-circle' : isCurrent ? 'office-building-marker' : 'office-building'}
+                            size={13}
+                            color={isInsideThis ? '#15803D' : isCurrent ? palette.primary : palette.muted}
+                          />
+                          <Text
                             style={[
-                              styles.multiOfficeChip,
-                              isCurrent && styles.multiOfficeChipSelected,
-                              isInsideThis && styles.multiOfficeChipInside,
+                              styles.multiOfficeChipText,
+                              isCurrent && styles.multiOfficeChipTextSelected,
+                              isInsideThis && styles.multiOfficeChipTextInside,
                             ]}
-                            onPress={() => {
-                              setAssignedOffice(off);
-                              if (location) {
-                                void verifyLocation({
-                                  officeId: off.code || off.id,
-                                  latitude: location.latitude,
-                                  longitude: location.longitude,
-                                  accuracyMeters: Math.min(Math.round(location.accuracy ?? 10), 30),
-                                  altitudeMeters: location.altitude ?? undefined,
-                                })
-                                  .then((res) => setGeofenceResult(res))
-                                  .catch((e) => console.warn('Office switch verify error:', e));
-                              }
-                            }}
-                            activeOpacity={0.7}
                           >
-                            <MaterialCommunityIcons
-                              name={isInsideThis ? 'check-circle' : isCurrent ? 'office-building-marker' : 'office-building'}
-                              size={14}
-                              color={isInsideThis ? '#15803D' : isCurrent ? palette.primary : palette.muted}
-                            />
-                            <Text
-                              style={[
-                                styles.multiOfficeChipText,
-                                isCurrent && styles.multiOfficeChipTextSelected,
-                                isInsideThis && styles.multiOfficeChipTextInside,
-                              ]}
-                            >
-                              {off.name || off.code}
-                            </Text>
-                            {isInsideThis && <View style={styles.chipInsideDot} />}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
+                            {off.name || off.code}
+                          </Text>
+                          {isInsideThis && <View style={styles.chipInsideDot} />}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 )}
+
+                {/* Office Name, Details & Single Refresh Button */}
                 <View style={styles.officeMainRow}>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
                     <Text style={styles.officeNameText}>{officeDisplayName}</Text>
-                    {officeDisplayCode ? (
-                      <Text style={styles.officeCodeText}>Code: {officeDisplayCode}</Text>
-                    ) : null}
+                    <Text style={styles.officeCodeText}>
+                      {officeDisplayCode ? `Code: ${officeDisplayCode}` : ''}
+                      {officeMetrics?.radiusMeters ? ` • Radius: ${officeMetrics.radiusMeters}m` : ''}
+                    </Text>
                   </View>
+
                   <TouchableOpacity
                     style={styles.refreshOfficeBtn}
                     onPress={checkLocationAndGeofence}
                     disabled={verifyingGeofence}
                     activeOpacity={0.7}
                   >
-                    <MaterialCommunityIcons
-                      name="crosshairs-gps"
-                      size={15}
-                      color={palette.primary}
-                    />
+                    {verifyingGeofence ? (
+                      <ActivityIndicator size={12} color={palette.primary} />
+                    ) : (
+                      <MaterialCommunityIcons
+                        name="crosshairs-gps"
+                        size={14}
+                        color={palette.primary}
+                      />
+                    )}
                     <Text style={styles.refreshOfficeText}>
-                      {verifyingGeofence ? 'Checking...' : 'Refresh Location'}
+                      {verifyingGeofence ? 'Checking' : 'Refresh GPS'}
                     </Text>
                   </TouchableOpacity>
                 </View>
 
-                {/* Office Info Grid */}
-                <View style={styles.officeDetailsGrid}>
-                  <View style={styles.officeDetailItem}>
-                    <Text style={styles.officeDetailLabel}>Geofence Radius</Text>
-                    <Text style={styles.officeDetailValue}>
-                      {officeMetrics?.radiusMeters
-                        ? `${officeMetrics.radiusMeters} metres`
-                        : 'Configured Perimeter'}
+                {/* Compact Geofence Status Strip */}
+                {geofenceUIState === 'INSIDE' && (
+                  <View style={styles.insideNoticeCompact}>
+                    <MaterialCommunityIcons name="check-circle" size={14} color={palette.success} />
+                    <Text style={styles.insideTextCompact}>
+                      Verified inside boundary
+                      {location?.accuracy ? ` (±${Math.round(location.accuracy)}m)` : ''}
                     </Text>
                   </View>
+                )}
 
-                  <View style={styles.officeDetailItem}>
-                    <Text style={styles.officeDetailLabel}>Office Coordinates</Text>
-                    <Text style={styles.officeDetailValue}>
-                      {officeMetrics
-                        ? `${officeMetrics.latitude.toFixed(5)}, ${officeMetrics.longitude.toFixed(5)}`
-                        : 'Polygon Defined'}
+                {geofenceUIState === 'OUTSIDE' && (
+                  <View style={styles.outsideNoticeCompact}>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={14} color="#D97706" />
+                    <Text style={styles.outsideTextCompact}>
+                      Outside boundary
+                      {Boolean(geofenceResult?.distanceToBoundaryMeters)
+                        ? ` (~${Math.round(geofenceResult!.distanceToBoundaryMeters)}m away)`
+                        : ''}
                     </Text>
                   </View>
-                </View>
+                )}
 
-                {assignedOffice?.city && (
-                  <View style={styles.officeLocationRow}>
-                    <MaterialCommunityIcons name="map-marker-outline" size={14} color={palette.muted} />
-                    <Text style={styles.officeLocationText}>
-                      {assignedOffice.city}
-                      {assignedOffice.country ? `, ${assignedOffice.country}` : ''}
-                      {assignedOffice.address ? ` • ${assignedOffice.address}` : ''}
-                    </Text>
+                {geofenceUIState === 'CHECKING' && (
+                  <View style={styles.checkingNoticeCompact}>
+                    <ActivityIndicator size={12} color={palette.primary} />
+                    <Text style={styles.checkingTextCompact}>Verifying location...</Text>
                   </View>
+                )}
+
+                {(geofenceUIState === 'PERMISSION_DENIED' || geofenceUIState === 'GPS_DISABLED') && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (permissionDenied) {
+                        void Linking.openSettings();
+                      } else {
+                        void checkLocationAndGeofence();
+                      }
+                    }}
+                    style={styles.errorNoticeCompact}
+                  >
+                    <MaterialCommunityIcons name="crosshairs-gps" size={14} color={palette.error} />
+                    <Text style={styles.errorTextCompact}>
+                      {permissionDenied ? 'Permission needed • Tap to open settings' : 'GPS off • Tap to retry'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {geofenceUIState === 'API_ERROR' && (
+                  <TouchableOpacity onPress={checkLocationAndGeofence} style={styles.errorNoticeCompact}>
+                    <MaterialCommunityIcons name="cloud-alert" size={14} color={palette.error} />
+                    <Text style={styles.errorTextCompact}>Verification error • Tap to retry</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             ) : (
               /* No Office Assigned Empty State */
               <View style={styles.noOfficeBox}>
                 <View style={styles.noOfficeIconWrap}>
-                  <MaterialCommunityIcons name="office-building-marker-outline" size={32} color="#D97706" />
+                  <MaterialCommunityIcons name="office-building-marker-outline" size={24} color="#D97706" />
                 </View>
                 <Text style={styles.noOfficeTitle}>No Office Assigned</Text>
                 <Text style={styles.noOfficeDesc}>
-                  No office has been assigned to your account yet. Please contact your administrator.
+                  Please contact your administrator to allocate an office location.
                 </Text>
                 <TouchableOpacity
                   style={styles.noOfficeRefreshBtn}
                   onPress={handleRefresh}
                   activeOpacity={0.8}
                 >
-                  <MaterialCommunityIcons name="refresh" size={16} color={palette.primary} />
+                  <MaterialCommunityIcons name="refresh" size={14} color={palette.primary} />
                   <Text style={styles.noOfficeRefreshText}>Check for Assignment</Text>
                 </TouchableOpacity>
-              </View>
-            )}
-          </Card.Content>
-        </Card>
-
-        {/* SECTION 7 — REAL-TIME GEOFENCE STATUS CARD */}
-        <Card
-          style={[
-            styles.geofenceCard,
-            geofenceUIState === 'INSIDE'
-              ? styles.geofenceCardInside
-              : geofenceUIState === 'OUTSIDE'
-              ? styles.geofenceCardOutside
-              : styles.geofenceCardNeutral,
-          ]}
-          mode="outlined"
-        >
-          <Card.Content style={styles.geofenceContent}>
-            <View style={styles.rowBetween}>
-              <View style={styles.statusIndicatorRow}>
-                {geofenceUIState === 'CHECKING' ? (
-                  <ActivityIndicator size={12} color={palette.primary} style={{ marginRight: 8 }} />
-                ) : (
-                  <View
-                    style={[
-                      styles.statusDot,
-                      {
-                        backgroundColor:
-                          geofenceUIState === 'INSIDE'
-                            ? palette.success
-                            : geofenceUIState === 'OUTSIDE'
-                            ? '#F59E0B'
-                            : geofenceUIState === 'API_ERROR' || geofenceUIState === 'PERMISSION_DENIED'
-                            ? palette.error
-                            : '#94A3B8',
-                      },
-                    ]}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.geofenceTitle,
-                    {
-                      color:
-                        geofenceUIState === 'INSIDE'
-                          ? '#166534'
-                          : geofenceUIState === 'OUTSIDE'
-                          ? '#92400E'
-                          : geofenceUIState === 'API_ERROR' || geofenceUIState === 'PERMISSION_DENIED'
-                          ? palette.error
-                          : palette.ink,
-                    },
-                  ]}
-                >
-                  {geofenceUIState === 'INSIDE' && 'Inside Assigned Office'}
-                  {geofenceUIState === 'OUTSIDE' && "Outside Office"}
-                  {geofenceUIState === 'CHECKING' && 'Verifying Location...'}
-                  {geofenceUIState === 'NO_OFFICE' && 'No Office Assigned'}
-                  {geofenceUIState === 'PERMISSION_DENIED' && 'Location Permission Denied'}
-                  {geofenceUIState === 'GPS_DISABLED' && 'GPS Unavailable'}
-                  {geofenceUIState === 'API_ERROR' && 'Verification Server Error'}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={checkLocationAndGeofence}
-                disabled={verifyingGeofence}
-                style={styles.refreshBtn}
-                activeOpacity={0.7}
-              >
-                {verifyingGeofence ? (
-                  <View style={styles.verifyingRow}>
-                    <ActivityIndicator size={14} color={palette.primary} />
-                    <Text style={styles.verifyingText}>Verifying...</Text>
-                  </View>
-                ) : (
-                  <View style={styles.refreshRow}>
-                    <MaterialCommunityIcons name="crosshairs-gps" size={15} color={palette.primary} />
-                    <Text style={styles.refreshText}>Refresh GPS</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            <Divider style={styles.geoDivider} />
-
-            {/* Current GPS Coordinates */}
-            {location && (
-              <View style={styles.coordsRow}>
-                <MaterialCommunityIcons name="map-marker-radius-outline" size={14} color={palette.muted} />
-                <Text style={styles.coordsText}>
-                  Your GPS: {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)} (±
-                  {Math.round(location.accuracy ?? 0)}m)
-                </Text>
-              </View>
-            )}
-
-            {/* State Explanatory Banners */}
-            {geofenceUIState === 'INSIDE' && (
-              <View style={styles.insideNotice}>
-                <View style={styles.noticeIconWrap}>
-                  <MaterialCommunityIcons name="check-circle" size={16} color={palette.success} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.insideText}>
-                    You are inside your assigned office ({officeDisplayName}).
-                  </Text>
-                  <Text style={styles.insideSubtext}>
-                    Location verified. Ready for attendance check-in.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {geofenceUIState === 'OUTSIDE' && (
-              <View style={styles.outsideNotice}>
-                <View style={styles.noticeIconWrap}>
-                  <MaterialCommunityIcons name="alert-circle-outline" size={16} color="#D97706" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.outsideText}>
-                    You are outside your assigned office ({officeDisplayName}).
-                  </Text>
-                  {Boolean(geofenceResult?.distanceToBoundaryMeters) && (
-                    <Text style={styles.outsideDistanceText}>
-                      Distance to boundary: ~{Math.round(geofenceResult!.distanceToBoundaryMeters)}m away
-                    </Text>
-                  )}
-                  <Text style={styles.outsideSubtext}>
-                    Attendance check-in is restricted to your assigned office geofence.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {geofenceUIState === 'CHECKING' && (
-              <View style={styles.checkingNotice}>
-                <ActivityIndicator size={16} color={palette.primary} style={{ marginTop: 1 }} />
-                <Text style={styles.checkingText}>
-                  Acquiring GPS fix and verifying boundary with geofence service...
-                </Text>
-              </View>
-            )}
-
-            {geofenceUIState === 'NO_OFFICE' && (
-              <View style={styles.noOfficeNotice}>
-                <MaterialCommunityIcons name="information-outline" size={16} color={palette.muted} />
-                <Text style={styles.noOfficeNoticeText}>
-                  No office has been assigned to your account. Check-in is disabled until an office is allocated by an administrator.
-                </Text>
-              </View>
-            )}
-
-            {geofenceUIState === 'API_ERROR' && (
-              <View style={styles.errorNotice}>
-                <MaterialCommunityIcons name="cloud-alert" size={16} color={palette.error} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.errorNoticeText}>
-                    Unable to verify location with the server.
-                  </Text>
-                  <TouchableOpacity onPress={checkLocationAndGeofence} style={{ marginTop: 4 }}>
-                    <Text style={styles.errorRetryText}>Tap here to retry verification</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             )}
           </Card.Content>
@@ -2369,15 +2263,15 @@ const styles = StyleSheet.create({
     backgroundColor: palette.background,
   },
   scroll: {
-    padding: 16,
-    paddingBottom: 40,
+    padding: 12,
+    paddingBottom: 28,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingTop: 4,
+    marginBottom: 10,
+    paddingTop: 2,
   },
   headerLeft: {
     flex: 1,
@@ -2487,21 +2381,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // SECTION 5: Office Card
+  // SECTION 5: Unified Workplace & Geofence Card
   officeCard: {
     backgroundColor: palette.surface,
     borderColor: palette.border,
-    borderRadius: 16,
-    marginBottom: 16,
+    borderRadius: 14,
+    marginBottom: 12,
     elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
   },
   officeCardContent: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
   },
   officeCardHeader: {
     flexDirection: 'row',
@@ -2514,9 +2408,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   officeSectionTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    color: palette.ink,
+    color: palette.muted,
     letterSpacing: 0.6,
   },
   activeBadge: {
@@ -2524,9 +2418,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-    gap: 5,
+    paddingVertical: 2.5,
+    borderRadius: 10,
+    gap: 4,
   },
   activeBadgeDot: {
     width: 6,
@@ -2539,11 +2433,45 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  outsidePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 10,
+    gap: 4,
+  },
+  outsideDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D97706',
+  },
+  outsidePillText: {
+    color: '#92400E',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  checkingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 10,
+    gap: 4,
+  },
+  checkingPillText: {
+    color: palette.primary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   unassignedBadge: {
     backgroundColor: '#FEF3C7',
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
+    paddingVertical: 2.5,
+    borderRadius: 10,
   },
   unassignedBadgeText: {
     color: '#92400E',
@@ -2552,46 +2480,32 @@ const styles = StyleSheet.create({
   },
   multiOfficeBadge: {
     backgroundColor: '#EEF2FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   multiOfficeBadgeText: {
     color: '#4F46E5',
     fontSize: 10,
     fontWeight: '700',
   },
-  multiOfficeBox: {
-    marginBottom: 12,
-    backgroundColor: '#F8FAFC',
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  multiOfficeBoxLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: palette.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-  },
   multiOfficeChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+    marginTop: 4,
+    marginBottom: 6,
   },
   multiOfficeChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: palette.border,
     backgroundColor: palette.surface,
-    gap: 5,
+    gap: 4,
   },
   multiOfficeChipSelected: {
     borderColor: palette.primary,
@@ -2602,7 +2516,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
   },
   multiOfficeChipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: palette.muted,
   },
@@ -2615,337 +2529,183 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   chipInsideDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: '#22C55E',
     marginLeft: 2,
   },
   officeDivider: {
-    marginVertical: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    marginVertical: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
   officeMainRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginVertical: 2,
   },
   officeNameText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '800',
     color: palette.ink,
   },
   officeCodeText: {
-    fontSize: 12,
+    fontSize: 11,
     color: palette.muted,
-    fontWeight: '600',
-    marginTop: 2,
+    fontWeight: '500',
+    marginTop: 1,
   },
   refreshOfficeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EEF2F6',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    gap: 4,
   },
   refreshOfficeText: {
     color: palette.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  officeDetailsGrid: {
-    flexDirection: 'row',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 8,
-    gap: 12,
-  },
-  officeDetailItem: {
-    flex: 1,
-  },
-  officeDetailLabel: {
     fontSize: 11,
-    fontWeight: '600',
-    color: palette.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 2,
-  },
-  officeDetailValue: {
-    fontSize: 13,
     fontWeight: '700',
-    color: palette.ink,
   },
-  officeLocationRow: {
+  insideNoticeCompact: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
+    gap: 6,
+    backgroundColor: '#F0FDF4',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginTop: 6,
   },
-  officeLocationText: {
+  insideTextCompact: {
     fontSize: 11,
-    color: palette.muted,
+    color: '#166534',
+    fontWeight: '600',
+  },
+  outsideNoticeCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginTop: 6,
+  },
+  outsideTextCompact: {
+    fontSize: 11,
+    color: '#92400E',
+    fontWeight: '600',
+  },
+  checkingNoticeCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginTop: 6,
+  },
+  checkingTextCompact: {
+    fontSize: 11,
+    color: palette.primary,
+    fontWeight: '600',
+  },
+  errorNoticeCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FEF2F2',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginTop: 6,
+  },
+  errorTextCompact: {
+    fontSize: 11,
+    color: palette.error,
+    fontWeight: '600',
   },
 
   // No Office Box
   noOfficeBox: {
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 10,
     paddingHorizontal: 8,
   },
   noOfficeIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#FEF3C7',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   noOfficeTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: '#92400E',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   noOfficeDesc: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#78350F',
     textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 12,
+    lineHeight: 16,
+    marginBottom: 8,
   },
   noOfficeRefreshBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 8,
+    gap: 5,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 6,
     backgroundColor: '#EEF2F6',
   },
   noOfficeRefreshText: {
     color: palette.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  // SECTION 7: Geofence Card
-  geofenceCard: {
-    borderRadius: 16,
-    marginBottom: 16,
-  },
-  geofenceCardInside: {
-    borderColor: '#BBF7D0',
-    backgroundColor: '#F0FDF4',
-  },
-  geofenceCardOutside: {
-    borderColor: '#FDE68A',
-    backgroundColor: '#FFFDF5',
-  },
-  geofenceCardNeutral: {
-    borderColor: palette.border,
-    backgroundColor: palette.surface,
-  },
-  geofenceContent: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  rowBetween: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statusIndicatorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    paddingRight: 8,
-  },
-  statusDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    marginRight: 8,
-  },
-  geofenceTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  refreshBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: '#EEF2F6',
-  },
-  refreshRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  refreshText: {
-    color: palette.primary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  verifyingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  verifyingText: {
-    color: palette.primary,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  geoDivider: {
-    marginVertical: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-  },
-  coordsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-  },
-  coordsText: {
     fontSize: 11,
-    color: palette.muted,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  insideNotice: {
-    marginTop: 6,
-    backgroundColor: '#DCFCE7',
-    padding: 10,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  insideText: {
-    fontSize: 12,
-    color: '#166534',
     fontWeight: '700',
-    lineHeight: 17,
-  },
-  insideSubtext: {
-    fontSize: 11,
-    color: '#15803D',
-    marginTop: 2,
-  },
-  outsideNotice: {
-    marginTop: 6,
-    backgroundColor: '#FEF3C7',
-    padding: 10,
-    borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  outsideText: {
-    fontSize: 12,
-    color: '#92400E',
-    fontWeight: '700',
-    lineHeight: 17,
-  },
-  outsideDistanceText: {
-    fontSize: 12,
-    color: '#B45309',
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  outsideSubtext: {
-    fontSize: 11,
-    color: '#78350F',
-    marginTop: 2,
-  },
-  checkingNotice: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 8,
-  },
-  checkingText: {
-    fontSize: 12,
-    color: palette.muted,
-    flex: 1,
-  },
-  noOfficeNotice: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: '#F1F5F9',
-    padding: 10,
-    borderRadius: 8,
-  },
-  noOfficeNoticeText: {
-    fontSize: 12,
-    color: palette.muted,
-    flex: 1,
-    lineHeight: 17,
-  },
-  errorNotice: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: '#FEE2E2',
-    padding: 10,
-    borderRadius: 8,
-  },
-  errorNoticeText: {
-    fontSize: 12,
-    color: palette.error,
-    fontWeight: '600',
-  },
-  errorRetryText: {
-    fontSize: 11,
-    color: palette.primary,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-  },
-  noticeIconWrap: {
-    marginTop: 1,
   },
 
   // SECTION 8: Tracker & Check-In Action Card
   trackerCard: {
     backgroundColor: palette.surface,
-    borderRadius: 16,
-    marginBottom: 20,
+    borderRadius: 14,
+    marginBottom: 14,
     elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
   },
   trackerContent: {
     alignItems: 'center',
-    paddingVertical: 22,
-    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
   },
   trackerHeading: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: palette.muted,
     textTransform: 'uppercase',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
   clockContainer: {
     alignItems: 'center',
-    marginVertical: 14,
+    marginVertical: 6,
   },
   clockText: {
-    fontSize: 44,
+    fontSize: 34,
     fontWeight: '800',
     color: palette.ink,
-    letterSpacing: 2,
+    letterSpacing: 1.5,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   liveIndicator: {

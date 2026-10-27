@@ -272,11 +272,21 @@ export function EmployeeForm({
               label="Role *"
               onChange={(e) => setFormData((prev) => ({ ...prev, roleId: e.target.value }))}
             >
-              {roles.map((role) => (
-                <MenuItem key={role.id} value={role.id}>
-                  {role.name} {role.description ? `— ${role.description}` : ''}
-                </MenuItem>
-              ))}
+              {roles
+                .filter((role) => {
+                  const roleName = (role.name || '').toUpperCase();
+                  const roleCode = ((role as any).code || '').toUpperCase();
+                  return (
+                    roleName !== 'MANAGER' &&
+                    roleCode !== 'MANAGER' &&
+                    role.id !== 'role-manager'
+                  );
+                })
+                .map((role) => (
+                  <MenuItem key={role.id} value={role.id}>
+                    {role.name} {role.description ? `— ${role.description}` : ''}
+                  </MenuItem>
+                ))}
             </Select>
             <FormHelperText>
               {errors.roleId ?? 'Organizational role assigned to this employee'}

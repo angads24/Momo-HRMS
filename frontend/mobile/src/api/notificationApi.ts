@@ -38,6 +38,8 @@ export interface NotificationListResponse {
 
 export interface GetNotificationsParams {
   recipientId?: string;
+  email?: string;
+  role?: string;
   isRead?: boolean;
   page?: number;
   limit?: number;
@@ -50,11 +52,14 @@ export async function getNotifications(params: GetNotificationsParams = {}): Pro
   return data;
 }
 
-export async function getUnreadNotificationCount(recipientId: string): Promise<number> {
-  if (!recipientId) return 0;
+export async function getUnreadNotificationCount(
+  params?: { recipientId?: string; email?: string; role?: string } | string,
+): Promise<number> {
+  const queryParams = typeof params === 'string' ? { recipientId: params } : (params || {});
+  if (!queryParams.recipientId && !queryParams.email) return 0;
   try {
     const { data } = await notificationClient.get<{ count?: number; unreadCount?: number }>('/notifications/unread-count', {
-      params: { recipientId },
+      params: queryParams,
     });
     return data?.count ?? data?.unreadCount ?? 0;
   } catch {
@@ -62,14 +67,23 @@ export async function getUnreadNotificationCount(recipientId: string): Promise<n
   }
 }
 
-export async function markNotificationAsRead(id: string): Promise<AppNotification> {
-  const { data } = await notificationClient.patch<AppNotification>(`/notifications/${id}/read`);
+export async function markNotificationAsRead(
+  id: string,
+  params?: { recipientId?: string; email?: string; userId?: string } | string,
+): Promise<AppNotification> {
+  const payload = typeof params === 'string' ? { recipientId: params } : (params || {});
+  const { data } = await notificationClient.patch<AppNotification>(`/notifications/${id}/read`, payload, {
+    params: payload,
+  });
   return data;
 }
 
-export async function markAllNotificationsAsRead(recipientId: string): Promise<{ count: number }> {
-  const { data } = await notificationClient.post<{ count: number }>('/notifications/read-all', null, {
-    params: { recipientId },
+export async function markAllNotificationsAsRead(
+  params?: { recipientId?: string; email?: string; role?: string } | string,
+): Promise<{ count?: number; updated?: number }> {
+  const payload = typeof params === 'string' ? { recipientId: params } : (params || {});
+  const { data } = await notificationClient.post<any>('/notifications/read-all', payload, {
+    params: payload,
   });
   return data;
 }

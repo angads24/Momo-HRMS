@@ -123,12 +123,32 @@ export class NotificationsController {
 
   @Patch(':id/read')
   @ApiOperation({ summary: 'Mark a notification as read' })
-  async markAsRead(@Param('id') id: string, @Req() req?: Request) {
+  @ApiQuery({ name: 'recipientId', required: false, type: String })
+  @ApiQuery({ name: 'email', required: false, type: String })
+  @ApiQuery({ name: 'userId', required: false, type: String })
+  async markAsRead(
+    @Param('id') id: string,
+    @Query('recipientId') queryRecipientId?: string,
+    @Query('email') queryEmail?: string,
+    @Query('userId') queryUserId?: string,
+    @Body() body?: any,
+    @Req() req?: Request,
+  ) {
     const headerUserId = req?.headers['x-user-id'] as string;
     const headerEmpId = req?.headers['x-employee-id'] as string;
     const headerEmail = req?.headers['x-email'] as string;
     const userCandidates = Array.from(
-      new Set([headerEmpId, headerUserId, headerEmail].filter(Boolean)),
+      new Set([
+        headerEmpId,
+        headerUserId,
+        headerEmail,
+        queryRecipientId,
+        queryEmail,
+        queryUserId,
+        body?.recipientId,
+        body?.email,
+        body?.userId,
+      ].filter(Boolean)),
     ) as string[];
     return this.notificationsService.markAsRead(id, userCandidates);
   }

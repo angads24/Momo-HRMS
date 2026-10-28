@@ -70,6 +70,7 @@ export function AppRoutes() {
         <Route element={<RoleBasedRoute allowedRoles={['ADMIN', 'HR']} />}>
           <Route path={PATHS.employees} element={<EmployeeListPage />} />
           <Route path={PATHS.employeeDetailsPattern} element={<EmployeeDetailsPage />} />
+          <Route path={PATHS.editEmployeePattern} element={<EditEmployeePage />} />
           <Route path={PATHS.attendanceReports} element={<AttendanceReportsPage />} />
         </Route>
 
@@ -80,12 +81,11 @@ export function AppRoutes() {
         </Route>
 
 
-        {/* ADMIN-only routes (Geofences & Office setup, Employee creation, bulk import, profile edit) */}
+        {/* ADMIN-only routes (Geofences & Office setup, Employee creation, bulk import) */}
         <Route element={<RoleBasedRoute allowedRoles={['ADMIN']} />}>
           <Route path={PATHS.admin} element={<AdminHomePage />} />
           <Route path={PATHS.addEmployee} element={<AddEmployeePage />} />
           <Route path={PATHS.importEmployees} element={<EmployeeImportPage />} />
-          <Route path={PATHS.editEmployeePattern} element={<EditEmployeePage />} />
           <Route path={PATHS.geofences} element={<GeofenceListPage />} />
           <Route path={PATHS.addGeofence} element={<AddOfficePage />} />
           <Route path={PATHS.editGeofencePattern} element={<EditOfficePolygonPage />} />

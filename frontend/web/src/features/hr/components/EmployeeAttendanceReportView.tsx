@@ -39,6 +39,9 @@ import WorkHistoryOutlinedIcon from '@mui/icons-material/WorkHistoryOutlined';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import EventBusyOutlinedIcon from '@mui/icons-material/EventBusyOutlined';
+import EditIcon from '@mui/icons-material/Edit';
+import { useNavigate } from 'react-router-dom';
+import { PATHS } from '../../../routes/paths';
 
 
 import {
@@ -121,6 +124,7 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
   onBack,
 }) => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   // Active Tab: 0 = Overview & Analytics, 1 = Daily Attendance, 2 = Calendar, 3 = Special & Exceptions, 4 = Policies
   const [activeTab, setActiveTab] = useState(0);
 
@@ -665,6 +669,24 @@ export const EmployeeAttendanceReportView: React.FC<EmployeeAttendanceReportView
                 Export CSV
               </Button>
             </Tooltip>
+
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<EditIcon />}
+              onClick={() => navigate(PATHS.editEmployee(employee?.id || employeeId))}
+              sx={{
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 700,
+                color: '#ff6b35',
+                borderColor: '#fed7aa',
+                bgcolor: '#fff7ed',
+                '&:hover': { bgcolor: '#ffedd5', borderColor: '#fdba74' },
+              }}
+            >
+              Edit Profile
+            </Button>
 
             <Tooltip title="Refresh Attendance Data">
               <IconButton

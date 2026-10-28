@@ -29,7 +29,9 @@ import { EmployeeForm } from '../components/EmployeeForm';
 export default function EditEmployeePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { setNotice } = useAuth();
+  const { user, setNotice } = useAuth();
+  const isAdmin = user?.appRole === 'ADMIN';
+  const canChangeRole = isAdmin;
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -87,6 +89,9 @@ export default function EditEmployeePage() {
     setServerError(null);
 
     try {
+      // For HR users, preserve the existing role - HR is restricted from modifying roles
+      const targetRoleId = canChangeRole ? values.roleId : (employee.roleId || resolvedRoleId);
+
       // Update employee profile details including office location and role
       await updateEmployee(id, {
         firstName: values.firstName,
@@ -98,7 +103,7 @@ export default function EditEmployeePage() {
         bloodGroup: values.bloodGroup ? values.bloodGroup.trim() : null,
         jobTitle: values.jobTitle,
         departmentId: values.departmentId,
-        roleId: values.roleId,
+        roleId: targetRoleId,
         dateOfJoining: values.dateOfJoining,
         dateOfBirth: values.dateOfBirth ? values.dateOfBirth : null,
         gender: values.gender ?? null,
@@ -110,7 +115,7 @@ export default function EditEmployeePage() {
         officeIds: values.officeIds ?? [],
       });
 
-      if (values.roleId) {
+      if (canChangeRole && values.roleId) {
         await updateEmployeeRole(id, values.roleId).catch(() => {});
       }
 
@@ -259,6 +264,7 @@ export default function EditEmployeePage() {
         onCancel={() => navigate(PATHS.employeeDetails(employee.id))}
         loading={submitting}
         serverError={serverError}
+        canChangeRole={canChangeRole}
       />
     </DashboardLayout>
   );

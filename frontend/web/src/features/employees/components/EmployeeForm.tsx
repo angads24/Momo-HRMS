@@ -33,6 +33,7 @@ interface Props {
   onCancel: () => void;
   loading?: boolean;
   serverError?: string | null;
+  canChangeRole?: boolean;
 }
 
 export function EmployeeForm({
@@ -45,6 +46,7 @@ export function EmployeeForm({
   onCancel,
   loading = false,
   serverError = null,
+  canChangeRole = true,
 }: Props) {
   const [formData, setFormData] = useState<CreateEmployeePayload>({
     employeeCode: initialValues?.employeeCode ?? '',
@@ -200,6 +202,12 @@ export function EmployeeForm({
           Job title, department, role, and official employee identifiers.
         </Typography>
 
+        {!canChangeRole && (
+          <Alert severity="info" sx={{ mb: 2.5, borderRadius: 2 }}>
+            <strong>HR Restriction:</strong> Modifying the organizational role is restricted to Administrators only. Current role assignment is preserved and cannot be changed here.
+          </Alert>
+        )}
+
         <Box
           sx={{
             display: 'grid',
@@ -267,12 +275,13 @@ export function EmployeeForm({
             {errors.departmentId && <FormHelperText>{errors.departmentId}</FormHelperText>}
           </FormControl>
 
-          <FormControl fullWidth required error={Boolean(errors.roleId)} disabled={loading}>
-            <InputLabel id="role-select-label">Role</InputLabel>
+          <FormControl fullWidth required error={Boolean(errors.roleId)} disabled={loading || !canChangeRole}>
+            <InputLabel id="role-select-label">Role {!canChangeRole ? '(Locked - Admin Only)' : '*'}</InputLabel>
             <Select
               labelId="role-select-label"
               value={formData.roleId}
-              label="Role *"
+              label={`Role ${!canChangeRole ? '(Locked - Admin Only)' : '*'}`}
+              disabled={!canChangeRole}
               onChange={(e) => setFormData((prev) => ({ ...prev, roleId: e.target.value }))}
             >
               {roles
@@ -292,7 +301,9 @@ export function EmployeeForm({
                 ))}
             </Select>
             <FormHelperText>
-              {errors.roleId ?? 'Organizational role assigned to this employee'}
+              {!canChangeRole
+                ? 'Role assignment is locked (restricted to Administrators).'
+                : (errors.roleId ?? 'Organizational role assigned to this employee')}
             </FormHelperText>
           </FormControl>
 

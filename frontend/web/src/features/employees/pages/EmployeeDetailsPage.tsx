@@ -84,6 +84,7 @@ export default function EmployeeDetailsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.appRole === 'ADMIN';
+  const isHr = user?.appRole === 'HR';
   const isSuperAdmin = Boolean(
     user?.roles?.includes('SUPER_ADMIN') ||
     user?.email?.toLowerCase().includes('admin')
@@ -370,38 +371,42 @@ export default function EmployeeDetailsPage() {
         >
           Back to Employee List
         </Button>
-        {isAdmin && (
-          <Box sx={{ display: 'flex', gap: 1.5 }}>
-            <Button
-              variant="outlined"
-              color="secondary"
-              startIcon={<VpnKeyOutlinedIcon />}
-              disabled={resending}
-              onClick={handleResend}
-            >
-              {resending ? 'Sending...' : 'Resend Credentials'}
-            </Button>
-            <Button
-              variant="outlined"
-              color={isActive ? 'error' : 'success'}
-              startIcon={isActive ? <BlockIcon /> : <CheckCircleIcon />}
-              onClick={() => setStatusDialogOpen(true)}
-            >
-              {isActive ? 'Deactivate' : 'Activate'}
-            </Button>
-            {canManageRoles && (
-              <Button
-                variant="outlined"
-                color="info"
-                startIcon={<SupervisorAccountIcon />}
-                onClick={() => {
-                  const currentRoleName = employee.role?.name?.toUpperCase() || (employee.isHr ? 'HR_ADMIN' : 'EMPLOYEE');
-                  setSelectedNewRole(currentRoleName.includes('SUPER') ? 'SUPER_ADMIN' : currentRoleName.includes('HR') ? 'HR_ADMIN' : 'EMPLOYEE');
-                  setRoleDialogOpen(true);
-                }}
-              >
-                Change Role
-              </Button>
+        {(isAdmin || isHr) && (
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            {isAdmin && (
+              <>
+                <Button
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<VpnKeyOutlinedIcon />}
+                  disabled={resending}
+                  onClick={handleResend}
+                >
+                  {resending ? 'Sending...' : 'Resend Credentials'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  color={isActive ? 'error' : 'success'}
+                  startIcon={isActive ? <BlockIcon /> : <CheckCircleIcon />}
+                  onClick={() => setStatusDialogOpen(true)}
+                >
+                  {isActive ? 'Deactivate' : 'Activate'}
+                </Button>
+                {canManageRoles && (
+                  <Button
+                    variant="outlined"
+                    color="info"
+                    startIcon={<SupervisorAccountIcon />}
+                    onClick={() => {
+                      const currentRoleName = employee.role?.name?.toUpperCase() || (employee.isHr ? 'HR_ADMIN' : 'EMPLOYEE');
+                      setSelectedNewRole(currentRoleName.includes('SUPER') ? 'SUPER_ADMIN' : currentRoleName.includes('HR') ? 'HR_ADMIN' : 'EMPLOYEE');
+                      setRoleDialogOpen(true);
+                    }}
+                  >
+                    Change Role
+                  </Button>
+                )}
+              </>
             )}
             <Button
               variant="contained"

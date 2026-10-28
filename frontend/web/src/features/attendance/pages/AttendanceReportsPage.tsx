@@ -8,10 +8,15 @@ import Typography from '@mui/material/Typography';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 
+import { useAuth } from '../../../context/AuthContext';
 import { DashboardLayout } from '../../../components/DashboardLayout';
 import { fetchCompanyAttendanceHistory } from '../services/attendanceService';
 import { fetchEmployees } from '../../../services/employeeService';
 import { fetchOffices } from '../../geofence/services/geofenceService';
+import {
+  isEmployeeInAnyOffice,
+  resolveHrAssignedOffices,
+} from '../../../utils/officeJurisdiction';
 import type { AttendanceSession } from '../types/attendance';
 import type { Employee } from '../../../types/employee';
 import type { Office } from '../../geofence/types/geofence';
@@ -41,6 +46,7 @@ function getThisMonthDateRange() {
 }
 
 export default function AttendanceReportsPage() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +54,7 @@ export default function AttendanceReportsPage() {
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
+  const [jurisdictionLabel, setJurisdictionLabel] = useState<string>('');
 
   // Active dialog state: 'daily' | 'monthly' | 'employee' | 'late-arrival' | ... | null
   const [activeReport, setActiveReport] = useState<string | null>(null);
@@ -66,8 +73,52 @@ export default function AttendanceReportsPage() {
         fetchOffices(),
       ]);
 
+      const loadedOffices: Office[] =
+        officeRes.status === 'fulfilled' && officeRes.value
+          ? officeRes.value
+          : [];
+
+      let rawEmps: Employee[] = [];
+      if (empRes.status === 'fulfilled') {
+        rawEmps = empRes.value.data ?? [];
+      } else {
+        const err = empRes.reason;
+        console.warn('Could not load employees:', err);
+      }
+
+      let activeEmployees = rawEmps;
+      let activeOffices = loadedOffices;
+      let isScoped = false;
+
+      if (user?.appRole === 'HR') {
+        const hrScope = await resolveHrAssignedOffices(user, loadedOffices);
+        if (hrScope.isScoped && hrScope.assignedOffices.length > 0) {
+          isScoped = true;
+          activeEmployees = rawEmps.filter((emp) =>
+            isEmployeeInAnyOffice(emp, hrScope.assignedOffices)
+          );
+          activeOffices = hrScope.assignedOffices;
+          setJurisdictionLabel(hrScope.jurisdictionLabel);
+        } else {
+          setJurisdictionLabel('');
+        }
+      } else {
+        setJurisdictionLabel('');
+      }
+
+      setEmployees(activeEmployees);
+      setOffices(activeOffices);
+
       if (historyRes.status === 'fulfilled') {
-        setSessions(historyRes.value.items ?? []);
+        const allSessions = historyRes.value.items ?? [];
+        if (isScoped) {
+          const allowedIds = new Set(
+            activeEmployees.flatMap((e) => [e.id, e.employeeCode]).filter(Boolean)
+          );
+          setSessions(allSessions.filter((s) => allowedIds.has(s.employeeId)));
+        } else {
+          setSessions(allSessions);
+        }
       } else {
         const err = historyRes.reason;
         const msg =
@@ -75,15 +126,6 @@ export default function AttendanceReportsPage() {
             ? String(err.response.data.message)
             : 'Failed to load attendance records.';
         setError(msg);
-      }
-
-      if (empRes.status === 'fulfilled') {
-        const empData = empRes.value.data ?? [];
-        setEmployees(empData);
-      }
-
-      if (officeRes.status === 'fulfilled') {
-        setOffices(officeRes.value ?? []);
       }
     } catch (err: unknown) {
       const msg =
@@ -94,7 +136,7 @@ export default function AttendanceReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateRange.start, dateRange.end]);
+  }, [dateRange.start, dateRange.end, user]);
 
   useEffect(() => {
     loadData();
@@ -107,7 +149,11 @@ export default function AttendanceReportsPage() {
   return (
     <DashboardLayout
       title="Reports"
-      subtitle="Generate and export attendance reports"
+      subtitle={
+        jurisdictionLabel
+          ? `Generate and export attendance reports • Office: ${jurisdictionLabel}`
+          : 'Generate and export attendance reports'
+      }
     >
       {/* Top action bar */}
       <Box
@@ -182,7 +228,7 @@ export default function AttendanceReportsPage() {
         </Typography>
       </Box>
 
-      {/* 3×3 Report Cards Grid */}
+      {/* 3A-3 Report Cards Grid */}
       <ReportTypeGrid
         onSelect={(reportId) => setActiveReport(reportId)}
         activeReport={activeReport}

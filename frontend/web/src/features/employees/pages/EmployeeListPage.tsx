@@ -30,6 +30,7 @@ import {
   fetchRoles,
   resendCredentials,
 } from '../../../services/employeeService';
+import { recordDeactivation, recordReactivation } from '../../../utils/deactivationAudit';
 import { fetchOffices } from '../../geofence/services/geofenceService';
 import type { Office } from '../../geofence/types/geofence';
 import {
@@ -50,6 +51,7 @@ export default function EmployeeListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.appRole === 'ADMIN';
+  const isHr = user?.appRole === 'HR';
 
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
   const [page, setPage] = useState(1);
@@ -222,13 +224,25 @@ export default function EmployeeListPage() {
   const handleStatusToggleSubmit = async () => {
     if (!statusTarget) return;
 
-    const nextStatus = statusTarget.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const isCurrentlyActive = statusTarget.status === 'ACTIVE';
+    const nextStatus = isCurrentlyActive ? 'INACTIVE' : 'ACTIVE';
     setStatusSubmitting(true);
     try {
       await changeEmployeeStatus(statusTarget.id, {
         status: nextStatus,
         reason: statusReason.trim() || undefined,
       });
+
+      if (isCurrentlyActive) {
+        recordDeactivation({
+          employee: statusTarget,
+          currentUser: user,
+          reason: statusReason.trim() || 'Deactivated from Employee List',
+        });
+      } else {
+        recordReactivation(statusTarget.id, user);
+      }
+
       setFeedback(
         `Employee "${statusTarget.firstName} ${statusTarget.lastName}" marked as ${nextStatus.toLowerCase()}.`,
       );
@@ -374,7 +388,7 @@ export default function EmployeeListPage() {
         meta={meta}
         loading={loading}
         error={error}
-        canManage={isAdmin}
+        canManage={isAdmin || isHr}
         onPageChange={(p) => setPage(p)}
         onRowsPerPageChange={(limit) => {
           setRowsPerPage(limit);

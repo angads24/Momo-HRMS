@@ -58,6 +58,7 @@ import { updateAuthUserRoles } from '../../../api/authApi';
 import type { EmployeeProfileResponse } from '../../../types/employee';
 import { EmployeeStatusBadge } from '../components/EmployeeStatusBadge';
 import { AccountStatusBadge } from '../components/AccountStatusBadge';
+import { recordDeactivation, recordReactivation } from '../../../utils/deactivationAudit';
 
 function calculateAge(dobString?: string | null): number | null {
   if (!dobString) return null;
@@ -255,6 +256,18 @@ export default function EmployeeDetailsPage() {
         status: nextStatus,
         reason: statusReason || undefined,
       });
+
+      if (isCurrentlyActive) {
+        // Record deactivation in persistent audit log with author (Admin or HR) and timestamp
+        recordDeactivation({
+          employee: data.employee,
+          currentUser: user,
+          reason: statusReason.trim() || 'Deactivated via Employee Details',
+        });
+      } else {
+        recordReactivation(data.employee.id, user);
+      }
+
       setStatusDialogOpen(false);
       setStatusReason('');
       setFeedback(`Employee successfully ${nextStatus === 'ACTIVE' ? 'activated' : 'deactivated'}.`);
@@ -374,39 +387,37 @@ export default function EmployeeDetailsPage() {
         {(isAdmin || isHr) && (
           <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
             {isAdmin && (
-              <>
-                <Button
-                  variant="outlined"
-                  color="secondary"
-                  startIcon={<VpnKeyOutlinedIcon />}
-                  disabled={resending}
-                  onClick={handleResend}
-                >
-                  {resending ? 'Sending...' : 'Resend Credentials'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  color={isActive ? 'error' : 'success'}
-                  startIcon={isActive ? <BlockIcon /> : <CheckCircleIcon />}
-                  onClick={() => setStatusDialogOpen(true)}
-                >
-                  {isActive ? 'Deactivate' : 'Activate'}
-                </Button>
-                {canManageRoles && (
-                  <Button
-                    variant="outlined"
-                    color="info"
-                    startIcon={<SupervisorAccountIcon />}
-                    onClick={() => {
-                      const currentRoleName = employee.role?.name?.toUpperCase() || (employee.isHr ? 'HR_ADMIN' : 'EMPLOYEE');
-                      setSelectedNewRole(currentRoleName.includes('SUPER') ? 'SUPER_ADMIN' : currentRoleName.includes('HR') ? 'HR_ADMIN' : 'EMPLOYEE');
-                      setRoleDialogOpen(true);
-                    }}
-                  >
-                    Change Role
-                  </Button>
-                )}
-              </>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<VpnKeyOutlinedIcon />}
+                disabled={resending}
+                onClick={handleResend}
+              >
+                {resending ? 'Sending...' : 'Resend Credentials'}
+              </Button>
+            )}
+            <Button
+              variant="outlined"
+              color={isActive ? 'error' : 'success'}
+              startIcon={isActive ? <BlockIcon /> : <CheckCircleIcon />}
+              onClick={() => setStatusDialogOpen(true)}
+            >
+              {isActive ? 'Deactivate' : 'Activate'}
+            </Button>
+            {isAdmin && canManageRoles && (
+              <Button
+                variant="outlined"
+                color="info"
+                startIcon={<SupervisorAccountIcon />}
+                onClick={() => {
+                  const currentRoleName = employee.role?.name?.toUpperCase() || (employee.isHr ? 'HR_ADMIN' : 'EMPLOYEE');
+                  setSelectedNewRole(currentRoleName.includes('SUPER') ? 'SUPER_ADMIN' : currentRoleName.includes('HR') ? 'HR_ADMIN' : 'EMPLOYEE');
+                  setRoleDialogOpen(true);
+                }}
+              >
+                Change Role
+              </Button>
             )}
             <Button
               variant="contained"

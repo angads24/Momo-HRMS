@@ -35,6 +35,7 @@ import { PausedTimeReport } from '../components/PausedTimeReport';
 import { GeofenceViolationReport } from '../components/GeofenceViolationReport';
 import { AutoCheckoutReport } from '../components/AutoCheckoutReport';
 import { LocationActivityReport } from '../components/LocationActivityReport';
+import { DeactivatedEmployeesReport } from '../components/DeactivatedEmployeesReport';
 
 function getThisMonthDateRange() {
   const now = new Date();
@@ -58,6 +59,7 @@ export default function AttendanceReportsPage() {
 
   // Active dialog state: 'daily' | 'monthly' | 'employee' | 'late-arrival' | ... | null
   const [activeReport, setActiveReport] = useState<string | null>(null);
+
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -234,11 +236,18 @@ export default function AttendanceReportsPage() {
         activeReport={activeReport}
       />
 
+
       {/* Interactive Report Dialogs */}
       <DailyAttendanceReport
         open={activeReport === 'daily'}
         onClose={handleCloseDialog}
         sessions={sessions}
+        employees={employees}
+      />
+
+      <DeactivatedEmployeesReport
+        open={activeReport === 'deactivated-employees'}
+        onClose={handleCloseDialog}
         employees={employees}
       />
 

@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
-  TextInput as RNTextInput,
   View,
 } from 'react-native';
 import { Text, TextInput } from 'react-native-paper';
@@ -59,7 +59,48 @@ function LoginSubmitButton({
 export default function LoginScreen() {
   const { login, notice } = useAuth();
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const passwordRef = useRef<RNTextInput>(null);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const passwordRef = useRef<any>(null);
+  const scrollViewRef = useRef<any>(null);
+  const focusedFieldRef = useRef<'email' | 'password' | null>(null);
+
+  const handleEmailFocus = () => {
+    focusedFieldRef.current = 'email';
+    setTimeout(() => {
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+    }, 100);
+  };
+
+  const handlePasswordFocus = () => {
+    focusedFieldRef.current = 'password';
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 120);
+  };
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => {
+      setIsKeyboardVisible(true);
+      if (focusedFieldRef.current === 'password') {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 120);
+      }
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+      focusedFieldRef.current = null;
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const {
     control,
@@ -85,11 +126,17 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0}
       >
         <ScrollView
-          contentContainerStyle={styles.content}
+          ref={scrollViewRef}
+          contentContainerStyle={[
+            styles.content,
+            isKeyboardVisible && styles.contentKeyboardOpen,
+          ]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
           <AppHeader
@@ -110,13 +157,17 @@ export default function LoginScreen() {
                 value={value}
                 onChangeText={onChange}
                 onBlur={onBlur}
+                onFocus={handleEmailFocus}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
                 autoComplete="username"
                 textContentType="username"
                 returnKeyType="next"
-                onSubmitEditing={() => passwordRef.current?.focus()}
+                onSubmitEditing={() => {
+                  passwordRef.current?.focus();
+                  handlePasswordFocus();
+                }}
                 blurOnSubmit={false}
                 left={AccountIcon}
                 errorText={errors.email?.message}
@@ -134,10 +185,13 @@ export default function LoginScreen() {
                 value={value ?? ''}
                 onChangeText={onChange}
                 onBlur={onBlur}
+                onFocus={handlePasswordFocus}
                 autoComplete="password"
                 textContentType="password"
                 returnKeyType="done"
-                onSubmitEditing={onSubmit}
+                onSubmitEditing={() => {
+                  void onSubmit();
+                }}
                 innerRef={passwordRef}
                 errorText={errors.password?.message}
               />
@@ -147,7 +201,9 @@ export default function LoginScreen() {
           <LoginSubmitButton
             control={control}
             isSubmitting={isSubmitting}
-            onPress={onSubmit}
+            onPress={() => {
+              void onSubmit();
+            }}
           />
 
           <View style={styles.helpBox}>
@@ -169,7 +225,16 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: palette.background },
   flex: { flex: 1 },
-  content: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  content: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  contentKeyboardOpen: {
+    justifyContent: 'flex-start',
+    paddingTop: 16,
+    paddingBottom: 48,
+  },
   loginBtn: { marginTop: 4 },
   helpBox: { marginTop: 20, alignItems: 'center' },
   help: { color: palette.muted, fontSize: 13, textAlign: 'center' },
@@ -191,3 +256,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
+

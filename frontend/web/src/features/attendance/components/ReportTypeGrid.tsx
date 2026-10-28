@@ -8,6 +8,7 @@ import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import LocationOffIcon from '@mui/icons-material/LocationOff';
 import BoltIcon from '@mui/icons-material/Bolt';
 import ApartmentIcon from '@mui/icons-material/Apartment';
+import PersonOffIcon from '@mui/icons-material/PersonOff';
 import { ReportCard } from './ReportCard';
 
 export interface ReportDefinition {
@@ -71,6 +72,12 @@ export const REPORT_TYPES: ReportDefinition[] = [
     icon: <ApartmentIcon />,
     title: 'Location Activity Report',
     description: 'Activity summary by office location',
+  },
+  {
+    id: 'deactivated-employees',
+    icon: <PersonOffIcon />,
+    title: 'Deactivated Employees Report',
+    description: 'Staff deactivation history with dates and HR/Admin author audit',
   },
 ];
 

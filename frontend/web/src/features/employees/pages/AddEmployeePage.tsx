@@ -42,11 +42,12 @@ import { PATHS } from '../../../routes/paths';
 import { useAuth } from '../../../context/AuthContext';
 import { getErrorMessage } from '../../../utils/errors';
 import { COMPANY_DOMAIN, INTERN_DOMAIN } from '../../../config/env';
+import { api } from '../../../api/client';
 import {
-  createEmployeeWithRetry,
+  createEmployee,
   fetchActiveDepartments,
+  fetchEmployees,
   fetchRoles,
-  generateUniqueEmail,
   resendCredentials,
 } from '../../../services/employeeService';
 import { fetchOffices } from '../../geofence/services/geofenceService';
@@ -78,14 +79,11 @@ export default function AddEmployeePage() {
   const [personalEmail, setPersonalEmail] = useState('');
   const [autoSendCredentials, setAutoSendCredentials] = useState(true);
 
-  // Dynamic Async Unique Email Resolution
-  const [resolvedEmail, setResolvedEmail] = useState<string>('');
-  const [resolvingEmails, setResolvingEmails] = useState(false);
-
   // Validation
   const [fullNameError, setFullNameError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [officeError, setOfficeError] = useState<string | null>(null);
+  const [existingEmails, setExistingEmails] = useState<Set<string>>(new Set());
 
   // Post-Creation State
   const [createdEmployee, setCreatedEmployee] = useState<Employee | null>(null);
@@ -94,8 +92,14 @@ export default function AddEmployeePage() {
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([fetchActiveDepartments(), fetchRoles(), fetchOffices()])
-      .then(([deptsData, rolesData, officesData]) => {
+    Promise.all([
+      fetchActiveDepartments(),
+      fetchRoles(),
+      fetchOffices(),
+      fetchEmployees({ all: true }).catch(() => ({ data: [] })),
+      api.get<Array<{ email?: string; username?: string }>>('/auth/users').catch(() => ({ data: [] })),
+    ])
+      .then(([deptsData, rolesData, officesData, empData, authRes]) => {
         if (mounted) {
           setDepartments(deptsData);
           setRoles(rolesData);
@@ -104,6 +108,22 @@ export default function AddEmployeePage() {
             const activeOffice = officesData.find((o) => o.isActive) || officesData[0];
             setSelectedOfficeIds([activeOffice.id]);
           }
+
+          const taken = new Set<string>();
+          if (Array.isArray(empData?.data)) {
+            empData.data.forEach((e: Employee) => {
+              if (e.email) taken.add(e.email.trim().toLowerCase());
+              if (e.personalEmail) taken.add(e.personalEmail.trim().toLowerCase());
+            });
+          }
+          const authList = Array.isArray(authRes?.data) ? authRes.data : (authRes?.data as any)?.data;
+          if (Array.isArray(authList)) {
+            authList.forEach((u: { email?: string; username?: string }) => {
+              if (u.email) taken.add(u.email.trim().toLowerCase());
+              if (u.username) taken.add(u.username.trim().toLowerCase());
+            });
+          }
+          setExistingEmails(taken);
         }
       })
       .catch((err) => {
@@ -119,53 +139,25 @@ export default function AddEmployeePage() {
     };
   }, []);
 
-  // Compute live available unique emails with debounce across both employee and auth services
-  useEffect(() => {
-    let active = true;
-    const trimmed = fullName.trim();
-    if (!trimmed) {
-      setResolvedEmail('');
-      return;
-    }
-
-    const parts = trimmed.split(/\s+/);
-    const first = parts[0];
-    const last = parts.slice(1).join(' ');
-
-    setResolvingEmails(true);
-    const timer = setTimeout(async () => {
-      try {
-        const empEmail = await generateUniqueEmail(first, last, {
-          isHr: false,
-          isIntern: employmentType === 'INTERN',
-        });
-        if (active) {
-          setResolvedEmail(empEmail);
-        }
-      } catch {
-        // fallback to standard formats
-      } finally {
-        if (active) setResolvingEmails(false);
-      }
-    }, 250);
-
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [fullName, employmentType]);
-
-  // Synchronous fallback templates while async resolves
+  // Instant synchronous official email calculation preview (zero network requests while typing)
   const fallbackOfficialEmail = useMemo(() => {
     const trimmed = fullName.trim();
     const domain = employmentType === 'INTERN' ? INTERN_DOMAIN : COMPANY_DOMAIN;
     if (!trimmed) return `firstname.lastname@${domain}`;
     const parts = trimmed.split(/\s+/);
     const first = parts[0].toLowerCase().replace(/[^a-z0-9]/g, '') || 'firstname';
-    const last = parts.length > 1 ? parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+    const last = parts.length > 1 ? parts.slice(1).join('.').toLowerCase().replace(/[^a-z0-9.]/g, '') : '';
     const base = last ? `${first}.${last}` : first;
-    return `${base}@${domain}`;
-  }, [fullName, employmentType]);
+    const prefix = selectedRole === 'HR' ? `${base}.hr` : base;
+
+    let candidate = `${prefix}@${domain}`;
+    let counter = 1;
+    while (existingEmails.has(candidate.toLowerCase())) {
+      candidate = `${prefix}${counter}@${domain}`;
+      counter++;
+    }
+    return candidate;
+  }, [fullName, employmentType, selectedRole, existingEmails]);
 
   const validate = (): boolean => {
     let valid = true;
@@ -237,12 +229,7 @@ export default function AddEmployeePage() {
       const matchedRole =
         selectedRole === 'ADMIN' ? adminRole : selectedRole === 'HR' ? hrRole : employeeRole;
       const matchedDepartment = selectedRole === 'HR' ? hrDepartment : defaultDepartment;
-      const finalEmail =
-        resolvedEmail ||
-        (await generateUniqueEmail(firstName, lastName, {
-          isHr: false,
-          isIntern: employmentType === 'INTERN',
-        }));
+      const finalEmail = fallbackOfficialEmail;
 
       const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
       const employeeCode = `EMP-${uniqueSuffix}`;
@@ -280,11 +267,14 @@ export default function AddEmployeePage() {
         officeIds: assignedOfficeIds,
       };
 
-      const created = await createEmployeeWithRetry(payload, {
-        isHr: false,
-        isIntern: employmentType === 'INTERN',
-      });
+      const created = await createEmployee(payload);
       setCreatedEmployee(created);
+      setExistingEmails((prev) => {
+        const next = new Set(prev);
+        if (created.email) next.add(created.email.trim().toLowerCase());
+        if (created.personalEmail) next.add(created.personalEmail.trim().toLowerCase());
+        return next;
+      });
       setFeedback(
         created.credentialDelivery?.message ||
         (created.credentialDelivery?.delivered
@@ -301,6 +291,7 @@ export default function AddEmployeePage() {
         msg.toLowerCase().includes('duplicate_email') ||
         msg.toLowerCase().includes('already exists')
       ) {
+        setExistingEmails((prev) => new Set([...prev, fallbackOfficialEmail.toLowerCase()]));
         setEmailError('already account is created!');
         setServerError('already account is created!');
       } else {
@@ -338,7 +329,6 @@ export default function AddEmployeePage() {
       const activeOffice = offices.find((o) => o.isActive) || offices[0];
       setSelectedOfficeIds([activeOffice.id]);
     }
-    setResolvedEmail('');
   };
 
   if (loadingInitial) {
@@ -851,7 +841,7 @@ export default function AddEmployeePage() {
                       <strong>Login ID / Company Email:</strong>
                     </Typography>
                     <Box sx={{ bgcolor: 'grey.100', p: 1, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: 'secondary.main' }}>
-                      {resolvingEmails ? 'Checking availability...' : resolvedEmail || fallbackOfficialEmail}
+                      {fallbackOfficialEmail}
                     </Box>
                     <Chip label="Role: HR Admin (Web + Mobile App)" size="small" color="secondary" sx={{ mt: 1, fontWeight: 600, height: 22, fontSize: '0.75rem' }} />
                   </Card>
@@ -880,7 +870,7 @@ export default function AddEmployeePage() {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
                       <Typography variant="caption" color="text.secondary">Company Login Email:</Typography>
                       <Typography variant="caption" sx={{ fontWeight: 700, fontFamily: 'monospace' }}>
-                        {resolvingEmails ? 'Checking availability...' : resolvedEmail || fallbackOfficialEmail}
+                        {fallbackOfficialEmail}
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>

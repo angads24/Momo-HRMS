@@ -428,13 +428,17 @@ export class NotificationsService {
 
     const userList = (Array.isArray(userIds) ? userIds : [userIds]).filter(Boolean) as string[];
     for (const uid of userList) {
-      await this.prisma.notificationRead.upsert({
-        where: {
-          notificationId_userId: { notificationId: id, userId: uid },
-        },
-        create: { notificationId: id, userId: uid },
-        update: { readAt: new Date() },
-      });
+      try {
+        await this.prisma.notificationRead.upsert({
+          where: {
+            notificationId_userId: { notificationId: id, userId: uid },
+          },
+          create: { notificationId: id, userId: uid },
+          update: { readAt: new Date() },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to record per-user read in notificationRead for user ${uid}: ${err?.message || err}`);
+      }
     }
 
     let updated = existing;
@@ -488,13 +492,17 @@ export class NotificationsService {
         item.recipientType === 'ADMIN';
 
       for (const uid of userList) {
-        await this.prisma.notificationRead.upsert({
-          where: {
-            notificationId_userId: { notificationId: item.id, userId: uid },
-          },
-          create: { notificationId: item.id, userId: uid },
-          update: { readAt: new Date() },
-        });
+        try {
+          await this.prisma.notificationRead.upsert({
+            where: {
+              notificationId_userId: { notificationId: item.id, userId: uid },
+            },
+            create: { notificationId: item.id, userId: uid },
+            update: { readAt: new Date() },
+          });
+        } catch (err: any) {
+          this.logger.warn(`Failed to record per-user read in notificationRead for user ${uid}: ${err?.message || err}`);
+        }
       }
 
       if (!isGroupOrBroadcast) {
@@ -536,14 +544,23 @@ export class NotificationsService {
     // Records dismissal so the notification disappears from THIS user's feed,
     // but remains intact for all other employees, HR staff, and admins.
     if (userId) {
-      await this.prisma.notificationDismissal.upsert({
-        where: {
-          notificationId_userId: { notificationId: id, userId },
-        },
-        create: { notificationId: id, userId },
-        update: {},
-      });
-      return { success: true, mode: 'dismissed' };
+      try {
+        await this.prisma.notificationDismissal.upsert({
+          where: {
+            notificationId_userId: { notificationId: id, userId },
+          },
+          create: { notificationId: id, userId },
+          update: {},
+        });
+        return { success: true, mode: 'dismissed' };
+      } catch (err: any) {
+        this.logger.warn(`Failed to record per-user dismissal: ${err?.message || err}`);
+        if (!isGroupOrBroadcast) {
+          await this.prisma.notification.delete({ where: { id } });
+          return { success: true, mode: 'deleted' };
+        }
+        return { success: true, mode: 'dismissed' };
+      }
     }
 
     // 3. Safety Guard: Never delete a group or broadcast notification without hardDelete

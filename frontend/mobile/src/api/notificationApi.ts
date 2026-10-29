@@ -45,6 +45,42 @@ export interface GetNotificationsParams {
   limit?: number;
 }
 
+type UnreadCountListener = (count: number) => void;
+const unreadListeners = new Set<UnreadCountListener>();
+let currentUnreadCount = 0;
+let lastOptimisticUpdateTimestamp = 0;
+
+export function getCachedUnreadCount(): number {
+  return currentUnreadCount;
+}
+
+export function getLastOptimisticUpdateTimestamp(): number {
+  return lastOptimisticUpdateTimestamp;
+}
+
+export function setGlobalUnreadCount(count: number, isOptimistic = true): void {
+  const normalized = Math.max(0, count);
+  currentUnreadCount = normalized;
+  if (isOptimistic) {
+    lastOptimisticUpdateTimestamp = Date.now();
+  }
+  unreadListeners.forEach((listener) => {
+    try {
+      listener(normalized);
+    } catch {
+      // ignore
+    }
+  });
+}
+
+export function subscribeUnreadCount(listener: UnreadCountListener): () => void {
+  unreadListeners.add(listener);
+  listener(currentUnreadCount);
+  return () => {
+    unreadListeners.delete(listener);
+  };
+}
+
 export async function getNotifications(params: GetNotificationsParams = {}): Promise<NotificationListResponse> {
   const { data } = await notificationClient.get<NotificationListResponse>('/notifications', {
     params,
@@ -52,18 +88,32 @@ export async function getNotifications(params: GetNotificationsParams = {}): Pro
   return data;
 }
 
+export interface GetUnreadNotificationCountParams {
+  recipientId?: string;
+  email?: string;
+  role?: string;
+  userId?: string;
+}
+
 export async function getUnreadNotificationCount(
-  params?: { recipientId?: string; email?: string; role?: string } | string,
+  params?: GetUnreadNotificationCountParams | string,
 ): Promise<number> {
   const queryParams = typeof params === 'string' ? { recipientId: params } : (params || {});
-  if (!queryParams.recipientId && !queryParams.email) return 0;
+  if (!queryParams.recipientId && !queryParams.email && !queryParams.userId) return 0;
   try {
     const { data } = await notificationClient.get<{ count?: number; unreadCount?: number }>('/notifications/unread-count', {
       params: queryParams,
     });
-    return data?.count ?? data?.unreadCount ?? 0;
+    const serverCount = data?.count ?? data?.unreadCount ?? 0;
+    // Guard against race conditions: if user recently read notifications (optimistic decrement within 3s),
+    // don't let a stale server write overwrite a smaller count.
+    if (Date.now() - lastOptimisticUpdateTimestamp < 3000 && serverCount > currentUnreadCount) {
+      return currentUnreadCount;
+    }
+    setGlobalUnreadCount(serverCount, false);
+    return serverCount;
   } catch {
-    return 0;
+    return currentUnreadCount;
   }
 }
 
@@ -79,7 +129,7 @@ export async function markNotificationAsRead(
 }
 
 export async function markAllNotificationsAsRead(
-  params?: { recipientId?: string; email?: string; role?: string } | string,
+  params?: { recipientId?: string; email?: string; role?: string; userId?: string } | string,
 ): Promise<{ count?: number; updated?: number }> {
   const payload = typeof params === 'string' ? { recipientId: params } : (params || {});
   const { data } = await notificationClient.post<any>('/notifications/read-all', payload, {

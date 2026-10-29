@@ -324,7 +324,7 @@ export default function ProfileScreen() {
             <Divider style={styles.rowDivider} />
             <InfoRow
               label="Blood Group"
-              value={employeeProfile?.bloodGroup ? `🩸 ${employeeProfile.bloodGroup}` : '—'}
+              value={employeeProfile?.bloodGroup ? ` ${employeeProfile.bloodGroup}` : '—'}
               icon="water-outline"
             />
             <Divider style={styles.rowDivider} />

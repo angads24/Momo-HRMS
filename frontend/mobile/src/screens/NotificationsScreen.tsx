@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
@@ -12,9 +12,11 @@ import { useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import {
+  getCachedUnreadCount,
   getNotifications,
   markAllNotificationsAsRead,
   markNotificationAsRead,
+  setGlobalUnreadCount,
 } from '../api/notificationApi';
 import type { AppNotification } from '../api/notificationApi';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -38,6 +40,32 @@ export default function NotificationsScreen() {
 
   const recipientId = employeeProfile?.employeeCode || employeeProfile?.id || user?.id || '';
   const userEmail = user?.email || employeeProfile?.email || '';
+  const userId = user?.id || employeeProfile?.id || undefined;
+
+  const notificationsRef = useRef<AppNotification[]>([]);
+  notificationsRef.current = notifications;
+
+  // When leaving the screen, ensure all loaded notifications viewed by the employee are marked read
+  useEffect(() => {
+    return () => {
+      const unreadItems = notificationsRef.current.filter((n) => !n.isRead);
+      if (unreadItems.length > 0) {
+        setGlobalUnreadCount(0);
+        void markAllNotificationsAsRead({
+          recipientId: recipientId || undefined,
+          email: userEmail || undefined,
+          userId: userId || undefined,
+        });
+        unreadItems.forEach((n) => {
+          void markNotificationAsRead(n.id, {
+            recipientId: n.recipientId || recipientId || undefined,
+            email: userEmail || undefined,
+            userId: userId || undefined,
+          }).catch(() => undefined);
+        });
+      }
+    };
+  }, [recipientId, userEmail, userId]);
 
   // 1. Load Notifications
   const loadNotifications = useCallback(async () => {
@@ -54,7 +82,10 @@ export default function NotificationsScreen() {
         email: userEmail || undefined,
         limit: 50,
       });
-      setNotifications(res.items || []);
+      const items = res.items || [];
+      setNotifications(items);
+      const unread = items.filter((n) => !n.isRead).length;
+      setGlobalUnreadCount(unread, false);
     } catch {
       setError('Unable to load notifications. Please check your network connection.');
     } finally {
@@ -75,13 +106,18 @@ export default function NotificationsScreen() {
   const handleMarkAsRead = async (notification: AppNotification) => {
     if (notification.isRead) return;
 
+    // Snappy optimistic local UI update
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notification.id ? { ...n, isRead: true } : n)),
+    );
+    // Immediately decrease global unread count
+    setGlobalUnreadCount(Math.max(0, getCachedUnreadCount() - 1));
+
     try {
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === notification.id ? { ...n, isRead: true } : n)),
-      );
       await markNotificationAsRead(notification.id, {
-        recipientId: recipientId || undefined,
+        recipientId: notification.recipientId || recipientId || undefined,
         email: userEmail || undefined,
+        userId: userId || undefined,
       });
     } catch {
       await loadNotifications();
@@ -94,16 +130,20 @@ export default function NotificationsScreen() {
 
     // Snappy optimistic UI update
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setGlobalUnreadCount(0);
 
     try {
       const batchPromise = markAllNotificationsAsRead({
         recipientId: recipientId || undefined,
         email: userEmail || undefined,
+        role: employeeProfile?.role?.name || undefined,
+        userId: userId || undefined,
       });
       const individualPromises = unreadItems.map((n) =>
         markNotificationAsRead(n.id, {
-          recipientId: recipientId || undefined,
+          recipientId: n.recipientId || recipientId || undefined,
           email: userEmail || undefined,
+          userId: userId || undefined,
         }).catch(() => undefined),
       );
       await Promise.allSettled([batchPromise, ...individualPromises]);

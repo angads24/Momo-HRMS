@@ -155,67 +155,13 @@ export async function generateUniqueEmail(
 }
 
 /**
- * Creates an employee with automated conflict resolution.
- * If the auth-service or employee-service returns a 409 duplicate collision (e.g. AUTH_USER_CONFLICT
- * or EMPLOYEE_DUPLICATE), it automatically advances the numbered suffix according to the naming rule
- * (name.surname1, name.surname2... or name.surname.hr1, name.surname.hr2...) and retries.
+ * Creates an employee. Executes a single request and returns the result (or throws on failure without retrying).
  */
 export async function createEmployeeWithRetry(
   payload: CreateEmployeePayload,
-  options: { isHr?: boolean; isIntern?: boolean } = {},
-  maxRetries = 10
+  _options: { isHr?: boolean; isIntern?: boolean } = {}
 ): Promise<Employee> {
-  let attempt = 0;
-  let currentPayload = { ...payload };
-
-  const f = payload.firstName.trim().toLowerCase().replace(/[^a-z0-9]/g, '') || 'firstname';
-  const l = payload.lastName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const baseName = l ? `${f}.${l}` : f;
-  const domain = options.isIntern ? INTERN_DOMAIN : COMPANY_DOMAIN;
-
-  // Extract initial counter if email already has a number
-  let currentCounter = 0;
-  if (currentPayload.email) {
-    const match = currentPayload.email.match(/(?:hr)?(\d+)@/);
-    if (match && match[1]) {
-      currentCounter = parseInt(match[1], 10);
-    }
-  }
-
-  while (attempt < maxRetries) {
-    try {
-      return await createEmployee(currentPayload);
-    } catch (err: unknown) {
-      const isConflict =
-        axios.isAxiosError(err) &&
-        (err.response?.status === 409 ||
-          err.response?.data?.error?.code === 'AUTH_USER_CONFLICT' ||
-          err.response?.data?.error?.code === 'EMPLOYEE_DUPLICATE' ||
-          err.response?.data?.error?.code === 'DUPLICATE_VALUE' ||
-          (typeof err.response?.data?.error?.message === 'string' &&
-            err.response.data.error.message.includes('already exists')));
-
-      if (!isConflict || attempt === maxRetries - 1) {
-        throw err;
-      }
-
-      attempt++;
-      currentCounter++;
-      const nextEmail = options.isHr
-        ? `${baseName}.hr${currentCounter}@${domain}`
-        : `${baseName}${currentCounter}@${domain}`;
-
-      const nextCode = `EMP-${Math.floor(1000 + Math.random() * 9000)}`;
-
-      currentPayload = {
-        ...currentPayload,
-        email: nextEmail,
-        employeeCode: nextCode,
-      };
-    }
-  }
-
-  return await createEmployee(currentPayload);
+  return await createEmployee(payload);
 }
 
 /**

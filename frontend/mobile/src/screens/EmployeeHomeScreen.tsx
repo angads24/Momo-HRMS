@@ -41,7 +41,7 @@ import {
   verifyLocation,
 } from '../api/geofenceApi';
 import type { Office, VerifyLocationResult } from '../api/geofenceApi';
-import { getUnreadNotificationCount } from '../api/notificationApi';
+import { getUnreadNotificationCount, subscribeUnreadCount } from '../api/notificationApi';
 import { AppButton } from '../components/AppButton';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { ProfileDrawer } from '../components/ProfileDrawer';
@@ -324,17 +324,26 @@ export default function EmployeeHomeScreen() {
   const loadUnreadCount = useCallback(async () => {
     const recipientId = employeeProfile?.employeeCode || employeeProfile?.id || user?.id;
     const email = user?.email || employeeProfile?.email;
-    if (!recipientId && !email) return;
+    const userId = user?.id || employeeProfile?.id;
+    if (!recipientId && !email && !userId) return;
     try {
       const count = await getUnreadNotificationCount({
         recipientId: recipientId || undefined,
         email: email || undefined,
+        userId: userId || undefined,
       });
       setUnreadCount(count);
     } catch {
       // non-fatal
     }
   }, [employeeProfile?.employeeCode, employeeProfile?.id, employeeProfile?.email, user?.id, user?.email]);
+
+  // Keep unreadCount synchronized across screens in real-time
+  useEffect(() => {
+    return subscribeUnreadCount((count) => {
+      setUnreadCount(count);
+    });
+  }, []);
 
   // Automatically refresh unread count whenever screen comes into focus (e.g. popping back from Notifications)
   useFocusEffect(

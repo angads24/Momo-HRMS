@@ -118,7 +118,7 @@ export function ImportPreview({ summary }: Props) {
                 <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Official Email</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Personal Email</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Dept / Role</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Assigned Offices</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Validation Messages</TableCell>
@@ -152,12 +152,12 @@ export function ImportPreview({ summary }: Props) {
                     <TableCell>{row.data.email}</TableCell>
                     <TableCell>{row.data.personalEmail || '—'}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" sx={{ fontSize: '0.8125rem' }}>
-                        {row.data.department}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {row.data.role}
-                      </Typography>
+                      <Typography variant="body2" sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>{row.data.role}</Typography>
+
+
+
+
+
                     </TableCell>
                     <TableCell>
                       {row.data.resolvedOfficeNames && row.data.resolvedOfficeNames.length > 0 ? (
@@ -175,12 +175,12 @@ export function ImportPreview({ summary }: Props) {
                         </Box>
                       ) : row.data.officeLocations ? (
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>
-                          {row.data.officeLocations}
-                        </Typography>
+                          {row.data.officeLocations}</Typography>
+  
                       ) : (
                         <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-                          Default / Primary
-                        </Typography>
+                          Default / Primary</Typography>
+  
                       )}
                     </TableCell>
                     <TableCell>
@@ -201,9 +201,9 @@ export function ImportPreview({ summary }: Props) {
                           ))}
                         </Box>
                       ) : (
-                        <Typography variant="caption" color="text.secondary">
-                          Ready for import
-                        </Typography>
+  
+                        <Typography variant="caption" color="text.secondary">Ready for import</Typography>
+  
                       )}
                     </TableCell>
                   </TableRow>

@@ -99,7 +99,11 @@ export class AppModule implements NestModule {
               proxyReq.removeHeader('x-email');
             }
 
-            fixRequestBody(proxyReq, req);
+            const contentType = (req.headers["content-type"] as string) || "";
+            const isMultipart = contentType.toLowerCase().includes("multipart/form-data");
+            if (!isMultipart) {
+              fixRequestBody(proxyReq, req);
+            }
           },
           error: (err, req, res: any) => {
             if (!res.headersSent) {

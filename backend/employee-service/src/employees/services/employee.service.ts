@@ -1584,10 +1584,10 @@ export class EmployeeService implements OnModuleInit {
 
   getImportTemplateCsv(): string {
     return [
-      'employeeCode,firstName,lastName,email,personalEmail,phone,dateOfJoining,jobTitle,department,role,officeLocations,dateOfBirth,gender,address',
-      'EMP-0010,Aarav,Sharma,aarav.sharma@company.com,aarav.personal@example.com,+91 98765 43210,2026-01-15,Senior Software Engineer,Engineering,EMPLOYEE,"OFFICE-001, PUN-01",1995-06-12,MALE,"Hinjewadi Phase 1, Pune"',
-      'EMP-0011,Priya,Patil,priya.patil@company.com,priya.personal@example.com,+91 98765 43211,2026-02-01,HR Specialist,Human Resources,HR,"PUN-01",1996-09-24,FEMALE,"Wakad, Pune"',
-      'EMP-0012,Rohan,Deshmukh,rohan.deshmukh@company.com,rohan.personal@example.com,+91 98765 43212,2026-03-01,QA Engineer,Quality Assurance,EMPLOYEE,"OFFICE-001, PN-001",1997-11-05,MALE,"Baner, Pune"',
+      'employeeName,role,personalEmail,assignedOfficeLocation',
+      'Aarav Sharma,EMPLOYEE,aarav.personal@example.com,Pune Headquarters',
+      'Priya Patil,HR,priya.personal@example.com,Pune Headquarters',
+
     ].join('\n');
   }
 
@@ -1604,17 +1604,22 @@ export class EmployeeService implements OnModuleInit {
     }
 
     const existingEmployees = await this.prisma.employee.findMany({
-      select: { id: true, employeeCode: true, email: true },
+      select: { id: true, employeeCode: true, email: true, personalEmail: true },
     });
     const empByCode = new Map<string, string>();
-    const empByEmail = new Map<string, string>();
+    const existingPersonalEmails = new Map<string, string>();
+    const existingOfficialEmails = new Map<string, string>();
+
     for (const e of existingEmployees) {
-      empByCode.set(e.employeeCode.toLowerCase(), e.id);
-      empByEmail.set(e.email.toLowerCase(), e.id);
+      if (e.employeeCode) empByCode.set(e.employeeCode.toLowerCase().trim(), e.id);
+      if (e.email) existingOfficialEmails.set(e.email.toLowerCase().trim(), e.employeeCode);
+      if (e.personalEmail) existingPersonalEmails.set(e.personalEmail.toLowerCase().trim(), e.employeeCode);
+
     }
 
     const seenCodesInCsv = new Set<string>();
-    const seenEmailsInCsv = new Set<string>();
+    const seenOfficialEmailsInCsv = new Set<string>();
+    const seenPersonalEmailsInCsv = new Set<string>();
 
     const rows: ValidatedImportRow[] = [];
     let validNewCount = 0;
@@ -1627,10 +1632,36 @@ export class EmployeeService implements OnModuleInit {
       const rowNumber = i + 1;
       const errors: string[] = [];
 
-      const employeeCode = row.employeeCode || '';
-      const firstName = row.firstName || '';
-      const lastName = row.lastName || '';
-      const email = row.email || '';
+      let employeeCode = row.employeeCode || '';
+      let firstName = row.firstName || '';
+      let lastName = row.lastName || '';
+      if (!firstName && row.fullName) {
+        const parts = row.fullName.trim().split(/\s+/);
+        firstName = parts[0] || '';
+        lastName = parts.slice(1).join(' ') || parts[0] || '';
+      }
+      if (!employeeCode && (firstName || row.email)) {
+        let candidate = `EMP-${1000 + i + 1}`;
+        let c = 1;
+        while (empByCode.has(candidate.toLowerCase()) || seenCodesInCsv.has(candidate.toLowerCase())) {
+          candidate = `EMP-${1000 + i + 1 + c}`;
+          c++;
+        }
+        employeeCode = candidate;
+      }
+      let email = row.email || '';
+      if (!email && firstName) {
+        const domain = (row.role || '').toUpperCase() === 'INTERN' ? 'company.in' : 'company.com';
+        const cleanFirst = firstName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanLast = lastName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        let candidate = cleanLast ? `${cleanFirst}.${cleanLast}@${domain}` : `${cleanFirst}@${domain}`;
+        let c = 1;
+        while (existingOfficialEmails.has(candidate.toLowerCase()) || seenOfficialEmailsInCsv.has(candidate.toLowerCase())) {
+          candidate = cleanLast ? `${cleanFirst}.${cleanLast}${c}@${domain}` : `${cleanFirst}${c}@${domain}`;
+          c++;
+        }
+        email = candidate;
+      }
       const personalEmail = row.personalEmail || undefined;
       const phone = row.phone || '';
       const dateOfJoining = row.dateOfJoining || new Date().toISOString().slice(0, 10);
@@ -1664,59 +1695,84 @@ export class EmployeeService implements OnModuleInit {
         }
       }
 
+      if (resolvedOfficeIds.length === 0 && this.officesCache.length > 0) {
+        const def = this.officesCache[0];
+        if (def.id) resolvedOfficeIds.push(def.id);
+        if (def.code && !resolvedOfficeIds.includes(def.code)) resolvedOfficeIds.push(def.code);
+        resolvedOfficeNames.push(def.name ? `${def.name} (${def.code})` : def.code);
+      }
+
+      let isDuplicate = false;
       if (!employeeCode) errors.push('Employee code is required');
-      if (!firstName) errors.push('First name is required');
-      if (!lastName) errors.push('Last name is required');
+      if (!firstName) errors.push('Employee name is required');
+      if (!lastName) errors.push('Employee name is required');
       if (!email) {
         errors.push('Official email is required');
       } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         errors.push('Invalid official email format');
       }
-      if (personalEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail)) {
-        errors.push('Invalid personal email format');
+      if (!personalEmail) {
+        errors.push('Personal email is required');
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmail)) {
+        errors.push(`Invalid personal email format: '${personalEmail}'`);
+      } else {
+        const pLower = personalEmail.toLowerCase().trim();
+        if (seenPersonalEmailsInCsv.has(pLower)) {
+          errors.push(`Duplicate personal email '${personalEmail}' in CSV file`);
+          isDuplicate = true;
+        } else {
+          seenPersonalEmailsInCsv.add(pLower);
+        }
+
+        if (existingPersonalEmails.has(pLower) || existingOfficialEmails.has(pLower)) {
+          const matchedCode = existingPersonalEmails.get(pLower) || existingOfficialEmails.get(pLower);
+          errors.push(`Personal email '${personalEmail}' already exists in the system${matchedCode ? ` (${matchedCode})` : ''}`);
+          isDuplicate = true;
+        }
       }
 
-      const codeLower = employeeCode.toLowerCase();
-      const emailLower = email.toLowerCase();
+      if (email) {
+        const eLower = email.toLowerCase().trim();
+        if (seenOfficialEmailsInCsv.has(eLower)) {
+          errors.push(`Duplicate email '${email}' in CSV file`);
+          isDuplicate = true;
+        } else {
+          seenOfficialEmailsInCsv.add(eLower);
+        }
 
-      let isDuplicateInFile = false;
-      if (employeeCode && seenCodesInCsv.has(codeLower)) {
-        errors.push(`Duplicate employee code '${employeeCode}' in CSV file`);
-        isDuplicateInFile = true;
+        if (existingOfficialEmails.has(eLower) || existingPersonalEmails.has(eLower)) {
+          const matchedCode = existingOfficialEmails.get(eLower) || existingPersonalEmails.get(eLower);
+          errors.push(`Official email '${email}' already exists in the system${matchedCode ? ` (${matchedCode})` : ''}`);
+          isDuplicate = true;
+        }
       }
-      if (email && seenEmailsInCsv.has(emailLower)) {
-        errors.push(`Duplicate email '${email}' in CSV file`);
-        isDuplicateInFile = true;
+
+      if (employeeCode) {
+        const cLower = employeeCode.toLowerCase().trim();
+        if (seenCodesInCsv.has(cLower)) {
+          errors.push(`Duplicate employee code '${employeeCode}' in CSV file`);
+          isDuplicate = true;
+        } else {
+          seenCodesInCsv.add(cLower);
+        }
       }
-
-      if (employeeCode) seenCodesInCsv.add(codeLower);
-      if (email) seenEmailsInCsv.add(emailLower);
-
       let resolvedDepartmentId: string | undefined = undefined;
       if (department) {
         resolvedDepartmentId = deptByName.get(department.toLowerCase());
       }
 
-      const existingIdByCode = empByCode.get(codeLower);
-      const existingIdByEmail = empByEmail.get(emailLower);
-      const existingEmployeeId = existingIdByCode || existingIdByEmail;
-
       let status: ImportRowStatus;
-      if (errors.length > 0) {
-        if (isDuplicateInFile) {
-          status = 'DUPLICATE';
-          duplicateCount++;
-        } else {
-          status = 'INVALID';
-          invalidCount++;
-        }
-      } else if (existingEmployeeId) {
-        status = 'VALID_UPDATE';
-        validUpdateCount++;
+      if (isDuplicate) {
+        status = 'DUPLICATE';
+        duplicateCount++;
+      } else if (errors.length > 0) {
+        status = 'INVALID';
+        invalidCount++;
       } else {
         status = 'VALID_NEW';
         validNewCount++;
       }
+
 
       rows.push({
         rowNumber,
@@ -1741,7 +1797,7 @@ export class EmployeeService implements OnModuleInit {
         status,
         errors,
         resolvedDepartmentId,
-        existingEmployeeId,
+        existingEmployeeId: employeeCode ? empByCode.get(employeeCode.toLowerCase().trim()) : undefined,
       });
     }
 
@@ -1923,10 +1979,19 @@ export class EmployeeService implements OnModuleInit {
       lastname: 'lastName',
       lname: 'lastName',
       last: 'lastName',
+      name: 'fullName',
+      fullname: 'fullName',
+      employeename: 'fullName',
+      staffname: 'fullName',
       email: 'email',
       officialemail: 'email',
       workemail: 'email',
       personalemail: 'personalEmail',
+      personalmail: 'personalEmail',
+      mail: 'personalEmail',
+      privateemail: 'personalEmail',
+      alternateemail: 'personalEmail',
+      companyemail: 'email',
       phone: 'phone',
       phonenumber: 'phone',
       mobile: 'phone',
@@ -1940,6 +2005,8 @@ export class EmployeeService implements OnModuleInit {
       dept: 'department',
       role: 'role',
       roleid: 'role',
+      access: 'role',
+      accessrole: 'role',
       dateofbirth: 'dateOfBirth',
       dob: 'dateOfBirth',
       gender: 'gender',
@@ -1954,6 +2021,8 @@ export class EmployeeService implements OnModuleInit {
       workplaces: 'officeLocations',
       assignedoffices: 'officeLocations',
       assignedoffice: 'officeLocations',
+      assignedofficelocation: 'officeLocations',
+      assignofficelocation: 'officeLocations',
     };
     return map[clean] || h.trim();
   }

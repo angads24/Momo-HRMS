@@ -1,5 +1,4 @@
 import { api } from '../api/client';
-import axios from 'axios';
 import { EMPLOYEE_API_URL, COMPANY_DOMAIN, INTERN_DOMAIN } from '../config/env';
 import type {
   ChangeEmployeeStatusPayload,
@@ -479,12 +478,11 @@ export async function downloadImportTemplate(): Promise<Blob> {
 export async function validateImportFile(file: File): Promise<import('../types/employee').ValidationSummary> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await api.post<ApiResponse<import('../types/employee').ValidationSummary>>(
+  const response = await api.postForm<ApiResponse<import('../types/employee').ValidationSummary>>(
     `${EMPLOYEE_API_URL}/employees/import/validate`,
     formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
   );
-  return response.data.data;
+  return (response.data as any)?.data ?? response.data;
 }
 
 /**
@@ -498,12 +496,11 @@ export async function executeImportFile(
   const formData = new FormData();
   formData.append('file', file);
   formData.append('provisionAccounts', String(provisionAccounts));
-  const response = await api.post<ApiResponse<import('../types/employee').ImportExecutionResult>>(
+  const response = await api.postForm<ApiResponse<import('../types/employee').ImportExecutionResult>>(
     `${EMPLOYEE_API_URL}/employees/import`,
     formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
   );
-  return response.data.data;
+  return (response.data as any)?.data ?? response.data;
 }
 
 

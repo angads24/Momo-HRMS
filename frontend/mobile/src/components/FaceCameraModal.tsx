@@ -173,25 +173,25 @@ export function FaceCameraModal({
       try {
         const photo = await cameraRef.current.takePictureAsync({
           quality: 0.3,
-          base64: true,
           skipProcessing: true,
           exif: false,
+          shutterSound: false,
         });
 
-        if (!photo || !photo.base64 || !isMountedRef.current) {
+        if (!photo || !photo.uri || !isMountedRef.current) {
           isAnalyzingRef.current = false;
           return;
         }
 
         if (activeStep === 'NEUTRAL') {
-          const smallFrame = await downsampleFaceImage(photo.base64, 320, 0.4);
+          const smallFrame = await downsampleFaceImage(photo.uri, 320, 0.4);
           const res = await detectNeutral(smallFrame);
 
           if (!isMountedRef.current) return;
 
           if (res.detected) {
             consecutiveFailuresRef.current = 0;
-            const verifyFrame = await downsampleFaceImage(photo.base64, 480, 0.65);
+            const verifyFrame = await downsampleFaceImage(photo.uri, 480, 0.65);
             setNeutralDetected(true);
             setNeutralFrame(verifyFrame);
             setNeutralPreviewUri(photo.uri);
@@ -205,7 +205,7 @@ export function FaceCameraModal({
           }
         }
         else if (activeStep === 'ACTION' && neutralFrameRef.current && challengeRef.current) {
-          const smallActionFrame = await downsampleFaceImage(photo.base64, 320, 0.4);
+          const smallActionFrame = await downsampleFaceImage(photo.uri, 320, 0.4);
           const res = await detectAction(
             challengeRef.current.action,
             neutralFrameRef.current,
@@ -222,7 +222,7 @@ export function FaceCameraModal({
             setCurrentStep('VERIFYING');
             setStepPrompt(`✓ ${res.message || 'Action verified! Matching profile...'}`);
 
-            const verifyActionFrame = await downsampleFaceImage(photo.base64, 480, 0.65);
+            const verifyActionFrame = await downsampleFaceImage(photo.uri, 480, 0.65);
             await finalizeVerification(neutralFrameRef.current, verifyActionFrame, photo.uri);
           }
         }
@@ -304,18 +304,18 @@ export function FaceCameraModal({
 
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.5,
-        base64: true,
         skipProcessing: true,
+        shutterSound: false,
       });
 
-      if (!photo || !photo.base64) {
+      if (!photo || !photo.uri) {
         setCurrentStep('NEUTRAL');
         setErrorMessage('Failed to capture photo. Please try again.');
         return;
       }
 
       // Downsample frame to 480px (~35KB) for fast transmission and lightweight backend processing
-      const downsampledB64 = await downsampleFaceImage(photo.base64, 480, 0.65);
+      const downsampledB64 = await downsampleFaceImage(photo.uri, 480, 0.65);
       setNeutralPreviewUri(photo.uri);
       setActionPreviewUri(photo.uri);
 

@@ -31,7 +31,7 @@ export default function FaceRegistrationScreen() {
 
   const cameraRef = useRef<CameraView | null>(null);
   const [isCameraReady, setIsCameraReady] = useState(false);
-  const [capturedPhoto, setCapturedPhoto] = useState<{ uri: string; base64: string } | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<{ uri: string } | null>(null);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -105,17 +105,17 @@ export default function FaceRegistrationScreen() {
     try {
       setErrorMessage(null);
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.5,
-        base64: true,
+        quality: 0.6,
+        skipProcessing: true,
+        shutterSound: false,
       });
 
-      if (photo && photo.base64) {
+      if (photo && photo.uri) {
         setCapturedPhoto({
           uri: photo.uri,
-          base64: photo.base64,
         });
       } else {
-        Alert.alert('Capture Error', 'Failed to capture photo data. Please try again.');
+        Alert.alert('Capture Error', 'Failed to capture photo. Please try again.');
       }
     } catch (err: unknown) {
       Alert.alert('Capture Failed', getErrorMessage(err, 'Unable to capture picture.'));
@@ -130,7 +130,7 @@ export default function FaceRegistrationScreen() {
 
   // Handle Confirm & Enroll
   const handleEnroll = async () => {
-    if (!capturedPhoto || !capturedPhoto.base64 || isEnrolling) return;
+    if (!capturedPhoto || !capturedPhoto.uri || isEnrolling) return;
 
     if (!empId) {
       Alert.alert('Error', 'Employee identification could not be verified. Please log in again.');
@@ -141,7 +141,7 @@ export default function FaceRegistrationScreen() {
     setErrorMessage(null);
 
     try {
-      const downsampledB64 = await downsampleFaceImage(capturedPhoto.base64, 640, 0.80);
+      const downsampledB64 = await downsampleFaceImage(capturedPhoto.uri, 640, 0.80);
       const response = await enrollFace(empId, downsampledB64);
 
       if (response && response.success) {

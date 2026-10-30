@@ -95,7 +95,7 @@ export default function ResetPasswordScreen() {
           />
 
           <AppButton
-            onPress={onSubmit}
+            onPress={() => void onSubmit()}
             loading={isSubmitting}
             disabled={!isValid || mismatch || isSubmitting}
             style={styles.submit}

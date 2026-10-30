@@ -24,7 +24,6 @@ import {
   TextInput,
 } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -172,9 +171,8 @@ function parseAndNormalizeDate(input: string): {
 }
 
 export default function ProfileCompletionScreen() {
-  const navigation = useNavigation<any>();
   const { user, employeeProfile, refreshProfile, setProfileCompletedManually, logout } = useAuth();
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<any>(null);
 
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [saving, setSaving] = useState(false);
@@ -483,15 +481,7 @@ export default function ProfileCompletionScreen() {
       await refreshProfile();
       setProfileCompletedManually();
       setSaving(false);
-
-      try {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'EmployeeHome' }],
-        });
-      } catch {
-        // Handled by RootNavigator state change
-      }
+      // Screen transition is handled declaratively by RootNavigator via auth state
     } catch (err: unknown) {
       setStepError(getErrorMessage(err, 'Failed to save onboarding profile. Please check the fields.'));
       setSaving(false);
